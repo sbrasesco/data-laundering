@@ -1,0 +1,31 @@
+{
+  "name": "data-laundering-mvp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev:test-supabase": "ts-node src/testSupabase.ts",
+    "dev:check-schema": "ts-node src/checkSchema.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sbrasesco/data-laundering-mvp.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sbrasesco/data-laundering-mvp/issues"
+  },
+  "homepage": "https://github.com/sbrasesco/data-laundering-mvp#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.81.1",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
