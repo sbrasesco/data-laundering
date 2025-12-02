@@ -5,8 +5,11 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev:test-supabase": "ts-node src/testSupabase.ts",
-    "dev:check-schema": "ts-node src/checkSchema.ts"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev:test-supabase": "ts-node --project tsconfig.node.json src/testSupabase.ts",
+    "dev:check-schema": "ts-node --project tsconfig.node.json src/checkSchema.ts"
   },
   "repository": {
     "type": "git",
@@ -21,11 +24,20 @@
   "homepage": "https://github.com/sbrasesco/data-laundering-mvp#readme",
   "dependencies": {
     "@supabase/supabase-js": "^2.81.1",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/xlsx": "^0.0.35",
+    "@vitejs/plugin-react": "^4.2.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^5.0.8"
   }
 }
