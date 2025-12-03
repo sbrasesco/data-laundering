@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 export interface PdfJob {
   id: string;
-  status: 'pending' | 'processing' | 'done' | 'error';
+  status: 'pending' | 'processing' | 'done' | 'done_with_warnings' | 'error';
   total_documents: number | null;
   processed_documents: number | null;
   failed_documents: number | null;
@@ -79,23 +79,25 @@ export function usePdfJobs() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchJobs() {
-      try {
-        setLoading(true);
-        setError(null);
+  // Función para cargar jobs, envuelta en useCallback para evitar recreaciones
+  const loadJobs = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        const jobsWithCounts = await fetchJobsWithRowCounts();
-        setJobs(jobsWithCounts);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error desconocido al cargar procesos');
-        setJobs([]);
-      } finally {
-        setLoading(false);
-      }
+      const jobsWithCounts = await fetchJobsWithRowCounts();
+      setJobs(jobsWithCounts);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido al cargar procesos');
+      setJobs([]);
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    fetchJobs();
+  // Efecto para carga inicial y suscripciones de Realtime
+  useEffect(() => {
+    loadJobs();
 
     // Configurar suscripción de Realtime para pdf_jobs
     const jobsChannel = supabase
@@ -147,8 +149,45 @@ export function usePdfJobs() {
       supabase.removeChannel(jobsChannel);
       supabase.removeChannel(rowsChannel);
     };
-  }, []);
+  }, [loadJobs]);
 
-  return { jobs, loading, error };
+  // Efecto para polling mientras haya jobs activos
+  useEffect(() => {
+    // Considerar activos cuando haya jobs que todavía no terminaron realmente Y sean recientes (últimos 15 minutos)
+    const FIFTEEN_MIN = 15 * 60 * 1000;
+    const now = Date.now();
+
+    const hasActive = jobs.some((job) => {
+      const total = job.total_documents ?? 0;
+      const processed = job.processed_documents ?? 0;
+      const failed = job.failed_documents ?? 0;
+
+      const stillRunning =
+        job.status === 'pending' ||
+        job.status === 'processing' ||
+        total === 0 ||
+        processed + failed < total;
+
+      const createdAt = new Date(job.created_at).getTime();
+      const isRecent = now - createdAt < FIFTEEN_MIN;
+
+      return stillRunning && isRecent;
+    });
+
+    if (!hasActive) return;
+
+    const intervalId = setInterval(() => {
+      loadJobs();
+    }, 5000); // cada 5 segundos
+
+    return () => clearInterval(intervalId);
+  }, [jobs, loadJobs]);
+
+  // Función reload para recargar manualmente si es necesario
+  const reload = useCallback(() => {
+    loadJobs();
+  }, [loadJobs]);
+
+  return { jobs, loading, error, reload };
 }
 

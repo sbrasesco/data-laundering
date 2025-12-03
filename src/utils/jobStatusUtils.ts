@@ -1,4 +1,4 @@
-export type JobStatusDb = 'pending' | 'processing' | 'done' | 'error';
+export type JobStatusDb = 'pending' | 'processing' | 'done' | 'done_with_warnings' | 'error';
 
 export type UiStatus =
   | 'PENDIENTE'
@@ -15,33 +15,27 @@ export interface JobForStatus {
   has_warnings?: boolean | null;
 }
 
+/**
+ * Mapea el estado de BD a estado UI basándose SOLO en status.
+ * Para el Dashboard: done y done_with_warnings ambos muestran "Completado".
+ * NO usa has_warnings ni deduce estados de contadores - la BD es la fuente de verdad.
+ */
 export function getUiStatus(job: JobForStatus): UiStatus {
-  const total = job.total_documents ?? 0;
-  const processed = job.processed_documents ?? 0;
-  const failed = job.failed_documents ?? 0;
-  const hasWarnings = job.has_warnings === true;
-  const completedCount = processed + failed;
-
-  // Estados "duros" primero
-  if (job.status === 'error') return 'ERROR';
-  if (job.status === 'pending') return 'PENDIENTE';
-
-  // Mientras está marcando processing en la DB
-  if (job.status === 'processing') return 'PROCESANDO';
-
-  // Si la DB ya marcó 'done' pero los contadores todavía no reflejan todo,
-  // hay que seguir mostrando "Procesando", nunca "completado con advertencias".
-  if (job.status === 'done') {
-    // REGLA ESTRICTA: Mientras completedCount < total, siempre PROCESANDO
-    if (completedCount < total) {
-      return 'PROCESANDO';
-    }
-
-    // Solo cuando completedCount >= total, evaluar si está completado o con advertencias
-    if (failed > 0 || hasWarnings) {
-      return 'COMPLETADO_CON_ADVERTENCIAS';
-    }
-
+  // Estados basados 100% en el campo status de la BD
+  if (job.status === 'error') {
+    return 'ERROR';
+  }
+  
+  if (job.status === 'pending') {
+    return 'PENDIENTE';
+  }
+  
+  if (job.status === 'processing') {
+    return 'PROCESANDO';
+  }
+  
+  // done y done_with_warnings ambos muestran "Completado" en el Dashboard
+  if (job.status === 'done' || job.status === 'done_with_warnings') {
     return 'COMPLETADO';
   }
 

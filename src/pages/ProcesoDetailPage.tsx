@@ -20,8 +20,8 @@ export function ProcesoDetailPage() {
     return (
       <div>
         <ErrorMessage message={jobError} />
-        <button onClick={() => navigate('/jobs')} className="btn btn-secondary" style={{ marginTop: '1rem' }}>
-          ← Volver a Mis Procesos
+        <button onClick={() => navigate('/dashboard')} className="btn btn-secondary" style={{ marginTop: '1rem' }}>
+          ← Volver al Dashboard
         </button>
       </div>
     );
@@ -31,8 +31,8 @@ export function ProcesoDetailPage() {
     return (
       <div>
         <ErrorMessage message="Proceso no encontrado" />
-        <button onClick={() => navigate('/jobs')} className="btn btn-secondary" style={{ marginTop: '1rem' }}>
-          ← Volver a Mis Procesos
+        <button onClick={() => navigate('/dashboard')} className="btn btn-secondary" style={{ marginTop: '1rem' }}>
+          ← Volver al Dashboard
         </button>
       </div>
     );
@@ -40,8 +40,8 @@ export function ProcesoDetailPage() {
 
   return (
     <div>
-      <button onClick={() => navigate('/jobs')} className="btn btn-secondary" style={{ marginBottom: '2rem' }}>
-        ← Volver a Mis Procesos
+      <button onClick={() => navigate('/dashboard')} className="btn btn-secondary" style={{ marginBottom: '2rem' }}>
+        ← Volver al Dashboard
       </button>
 
       <JobDetailHeader job={job} />

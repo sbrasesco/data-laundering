@@ -26,7 +26,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1400px', margin: '0 auto' }}>
           <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
             <Link
-              to="/documents"
+              to="/dashboard"
               style={{
                 textDecoration: 'none',
                 fontSize: '1.5rem',
@@ -38,22 +38,16 @@ export function AppLayout({ children }: AppLayoutProps) {
             </Link>
             <div style={{ display: 'flex', gap: '1rem' }}>
               <Link
-                to="/documents"
-                className={`nav-link ${isActive('/documents') ? 'active' : ''}`}
-              >
-                Documentos
-              </Link>
-              <Link
                 to="/dashboard"
                 className={`nav-link ${isActive('/dashboard') ? 'active' : ''}`}
               >
                 Dashboard
               </Link>
               <Link
-                to="/jobs"
-                className={`nav-link ${isActive('/jobs') ? 'active' : ''}`}
+                to="/documents"
+                className={`nav-link ${isActive('/documents') ? 'active' : ''}`}
               >
-                Procesos
+                Documentos
               </Link>
               <Link
                 to="/clients"

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { JobStatusBadge } from './JobStatusBadge';
 import { PdfJob } from '../../hooks/usePdfJobs';
+import { getJobStatusLabel, getJobStatusClass } from '../../utils/status';
 
 interface JobListProps {
   jobs: PdfJob[];
@@ -54,16 +54,28 @@ export function JobList({ jobs }: JobListProps) {
         </thead>
         <tbody>
           {jobs.map((job) => {
-            const formatDocuments = () => {
-              const total = job.total_documents ?? 0;
-              const processed = job.processed_documents ?? 0;
-              
-              if (total === 0) {
-                return '-';
-              }
-              
-              return `${processed} / ${total}`;
-            };
+            // Lógica derivada para mostrar "Procesando" mientras no se hayan resuelto todos los documentos
+            const total = job.total_documents ?? 0;
+            const processed = job.processed_documents ?? 0;
+            const failed = job.failed_documents ?? 0;
+
+            const isProcessing =
+              job.status === 'pending' ||
+              job.status === 'processing' ||
+              total === 0 ||
+              processed + failed < total;
+
+            // Mapear done_with_warnings a done para la visualización
+            const computedStatus =
+              job.status === 'done_with_warnings' ? 'done' : job.status;
+
+            const displayLabel = isProcessing
+              ? 'Procesando'
+              : getJobStatusLabel(computedStatus);
+
+            const displayClass = isProcessing
+              ? getJobStatusClass('pending') // pill gris
+              : getJobStatusClass(computedStatus);
 
             return (
               <tr key={job.id}>
@@ -71,16 +83,17 @@ export function JobList({ jobs }: JobListProps) {
                 <td>{job.clients?.name || '-'}</td>
                 <td>{formatPeriod(job.period_month, job.period_year)}</td>
                 <td>
-                  <JobStatusBadge 
-                    status={job.status} 
-                    total_documents={job.total_documents} 
-                    processed_documents={job.processed_documents} 
-                    failed_documents={job.failed_documents} 
-                    has_warnings={job.has_warnings} 
-                    rows_count={job.rows_count} 
-                  />
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${displayClass}`}
+                  >
+                    {displayLabel}
+                  </span>
                 </td>
-                <td>{formatDocuments()}</td>
+                <td>
+                  {job.total_documents && job.total_documents > 0
+                    ? `${job.processed_documents ?? 0} / ${job.total_documents}`
+                    : '-'}
+                </td>
                 <td>
                   <button
                     onClick={() => navigate(`/jobs/${job.id}`)}

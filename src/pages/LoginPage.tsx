@@ -24,10 +24,10 @@ export function LoginPage() {
   const { signInWithPassword, session, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  // Si el usuario ya está logueado, redirigir a /documents
+  // Si el usuario ya está logueado, redirigir a /dashboard
   useEffect(() => {
     if (!authLoading && session) {
-      navigate('/documents', { replace: true });
+      navigate('/dashboard', { replace: true });
     }
   }, [session, authLoading, navigate]);
 
@@ -49,7 +49,7 @@ export function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      navigate('/documents');
+      navigate('/dashboard');
     }
   };
 
@@ -179,7 +179,7 @@ export function LoginPage() {
 
       // Redirigir después de 1-2 segundos
       setTimeout(() => {
-        navigate('/documents');
+        navigate('/dashboard');
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido al crear la cuenta');

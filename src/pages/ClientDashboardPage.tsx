@@ -63,11 +63,24 @@ export function ClientDashboardPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1>Dashboard de procesos</h1>
-        <p style={{ color: 'var(--color-text-secondary)', marginTop: '0.5rem' }}>
-          Resumen de actividad y procesos de la organización
-        </p>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '2rem' 
+      }}>
+        <div>
+          <h1>Dashboard de procesos</h1>
+          <p style={{ color: 'var(--color-text-secondary)', marginTop: '0.5rem' }}>
+            Resumen de actividad y procesos de la organización
+          </p>
+        </div>
+        <button 
+          onClick={() => navigate('/jobs/new')} 
+          className="btn btn-success"
+        >
+          Nuevo proceso
+        </button>
       </div>
 
       {/* Filtros */}

@@ -48,8 +48,7 @@ export function SubirZipPage() {
     setSuccessMessage(null);
 
     try {
-      // 1. Crear el job en pdf_jobs
-      // Nota: organization_id se asigna automáticamente por RLS/default en Supabase
+      // 1. Crear el job en pdf_jobs (status = 'pending')
       const { data: job, error: jobError } = await createPdfJob({
         user_id: user.id,
         client_id: clientId,
@@ -61,19 +60,17 @@ export function SubirZipPage() {
         throw new Error(jobError || 'Error al crear el proceso');
       }
 
-      // 2. Subir el archivo al webhook de n8n
-      const { success, error: uploadError } = await uploadFileToN8n(file, job.id);
+      // 2. Lanzar el webhook de n8n EN SEGUNDO PLANO
+      //    NO esperamos el resultado para navegar
+      uploadFileToN8n(file, job.id).catch((err) => {
+        // Opcional: loguear error en consola
+        console.error('Error llamando a n8n', err);
+      });
 
-      if (!success) {
-        throw new Error(uploadError || 'Error al subir el archivo');
-      }
-
-      setSuccessMessage('Proceso creado exitosamente. El archivo está siendo procesado.');
-
-      setTimeout(() => {
-        navigate('/jobs');
-      }, 2000);
+      // 3. Redirigir inmediatamente al Dashboard
+      navigate('/dashboard');
     } catch (err) {
+      console.error(err);
       setError(err instanceof Error ? err.message : 'Error desconocido al crear el proceso');
     } finally {
       setLoading(false);
@@ -215,7 +212,7 @@ export function SubirZipPage() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/jobs')}
+            onClick={() => navigate('/dashboard')}
             disabled={loading}
             className="btn btn-secondary"
           >

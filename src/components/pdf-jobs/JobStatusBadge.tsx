@@ -12,51 +12,19 @@ interface JobStatusBadgeProps {
 export function JobStatusBadge(props: JobStatusBadgeProps) {
   const {
     status,
-    total_documents,
-    processed_documents,
-    failed_documents,
     has_warnings,
   } = props;
 
-  const total = total_documents ?? 0;
-  const processed = processed_documents ?? 0;
-  const failed = failed_documents ?? 0;
-  const completedCount = processed + failed;
-
-  // Console log para debug
-  console.log('JobStatusBadge props:', {
+  // Mapeo de estados 100% basado en el campo status de la BD
+  // done y done_with_warnings ambos muestran "Completado"
+  // NO deducimos estados de contadores ni usamos has_warnings - la BD es la fuente de verdad
+  const uiStatus = getUiStatus({
     status,
-    total_documents,
-    processed_documents,
-    failed_documents,
-    has_warnings,
-    total,
-    processed,
-    failed,
-    completedCount,
+    total_documents: props.total_documents,
+    processed_documents: props.processed_documents,
+    failed_documents: props.failed_documents,
+    has_warnings, // Pasado pero no usado en el mapeo del Dashboard
   });
-
-  // Calcular estado UI internamente
-  let uiStatus: 'PENDIENTE' | 'PROCESANDO' | 'COMPLETADO' | 'COMPLETADO_CON_ADVERTENCIAS' | 'ERROR';
-
-  if (status === 'error') {
-    uiStatus = 'ERROR';
-  } else if (status === 'pending') {
-    uiStatus = 'PENDIENTE';
-  } else {
-    // En cualquier otro caso
-    // Mientras processed_documents + failed_documents < total_documents, o total_documents === 0, mostrar PROCESANDO
-    if (total === 0 || completedCount < total) {
-      uiStatus = 'PROCESANDO';
-    } else {
-      // Cuando completedCount >= total_documents
-      if (failed > 0 || has_warnings === true) {
-        uiStatus = 'COMPLETADO_CON_ADVERTENCIAS';
-      } else {
-        uiStatus = 'COMPLETADO';
-      }
-    }
-  }
 
   const statusConfig = {
     PENDIENTE: { 

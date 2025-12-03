@@ -3,7 +3,6 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { ClientsPage } from './pages/ClientsPage';
-import { MisProcesosPage } from './pages/MisProcesosPage';
 import { SubirZipPage } from './pages/SubirZipPage';
 import { ProcesoDetailPage } from './pages/ProcesoDetailPage';
 import { DocumentsPage } from './pages/DocumentsPage';
@@ -31,14 +30,6 @@ function App() {
           }
         />
         <Route
-          path="/jobs"
-          element={
-            <ProtectedRoute>
-              <MisProcesosPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/jobs/new"
           element={
             <ProtectedRoute>
@@ -62,7 +53,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/" element={<Navigate to="/documents" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AuthProvider>
   );

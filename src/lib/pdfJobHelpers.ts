@@ -25,7 +25,7 @@ export async function createPdfJob(params: CreateJobParams): Promise<CreateJobRe
         client_id: params.client_id,
         period_month: params.period_month,
         period_year: params.period_year,
-        status: 'pending',
+        status: 'processing', // Estado inicial: el proceso está siendo procesado por n8n
       })
       .select('id')
       .single();
