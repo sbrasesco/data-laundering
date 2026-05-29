@@ -11,8 +11,9 @@ import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { RetryableError, TerminalError, toUnrecoverable } from './errors.mjs';
 import { processDLQ } from './dlq-processor.mjs';
+import { insertQueueJob, syncJobState } from './persistence.mjs';
 
-const WORKER_VERSION = '0.2.0';
+const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.3.0';
 const QUEUE_NAME = 'pdf-processing';
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 3);
 const DLQ_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
@@ -60,6 +61,10 @@ const worker = new Worker(
       attempt,
     });
 
+    // Registrar job en Supabase (upsert) y marcar como 'processing'
+    await insertQueueJob(job, log);
+    await syncJobState(job, 'active', {}, log);
+
     try {
       // v0.2.0: shadow mode — no procesa, solo loguea
       // TODO (Fase 2): llamar sub-workflow n8n por cada documento
@@ -68,7 +73,9 @@ const worker = new Worker(
         note: 'Worker v0 shadow mode — procesamiento pendiente Fase 2',
       });
 
-      return { status: 'shadow_logged', worker_version: WORKER_VERSION };
+      const result = { status: 'shadow_logged', worker_version: WORKER_VERSION };
+      await syncJobState(job, 'completed', { result }, log);
+      return result;
 
     } catch (err) {
       // Clasificar el error para decidir si BullMQ debe reintentar
@@ -79,7 +86,8 @@ const worker = new Worker(
           attempt,
           note: 'Sin retry — error permanente',
         });
-        throw toUnrecoverable(err); // BullMQ no reintentará
+        await syncJobState(job, 'dead', { error: err.message }, log);
+        throw toUnrecoverable(err);
       }
 
       // RetryableError u otros errores → BullMQ reintenta con backoff exponencial
@@ -89,6 +97,7 @@ const worker = new Worker(
         attempt,
         note: 'BullMQ reintentará con backoff exponencial',
       });
+      await syncJobState(job, 'failed', { error: err.message }, log);
       throw err;
     }
   },
