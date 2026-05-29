@@ -1,0 +1,14 @@
+{
+  "name": "data-laundering-worker",
+  "version": "1.0.0",
+  "description": "BullMQ Worker — Data Laundering V2.0",
+  "type": "module",
+  "main": "worker.mjs",
+  "dependencies": {
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.3.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

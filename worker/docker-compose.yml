@@ -1,0 +1,19 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: data-laundering-worker:latest
+    container_name: dl-worker
+    restart: unless-stopped
+    network_mode: host          # igual que extractor — accede a localhost:PORT de n8n
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=staging
+      - WORKER_CONCURRENCY=3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
