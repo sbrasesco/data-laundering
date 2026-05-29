@@ -40,6 +40,10 @@ function mimeType(ext) {
   return map[ext.toLowerCase()] ?? 'application/octet-stream';
 }
 
+function sanitizeStorageKey(name) {
+  return name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._\-\s]/g, '_');
+}
+
 // ─── Upload a Supabase Storage ────────────────────────────────────────────────
 
 async function uploadToStorage(filePath, storagePath) {
@@ -228,7 +232,7 @@ export async function processZip(jobData, log) {
     for (const fileName of allFiles) {
       const filePath = join(workDir, fileName);
       const ext = extname(fileName).slice(1).toLowerCase();
-      const storagePath = `${organization_id}/${job_id}/${fileName}`;
+      const storagePath = `${organization_id}/${job_id}/${sanitizeStorageKey(fileName)}`;
 
       try {
         const publicUrl = await uploadToStorage(filePath, storagePath);
