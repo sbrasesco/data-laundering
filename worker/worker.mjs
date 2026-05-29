@@ -14,6 +14,9 @@ import { processDLQ } from './dlq-processor.mjs';
 import { insertQueueJob, syncJobState } from './persistence.mjs';
 import { startMetricsServer } from './metrics.mjs';
 import { startGateway } from './gateway.mjs';
+import { processZip } from './zip-processor.mjs';
+
+const N8N_SUB_WORKFLOW_URL = process.env.N8N_SUB_WORKFLOW_URL ?? 'https://automation.aignition.net/webhook/sub-document';
 
 const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.3.0';
 const QUEUE_NAME = 'pdf-processing';
@@ -68,11 +71,81 @@ const worker = new Worker(
     await syncJobState(job, 'active', {}, log);
 
     try {
-      // v0.2.0: shadow mode — no procesa, solo loguea
-      // TODO (Fase 2): llamar sub-workflow n8n por cada documento
+      const fileType = job.data.file_type ?? 'pdf';
+
+      // ── ZIP: descomprimir + split + llamar sub-workflow por cada doc ─────────
+      if (fileType === 'zip') {
+        log('info', 'job.zip_start', { job_id: jobId, file_url: job.data.file_url });
+
+        const documents = await processZip(job.data, log);
+        log('info', 'job.zip_extracted', { job_id: jobId, total_docs: documents.length });
+
+        let successful = 0, failed = 0;
+        for (const doc of documents) {
+          try {
+            const res = await fetch(N8N_SUB_WORKFLOW_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                job_id: jobId,
+                organization_id: job.data.organization_id,
+                file_url: doc.file_url,
+                file_type: doc.file_type,
+                original_filename: doc.original_filename,
+                client_cuit: doc.client_cuit,
+                client_name: doc.client_name,
+                oc_entries: doc.oc_entries,
+                input_source: job.data.metadata?.source ?? 'frontend_upload',
+              }),
+            });
+            const data = await res.json();
+            if (data.success) {
+              successful++;
+              log('info', 'job.doc_done', { job_id: jobId, file: doc.original_filename, row_id: data.row_id });
+            } else {
+              failed++;
+              log('warn', 'job.doc_error', { job_id: jobId, file: doc.original_filename, error: data.error });
+            }
+          } catch (err) {
+            failed++;
+            log('warn', 'job.doc_fetch_error', { job_id: jobId, file: doc.original_filename, error: err.message });
+          }
+        }
+
+        const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, total: documents.length, worker_version: WORKER_VERSION };
+        await syncJobState(job, 'completed', { result }, log);
+        return result;
+      }
+
+      // ── Documento individual: llamar sub-workflow directamente ───────────────
+      if (['pdf', 'jpg', 'jpeg', 'png'].includes(fileType)) {
+        log('info', 'job.single_doc_start', { job_id: jobId, file_type: fileType });
+        const res = await fetch(N8N_SUB_WORKFLOW_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            job_id: jobId,
+            organization_id: job.data.organization_id,
+            file_url: job.data.file_url,
+            file_type: fileType,
+            original_filename: job.data.original_filename,
+            client_cuit: job.data.client_cuit ?? null,
+            client_name: job.data.client_name ?? null,
+            oc_entries: job.data.oc_entries ?? [],
+            input_source: job.data.metadata?.source ?? 'frontend_upload',
+          }),
+        });
+        const data = await res.json();
+        const result = { ...data, worker_version: WORKER_VERSION };
+        await syncJobState(job, 'completed', { result }, log);
+        return result;
+      }
+
+      // ── Fallback shadow mode ─────────────────────────────────────────────────
       log('info', 'job.shadow_skip', {
         job_id: jobId,
-        note: 'Worker v0 shadow mode — procesamiento pendiente Fase 2',
+        note: 'Tipo de archivo no reconocido — shadow mode',
+        file_type: fileType,
       });
 
       const result = { status: 'shadow_logged', worker_version: WORKER_VERSION };
