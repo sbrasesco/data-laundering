@@ -1,17 +1,21 @@
 /**
- * worker.mjs — BullMQ Worker v0 (shadow mode)
- * Data Laundering V2.0 — TASK-42
+ * worker.mjs — BullMQ Worker v0.2.0 (shadow mode + retry logic)
+ * Data Laundering V2.0 — TASK-42 + TASK-27
  *
- * v0: Solo conecta a Redis y loguea jobs recibidos.
- * NO procesa nada todavía — eso es Fase 2.
+ * v0.2.0: Agrega clasificación de errores (RetryableError/TerminalError)
+ *         y cron de DLQ cada hora.
+ * v0.1.0: Shadow mode — conecta y loguea jobs sin procesar.
  */
 
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
+import { RetryableError, TerminalError, toUnrecoverable } from './errors.mjs';
+import { processDLQ } from './dlq-processor.mjs';
 
-const WORKER_VERSION = '0.1.0';
+const WORKER_VERSION = '0.2.0';
 const QUEUE_NAME = 'pdf-processing';
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 3);
+const DLQ_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
 
 // ─── Conexión Redis ──────────────────────────────────────────────────────────
 const connection = new IORedis({
@@ -45,22 +49,48 @@ function log(level, event, data = {}) {
 const worker = new Worker(
   QUEUE_NAME,
   async (job) => {
+    const jobId = job.data.job_id;
+    const attempt = job.attemptsMade + 1;
+
     log('info', 'job.received', {
-      job_id: job.data.job_id,
+      job_id: jobId,
       organization_id: job.data.organization_id,
       file_type: job.data.file_type,
       original_filename: job.data.original_filename,
-      attempt: job.attemptsMade + 1,
+      attempt,
     });
 
-    // v0: shadow mode — no procesa, solo loguea
-    // TODO (Fase 2): llamar sub-workflow n8n o procesar directamente
-    log('info', 'job.shadow_skip', {
-      job_id: job.data.job_id,
-      note: 'Worker v0 shadow mode — procesamiento pendiente Fase 2',
-    });
+    try {
+      // v0.2.0: shadow mode — no procesa, solo loguea
+      // TODO (Fase 2): llamar sub-workflow n8n por cada documento
+      log('info', 'job.shadow_skip', {
+        job_id: jobId,
+        note: 'Worker v0 shadow mode — procesamiento pendiente Fase 2',
+      });
 
-    return { status: 'shadow_logged', worker_version: WORKER_VERSION };
+      return { status: 'shadow_logged', worker_version: WORKER_VERSION };
+
+    } catch (err) {
+      // Clasificar el error para decidir si BullMQ debe reintentar
+      if (err instanceof TerminalError) {
+        log('error', 'job.terminal_error', {
+          job_id: jobId,
+          error: err.message,
+          attempt,
+          note: 'Sin retry — error permanente',
+        });
+        throw toUnrecoverable(err); // BullMQ no reintentará
+      }
+
+      // RetryableError u otros errores → BullMQ reintenta con backoff exponencial
+      log('warn', 'job.retryable_error', {
+        job_id: jobId,
+        error: err.message,
+        attempt,
+        note: 'BullMQ reintentará con backoff exponencial',
+      });
+      throw err;
+    }
   },
   {
     connection,
@@ -78,6 +108,7 @@ worker.on('failed', (job, err) =>
     job_id: job?.data?.job_id,
     error: err.message,
     attempt: job?.attemptsMade,
+    is_terminal: err.name === 'UnrecoverableError',
   })
 );
 
@@ -85,9 +116,29 @@ worker.on('error', (err) =>
   log('error', 'worker.error', { message: err.message })
 );
 
+// ─── Cron de DLQ (cada hora) ─────────────────────────────────────────────────
+async function runDLQCron() {
+  log('info', 'dlq.cron_start', {});
+  try {
+    await processDLQ({
+      connection,
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseKey: process.env.SUPABASE_SERVICE_KEY,
+      log,
+    });
+  } catch (err) {
+    log('error', 'dlq.cron_error', { error: err.message });
+  }
+}
+
+// Correr inmediatamente al arrancar, luego cada hora
+runDLQCron();
+const dlqInterval = setInterval(runDLQCron, DLQ_INTERVAL_MS);
+
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal) {
   log('info', 'worker.shutdown', { signal });
+  clearInterval(dlqInterval);
   await worker.close();
   await connection.quit();
   process.exit(0);
@@ -98,5 +149,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 log('info', 'worker.started', {
   concurrency: CONCURRENCY,
+  dlq_interval_hours: 1,
   note: 'Conectado. Esperando jobs...',
 });
