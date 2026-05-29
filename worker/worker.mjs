@@ -13,6 +13,7 @@ import { RetryableError, TerminalError, toUnrecoverable } from './errors.mjs';
 import { processDLQ } from './dlq-processor.mjs';
 import { insertQueueJob, syncJobState } from './persistence.mjs';
 import { startMetricsServer } from './metrics.mjs';
+import { startGateway } from './gateway.mjs';
 
 const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.3.0';
 const QUEUE_NAME = 'pdf-processing';
@@ -155,11 +156,15 @@ const queue = new Queue(QUEUE_NAME, { connection });
 // ─── Servidor de métricas ─────────────────────────────────────────────────────
 const metricsServer = startMetricsServer(queue, log);
 
+// ─── Input Gateway ────────────────────────────────────────────────────────────
+const gatewayServer = startGateway(queue, log);
+
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal) {
   log('info', 'worker.shutdown', { signal });
   clearInterval(dlqInterval);
   metricsServer.close();
+  gatewayServer.close();
   await worker.close();
   await queue.close();
   await connection.quit();
