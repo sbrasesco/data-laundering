@@ -15,6 +15,7 @@ import { insertQueueJob, syncJobState } from './persistence.mjs';
 import { startMetricsServer } from './metrics.mjs';
 import { startGateway } from './gateway.mjs';
 import { processZip } from './zip-processor.mjs';
+import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 
 const N8N_SUB_WORKFLOW_URL = process.env.N8N_SUB_WORKFLOW_URL ?? 'https://automation.aignition.net/webhook/sub-document';
 
@@ -80,7 +81,9 @@ const worker = new Worker(
         const documents = await processZip(job.data, log);
         log('info', 'job.zip_extracted', { job_id: jobId, total_docs: documents.length });
 
-        let successful = 0, failed = 0;
+        let successful = 0, failed = 0, lowConfidence = 0;
+        const orgId = job.data.organization_id;
+
         for (const doc of documents) {
           try {
             const res = await fetch(N8N_SUB_WORKFLOW_URL, {
@@ -88,7 +91,7 @@ const worker = new Worker(
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 job_id: jobId,
-                organization_id: job.data.organization_id,
+                organization_id: orgId,
                 file_url: doc.file_url,
                 file_type: doc.file_type,
                 original_filename: doc.original_filename,
@@ -102,6 +105,9 @@ const worker = new Worker(
             if (data.success) {
               successful++;
               log('info', 'job.doc_done', { job_id: jobId, file: doc.original_filename, row_id: data.row_id });
+              // Post-extracción: evaluar confianza + audit log
+              await processDocumentResult(data, jobId, orgId, log);
+              if ((data.confidence_score ?? 1) < 0.8) lowConfidence++;
             } else {
               failed++;
               log('warn', 'job.doc_error', { job_id: jobId, file: doc.original_filename, error: data.error });
@@ -112,7 +118,10 @@ const worker = new Worker(
           }
         }
 
-        const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, total: documents.length, worker_version: WORKER_VERSION };
+        // Finalizar job en pdf_jobs
+        await finalizeJob(jobId, { total: documents.length, successful, failed, lowConfidence }, log);
+
+        const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, lowConfidence, total: documents.length, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
         return result;
       }
@@ -162,6 +171,7 @@ const worker = new Worker(
           note: 'Sin retry — error permanente',
         });
         await syncJobState(job, 'dead', { error: err.message }, log);
+        await failJob(jobId, err.message, log);
         throw toUnrecoverable(err);
       }
 
