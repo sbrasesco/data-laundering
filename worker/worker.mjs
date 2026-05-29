@@ -104,6 +104,10 @@ const worker = new Worker(
   {
     connection,
     concurrency: CONCURRENCY,
+    limiter: {
+      max: Number(process.env.WORKER_RATE_MAX ?? 10),
+      duration: Number(process.env.WORKER_RATE_DURATION_MS ?? 1000),
+    },
   }
 );
 
