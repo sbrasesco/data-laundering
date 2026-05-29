@@ -48,6 +48,7 @@ async function handleEnqueue(body, queue, log) {
   const {
     organization_id, file_url, file_type, original_filename,
     client_cuit = null, client_name = null, input_source,
+    job_id: provided_job_id = null,
   } = body;
 
   // ── Validaciones ─────────────────────────────────────────────────────────
@@ -68,8 +69,8 @@ async function handleEnqueue(body, queue, log) {
   }
 
   // ── Encolar en BullMQ ─────────────────────────────────────────────────────
-  // pdf_jobs lo crea el frontend antes de llamar aquí; el gateway solo encola.
-  const job_id = randomUUID();
+  // Si el frontend pasa job_id (el id de pdf_jobs), lo usamos para mantener FK.
+  const job_id = (provided_job_id && isUUID(provided_job_id)) ? provided_job_id : randomUUID();
   const payload = {
     job_id,
     organization_id,
