@@ -7,11 +7,12 @@
  * v0.1.0: Shadow mode — conecta y loguea jobs sin procesar.
  */
 
-import { Worker } from 'bullmq';
+import { Worker, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { RetryableError, TerminalError, toUnrecoverable } from './errors.mjs';
 import { processDLQ } from './dlq-processor.mjs';
 import { insertQueueJob, syncJobState } from './persistence.mjs';
+import { startMetricsServer } from './metrics.mjs';
 
 const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.3.0';
 const QUEUE_NAME = 'pdf-processing';
@@ -148,11 +149,19 @@ async function runDLQCron() {
 runDLQCron();
 const dlqInterval = setInterval(runDLQCron, DLQ_INTERVAL_MS);
 
+// ─── Queue (para métricas — lectura de stats) ────────────────────────────────
+const queue = new Queue(QUEUE_NAME, { connection });
+
+// ─── Servidor de métricas ─────────────────────────────────────────────────────
+const metricsServer = startMetricsServer(queue, log);
+
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal) {
   log('info', 'worker.shutdown', { signal });
   clearInterval(dlqInterval);
+  metricsServer.close();
   await worker.close();
+  await queue.close();
   await connection.quit();
   process.exit(0);
 }
