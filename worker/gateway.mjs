@@ -24,7 +24,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function isUUID(v) { return UUID_RE.test(v); }
 
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -110,6 +115,11 @@ export function startGateway(queue, log) {
       if (auth !== `Bearer ${GATEWAY_API_KEY}`) {
         return json(res, 401, { error: 'Unauthorized' });
       }
+    }
+
+    // ── Preflight CORS ────────────────────────────────────────────────────
+    if (req.method === 'OPTIONS') {
+      return json(res, 204, {});
     }
 
     // ── Rutas ──────────────────────────────────────────────────────────────
