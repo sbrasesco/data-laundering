@@ -70,15 +70,44 @@ async function uploadToStorage(filePath, storagePath) {
 
 // ─── OC Map desde adjuntos ────────────────────────────────────────────────────
 
+/**
+ * Extrae números de OC del nombre de un adjunto PDF.
+ * Versión mejorada (TASK-46): soporta más formatos de nombres.
+ *
+ * Formatos soportados:
+ *   - "OC54487" / "54487" → [54487]           (4+ dígitos)
+ *   - "OC-042" / "042"   → [42]               (3+ dígitos, bajado de 4)
+ *   - "OC-2026/042"      → [2026, 42]          (slash separador)
+ *   - "OC 5487 mayo"     → [5487]              (espacios)
+ *   - "remito"           → null                (ignorado)
+ *
+ * @returns {string[]|null} — array de números como strings, o null si ignorado
+ */
 function parseOcFromAdjName(adjName) {
-  // Ignorar remitos
-  if (/remito/i.test(adjName)) return null;
-  const nums = adjName.match(/\d{4,}/g) || [];
-  return nums.map(n => n.replace(/^0+/, '') || n);
+  // Ignorar remitos y recibos
+  if (/remito|recibo/i.test(adjName)) return null;
+
+  // Normalizar separadores: slash, guión, punto → espacio
+  const normalized = adjName.replace(/[\/\-\.]/g, ' ');
+
+  // Extraer secuencias de 3+ dígitos (bajado de 4)
+  const nums = normalized.match(/\d{3,}/g) || [];
+
+  // Filtrar años que claramente son años (>=2000, <=2099) si hay otros números
+  // Para evitar falsos positivos con "2026" como número de OC
+  const filtered = nums.length > 1
+    ? nums.filter(n => !(Number(n) >= 2000 && Number(n) <= 2099))
+    : nums;
+
+  const result = (filtered.length > 0 ? filtered : nums)
+    .map(n => n.replace(/^0+/, '') || n); // quitar ceros a la izquierda
+
+  return result.length > 0 ? result : null;
 }
 
-async function buildOcMap(adjDir, parentName) {
+async function buildOcMap(adjDir, log) {
   const ocMap = {}; // parentFile → [{numero_oc, nombre_adjunto, codigo_obra}]
+  const skippedLog = []; // para diagnóstico (TASK-46)
   try {
     const adjFiles = await readdir(adjDir);
     for (const af of adjFiles) {
@@ -90,7 +119,13 @@ async function buildOcMap(adjDir, parentName) {
       const parent = inner.slice(0, sep);
       const adjBase = inner.slice(sep + 2).replace(/\.pdf$/i, '');
       const nums = parseOcFromAdjName(adjBase);
-      if (!nums || nums.length === 0) continue;
+
+      if (!nums || nums.length === 0) {
+        // Loguear adjuntos ignorados para diagnóstico
+        const reason = /remito|recibo/i.test(adjBase) ? 'es_remito' : 'sin_numero_oc';
+        skippedLog.push({ adjunto: adjBase, parent, reason });
+        continue;
+      }
 
       // Try to get obra code from .obra file
       let codigoObra = null;
@@ -107,7 +142,19 @@ async function buildOcMap(adjDir, parentName) {
         }
       }
     }
-  } catch {}
+  } catch (e) {
+    if (log) log('warn', 'zip.oc_map_error', { error: e.message });
+  }
+
+  // Loguear adjuntos ignorados
+  if (skippedLog.length > 0 && log) {
+    log('info', 'zip.oc_skipped', {
+      count: skippedLog.length,
+      adjuntos: skippedLog,
+      note: 'Adjuntos ignorados al construir OC map — ver TASK-46'
+    });
+  }
+
   return ocMap;
 }
 
@@ -215,8 +262,14 @@ export async function processZip(jobData, log) {
     }
 
     // ── Construir OC map ──────────────────────────────────────────────────────
-    const ocMap = await buildOcMap(adjDir, '');
-    log('info', 'zip.oc_map', { job_id, docs_with_oc: Object.keys(ocMap).length });
+    // Pasar log para que buildOcMap pueda registrar adjuntos ignorados (TASK-46)
+    const ocMap = await buildOcMap(adjDir, log);
+    log('info', 'zip.oc_map', {
+      job_id,
+      docs_with_oc: Object.keys(ocMap).length,
+      total_ocs: Object.values(ocMap).flat().length,
+      detalle: ocMap,
+    });
 
     // ── Recolectar archivos finales ───────────────────────────────────────────
     const allFiles = (await readdir(workDir)).filter(f => {
@@ -235,6 +288,7 @@ export async function processZip(jobData, log) {
       const storagePath = `${organization_id}/${job_id}/${sanitizeStorageKey(fileName)}`;
 
       try {
+        log('info', 'zip.uploading_doc', { job_id, file: fileName, ext, storage_path: storagePath });
         const publicUrl = await uploadToStorage(filePath, storagePath);
         const ocEntries = ocMap[fileName] || [];
         documents.push({
@@ -246,9 +300,23 @@ export async function processZip(jobData, log) {
           client_cuit: client_cuit ?? null,
           client_name: client_name ?? null,
         });
-        log('info', 'zip.doc_uploaded', { job_id, file: fileName, oc_count: ocEntries.length });
+        log('info', 'zip.doc_uploaded', {
+          job_id,
+          file: fileName,
+          oc_count: ocEntries.length,
+          oc_numbers: ocEntries.map(e => e.numero_oc),
+          url: publicUrl,
+        });
       } catch (err) {
-        log('warn', 'zip.upload_failed', { job_id, file: fileName, error: err.message });
+        // Log detallado del fallo para diagnosticar (TASK-46)
+        log('error', 'zip.upload_failed', {
+          job_id,
+          file: fileName,
+          ext,
+          storage_path: storagePath,
+          error: err.message,
+          note: 'Documento NO encolado — se registra en failed_documents del job',
+        });
       }
     }
 
