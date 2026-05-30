@@ -109,17 +109,17 @@ async function handleEnqueue(body, queue, log) {
  */
 export function startGateway(queue, log) {
   const server = createServer(async (req, res) => {
+    // ── Preflight CORS (sin auth — el browser no envía Authorization en OPTIONS)
+    if (req.method === 'OPTIONS') {
+      return json(res, 204, {});
+    }
+
     // ── Autenticación ──────────────────────────────────────────────────────
     if (GATEWAY_API_KEY) {
       const auth = req.headers['authorization'] ?? '';
       if (auth !== `Bearer ${GATEWAY_API_KEY}`) {
         return json(res, 401, { error: 'Unauthorized' });
       }
-    }
-
-    // ── Preflight CORS ────────────────────────────────────────────────────
-    if (req.method === 'OPTIONS') {
-      return json(res, 204, {});
     }
 
     // ── Rutas ──────────────────────────────────────────────────────────────
