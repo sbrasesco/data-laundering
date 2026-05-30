@@ -44,37 +44,58 @@ export async function createPdfJob(params: CreateJobParams): Promise<CreateJobRe
 }
 
 /**
- * Sube un archivo al webhook de n8n con el job_id
+ * Sube un archivo al pipeline del worker:
+ * 1. Sube el archivo a Supabase Storage (bucket facturas)
+ * 2. Llama al Worker Gateway con job_id + file_url
  */
 export async function uploadFileToN8n(
   file: File,
-  jobId: string
+  jobId: string,
+  clientName?: string,
+  clientCuit?: string | null,
+  organizationId?: string | null
 ): Promise<{ success: boolean; error: string | null }> {
-  const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
-
-  if (!n8nWebhookUrl) {
-    return {
-      success: false,
-      error: 'VITE_N8N_WEBHOOK_URL no está configurada en las variables de entorno',
-    };
-  }
+  const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+  const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
 
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('job_id', jobId);
+    // 1. Subir archivo a Supabase Storage
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? 'zip';
+    const storageKey = `${jobId}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from('facturas')
+      .upload(storageKey, file, { upsert: true });
 
-    const response = await fetch(n8nWebhookUrl, {
+    if (uploadError) {
+      return { success: false, error: `Error subiendo archivo: ${uploadError.message}` };
+    }
+
+    const { data: { publicUrl } } = supabase.storage.from('facturas').getPublicUrl(storageKey);
+
+    // 2. Llamar al Worker Gateway
+    const orgId = organizationId ?? null;
+
+    const response = await fetch(`${workerGatewayUrl}/api/enqueue`, {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${workerApiKey}`,
+      },
+      body: JSON.stringify({
+        job_id: jobId,
+        organization_id: orgId,
+        file_url: publicUrl,
+        file_type: ext === 'pdf' ? 'pdf' : 'zip',
+        original_filename: file.name,
+        client_name: clientName ?? null,
+        client_cuit: clientCuit ?? null,
+        input_source: 'frontend_upload',
+      }),
     });
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'Error desconocido');
-      return {
-        success: false,
-        error: `Error al enviar el archivo al webhook: ${errorText}`,
-      };
+      return { success: false, error: `Error llamando al gateway: ${errorText}` };
     }
 
     return { success: true, error: null };

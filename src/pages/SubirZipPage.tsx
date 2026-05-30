@@ -14,7 +14,7 @@ export function SubirZipPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const { clients, loading: clientsLoading, error: clientsError } = useActiveClients();
   const navigate = useNavigate();
 
@@ -62,7 +62,8 @@ export function SubirZipPage() {
 
       // 2. Lanzar el webhook de n8n EN SEGUNDO PLANO
       //    NO esperamos el resultado para navegar
-      uploadFileToN8n(file, job.id).catch((err) => {
+      const selectedClient = clients.find((c) => c.id === clientId);
+      uploadFileToN8n(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId).catch((err) => {
         // Opcional: loguear error en consola
         console.error('Error llamando a n8n', err);
       });
