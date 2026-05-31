@@ -124,7 +124,7 @@ const worker = new Worker(
 
         // Finalizar job en pdf_jobs
         const totalAttempted = documents.length + failedUploads;
-        await finalizeJob(jobId, { total: totalAttempted, successful, failed, lowConfidence }, log);
+        await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence }, log);
 
         const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, failedUploads, lowConfidence, total: totalAttempted, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);

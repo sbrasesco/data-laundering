@@ -104,7 +104,7 @@ export async function processDocumentResult(result, jobId, orgId, log) {
  *
  * Best-effort: si falla el UPDATE, loguea pero no relanza.
  */
-export async function finalizeJob(jobId, { total, successful, failed, lowConfidence }, log) {
+export async function finalizeJob(jobId, orgId, { total, successful, failed, lowConfidence }, log) {
   if (!SUPABASE_URL || !SUPABASE_KEY) return;
 
   const hasWarnings = failed > 0 || lowConfidence > 0;
@@ -162,6 +162,34 @@ export async function finalizeJob(jobId, { total, successful, failed, lowConfide
     }
   } catch (err) {
     log('warn', 'post.job_finalize_error', { job_id: jobId, error: err.message });
+  }
+
+  // ── TASK-18: Descuento de créditos post-procesamiento ─────────────────────
+  // Orden: procesar → finalizar job → descontar crédito. Nunca al revés.
+  // Si falla el descuento, NO revertir el procesamiento (el cliente ya tiene el resultado).
+  const docsToCharge = successful + ocRelations;
+  if (orgId && docsToCharge > 0) {
+    try {
+      const chargeRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/charge_credit`, {
+        method: 'POST',
+        headers: supabaseHeaders(),
+        body: JSON.stringify({
+          p_organization_id: orgId,
+          p_job_id: jobId,
+          p_amount: docsToCharge,
+          p_description: `Job procesado: ${successful} facturas + ${ocRelations} OCs`,
+        }),
+      });
+      const charged = await chargeRes.json();
+      if (charged === true) {
+        log('info', 'post.credits_charged', { job_id: jobId, organization_id: orgId, amount: docsToCharge });
+      } else {
+        // Saldo insuficiente — loguear deuda pero no revertir
+        log('warn', 'post.credits_insufficient', { job_id: jobId, organization_id: orgId, amount: docsToCharge });
+      }
+    } catch (err) {
+      log('warn', 'post.credits_charge_failed', { job_id: jobId, organization_id: orgId, error: err.message });
+    }
   }
 }
 
