@@ -110,6 +110,33 @@ export async function finalizeJob(jobId, { total, successful, failed, lowConfide
   const hasWarnings = failed > 0 || lowConfidence > 0;
   const status = hasWarnings ? 'done_with_warnings' : 'done';
 
+  // Fix 2: COUNT(*) FROM pdf_job_row_oc WHERE row_id IN (SELECT id FROM pdf_job_rows WHERE job_id = ?)
+  let ocRelations = 0;
+  try {
+    const rowsRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=id`,
+      { headers: supabaseHeaders() }
+    );
+    if (rowsRes.ok) {
+      const rows = await rowsRes.json();
+      if (rows.length > 0) {
+        const rowIds = rows.map(r => r.id).join(',');
+        const ocRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/pdf_job_row_oc?row_id=in.(${rowIds})&select=id`,
+          { method: 'HEAD', headers: { ...supabaseHeaders(), 'Prefer': 'count=exact' } }
+        );
+        const contentRange = ocRes.headers.get('content-range');
+        if (contentRange) {
+          const match = contentRange.match(/\/(\d+)$/);
+          if (match) ocRelations = parseInt(match[1], 10);
+        }
+      }
+    }
+    log('info', 'post.oc_count', { job_id: jobId, oc_relations: ocRelations });
+  } catch (err) {
+    log('warn', 'post.oc_count_failed', { job_id: jobId, error: err.message });
+  }
+
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/pdf_jobs?id=eq.${encodeURIComponent(jobId)}`,
@@ -118,15 +145,17 @@ export async function finalizeJob(jobId, { total, successful, failed, lowConfide
         headers: supabaseHeaders(),
         body: JSON.stringify({
           status,
+          total_documents: total,        // Fix 1: solo PDFs principales, excluye adj/
           processed_documents: successful,
           failed_documents: failed,
+          oc_relations: ocRelations,     // Fix 2: relaciones OC de pdf_job_row_oc
           finished_at: new Date().toISOString(),
         }),
       }
     );
 
     if (res.ok) {
-      log('info', 'post.job_finalized', { job_id: jobId, status, total, successful, failed, lowConfidence });
+      log('info', 'post.job_finalized', { job_id: jobId, status, total, successful, failed, lowConfidence, oc_relations: ocRelations });
     } else {
       const errText = await res.text();
       log('warn', 'post.job_finalize_failed', { job_id: jobId, http_status: res.status, error: errText });
