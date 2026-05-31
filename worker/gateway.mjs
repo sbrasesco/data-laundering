@@ -73,6 +73,27 @@ async function handleEnqueue(body, queue, log) {
     return { status: 400, body: { error: 'file_url debe ser una URL HTTPS' } };
   }
 
+  // ── Verificar saldo de créditos (TASK-15) ────────────────────────────────
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    try {
+      const credRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/organization_credits?organization_id=eq.${encodeURIComponent(organization_id)}&select=balance`,
+        { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (credRes.ok) {
+        const credData = await credRes.json();
+        const balance = credData?.[0]?.balance ?? 0;
+        if (balance < 1) {
+          log('warn', 'gateway.insufficient_credits', { organization_id });
+          return { status: 402, body: { error: 'INSUFFICIENT_CREDITS', message: 'Saldo insuficiente para procesar este job.' } };
+        }
+      }
+    } catch (err) {
+      log('warn', 'gateway.credits_check_failed', { organization_id, error: err.message });
+      // Fail open: si Supabase no responde dejamos pasar (check de UX, no de seguridad)
+    }
+  }
+
   // ── Encolar en BullMQ ─────────────────────────────────────────────────────
   // Si el frontend pasa job_id (el id de pdf_jobs), lo usamos para mantener FK.
   const job_id = (provided_job_id && isUUID(provided_job_id)) ? provided_job_id : randomUUID();
