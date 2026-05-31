@@ -17,7 +17,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const GATEWAY_API_KEY = process.env.GATEWAY_API_KEY;
 
-const VALID_FILE_TYPES = ['zip', 'pdf', 'jpg', 'jpeg', 'png'];
+const VALID_FILE_TYPES = ['zip', 'rar', 'pdf', 'jpg', 'jpeg', 'png'];
 const VALID_SOURCES = ['frontend_upload', 'integration_drive', 'integration_remote', 'api_direct'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

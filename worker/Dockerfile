@@ -4,6 +4,7 @@ FROM node:20-alpine
 RUN apk add --no-cache \
     p7zip \
     poppler-utils \
+    mupdf-tools \
     wget
 
 WORKDIR /app

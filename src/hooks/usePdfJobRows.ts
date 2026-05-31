@@ -19,7 +19,7 @@ export function usePdfJobRows(jobId: string) {
 
         const { data, error: fetchError } = await supabase
           .from('pdf_job_rows')
-          .select('*')
+          .select('*, pdf_job_row_oc(numero_oc, codigo_obra, nombre_adjunto)')
           .eq('job_id', jobId)
           .order('created_at', { ascending: true });
 
@@ -42,4 +42,3 @@ export function usePdfJobRows(jobId: string) {
 
   return { rows, loading, error };
 }
-

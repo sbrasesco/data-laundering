@@ -63,9 +63,11 @@ export function SubirZipPage() {
       // 2. Lanzar el webhook de n8n EN SEGUNDO PLANO
       //    NO esperamos el resultado para navegar
       const selectedClient = clients.find((c) => c.id === clientId);
-      uploadFileToN8n(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId).catch((err) => {
-        // Opcional: loguear error en consola
-        console.error('Error llamando a n8n', err);
+      uploadFileToN8n(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId).then((result) => {
+        if (!result.success) console.error('[Gateway] Error:', result.error);
+        else console.log('[Gateway] OK, job_id:', job.id);
+      }).catch((err) => {
+        console.error('[Gateway] Exception:', err);
       });
 
       // 3. Redirigir inmediatamente al Dashboard

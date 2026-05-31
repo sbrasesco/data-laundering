@@ -1,5 +1,6 @@
 import { JobStatusBadge } from './JobStatusBadge';
 import { PdfJobDetail } from '../../hooks/usePdfJob';
+import { formatDisplayDate } from '../../utils/dateFormat';
 
 interface JobDetailHeaderProps {
   job: PdfJobDetail;
@@ -8,17 +9,6 @@ interface JobDetailHeaderProps {
 export function JobDetailHeader({ job }: JobDetailHeaderProps) {
   const getShortId = (id: string) => {
     return id.substring(0, 8);
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-AR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   const formatPeriod = (month: number | null, year: number | null) => {
@@ -61,14 +51,14 @@ export function JobDetailHeader({ job }: JobDetailHeaderProps) {
           <strong style={{ display: 'block', marginBottom: '0.25rem', color: 'var(--color-text-secondary)' }}>
             Fecha de creación
           </strong>
-          <span>{formatDate(job.created_at)}</span>
+          <span>{formatDisplayDate(job.created_at)}</span>
         </div>
         {job.finished_at && (
           <div>
             <strong style={{ display: 'block', marginBottom: '0.25rem', color: 'var(--color-text-secondary)' }}>
               Fecha de finalización
             </strong>
-            <span>{formatDate(job.finished_at)}</span>
+            <span>{formatDisplayDate(job.finished_at)}</span>
           </div>
         )}
         <div>

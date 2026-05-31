@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 export interface ActiveClient {
   id: string;
   name: string;
+  tax_id: string | null;
 }
 
 export function useActiveClients() {
@@ -19,7 +20,7 @@ export function useActiveClients() {
 
         const { data, error: fetchError } = await supabase
           .from('clients')
-          .select('id, name')
+          .select('id, name, tax_id')
           .eq('is_active', true)
           .order('name', { ascending: true });
 

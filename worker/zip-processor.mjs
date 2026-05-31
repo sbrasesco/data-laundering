@@ -214,9 +214,26 @@ export async function processZip(jobData, log) {
 
       await runCmd(`pdfdetach -saveall -o "${tmpAdj}/" "${pdfPath}" 2>/dev/null || true`);
 
+      // Si pdfdetach extrajo 0 adjuntos, intentar con mutool como fallback.
+      // Algunos PDFs embeben adjuntos via FileAttachment annotations (no /EmbeddedFiles estándar)
+      // o tienen AcroForms malformados que abortan poppler en Alpine pero no en Ubuntu.
+      const adjFilesCheck = (await readdir(tmpAdj)).filter(f => f.toLowerCase().endsWith('.pdf'));
+      if (adjFilesCheck.length === 0) {
+        log?.('info', 'zip.pdfdetach_empty', {
+          job_id,
+          pdf: pdf,
+          note: 'pdfdetach extrajo 0 adjuntos — intentando mutool como fallback',
+        });
+        // mutool extract escribe al directorio actual, por eso usamos cd
+        await runCmd(`cd "${tmpAdj}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
+      }
+
       const adjFiles = (await readdir(tmpAdj)).filter(f => f.toLowerCase().endsWith('.pdf'));
       for (const af of adjFiles) {
-        if (/remito/i.test(af)) continue;
+        if (/remito/i.test(af)) {
+          log?.('info', 'zip.adj_skipped_pdfdetach', { job_id, adjunto: af, parent: pdfBase, reason: 'es_remito' });
+          continue;
+        }
         const adjBase = af.replace(/\.pdf$/i, '').replace(/\.PDF$/i, '');
         const dest = join(adjDir, `__adj__${pdfBase}__${adjBase}.pdf`);
         await runCmd(`mv "${join(tmpAdj, af)}" "${dest}" 2>/dev/null || true`);
@@ -282,6 +299,7 @@ export async function processZip(jobData, log) {
 
     // ── Subir cada documento a Supabase Storage ───────────────────────────────
     const documents = [];
+    let failedUploads = 0;
     for (const fileName of allFiles) {
       const filePath = join(workDir, fileName);
       const ext = extname(fileName).slice(1).toLowerCase();
@@ -309,19 +327,25 @@ export async function processZip(jobData, log) {
         });
       } catch (err) {
         // Log detallado del fallo para diagnosticar (TASK-46)
+        failedUploads++;
         log('error', 'zip.upload_failed', {
           job_id,
           file: fileName,
           ext,
           storage_path: storagePath,
           error: err.message,
-          note: 'Documento NO encolado — se registra en failed_documents del job',
+          note: 'Documento NO encolado — contado en failed_documents del job',
         });
       }
     }
 
-    log('info', 'zip.done', { job_id, total_docs: documents.length });
-    return documents;
+    log('info', 'zip.done', {
+      job_id,
+      total_attempted: allFiles.length,
+      uploaded: documents.length,
+      failed_uploads: failedUploads,
+    });
+    return { documents, failedUploads };
 
   } finally {
     // Limpieza del directorio temporal

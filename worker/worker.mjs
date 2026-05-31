@@ -19,7 +19,7 @@ import { processDocumentResult, finalizeJob, failJob } from './post-processor.mj
 
 const N8N_SUB_WORKFLOW_URL = process.env.N8N_SUB_WORKFLOW_URL ?? 'https://automation.aignition.net/webhook/sub-document';
 
-const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.3.0';
+const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.8.0';
 const QUEUE_NAME = 'pdf-processing';
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 3);
 const DLQ_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
@@ -75,13 +75,17 @@ const worker = new Worker(
       const fileType = job.data.file_type ?? 'pdf';
 
       // ── ZIP: descomprimir + split + llamar sub-workflow por cada doc ─────────
-      if (fileType === 'zip') {
-        log('info', 'job.zip_start', { job_id: jobId, file_url: job.data.file_url });
+      if (['zip', 'rar'].includes(fileType)) {
+        log('info', 'job.zip_start', { job_id: jobId, file_url: job.data.file_url, file_type: fileType });
 
-        const documents = await processZip(job.data, log);
-        log('info', 'job.zip_extracted', { job_id: jobId, total_docs: documents.length });
+        const { documents, failedUploads } = await processZip(job.data, log);
+        log('info', 'job.zip_extracted', {
+          job_id: jobId,
+          total_docs: documents.length,
+          failed_uploads: failedUploads,
+        });
 
-        let successful = 0, failed = 0, lowConfidence = 0;
+        let successful = 0, failed = failedUploads, lowConfidence = 0;
         const orgId = job.data.organization_id;
 
         for (const doc of documents) {
@@ -119,9 +123,10 @@ const worker = new Worker(
         }
 
         // Finalizar job en pdf_jobs
-        await finalizeJob(jobId, { total: documents.length, successful, failed, lowConfidence }, log);
+        const totalAttempted = documents.length + failedUploads;
+        await finalizeJob(jobId, { total: totalAttempted, successful, failed, lowConfidence }, log);
 
-        const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, lowConfidence, total: documents.length, worker_version: WORKER_VERSION };
+        const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, failedUploads, lowConfidence, total: totalAttempted, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
         return result;
       }

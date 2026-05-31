@@ -85,7 +85,7 @@ export async function uploadFileToN8n(
         job_id: jobId,
         organization_id: orgId,
         file_url: publicUrl,
-        file_type: ext === 'pdf' ? 'pdf' : 'zip',
+        file_type: ext === 'pdf' ? 'pdf' : (['zip', 'rar'].includes(ext) ? ext : 'zip'),
         original_filename: file.name,
         client_name: clientName ?? null,
         client_cuit: clientCuit ?? null,

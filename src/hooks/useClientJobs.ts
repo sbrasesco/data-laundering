@@ -12,99 +12,105 @@ export interface DashboardFilters {
 export interface ClientJobsMetrics {
   jobsCount: number;
   totalDocuments: number;
-  processedDocuments: number;
-  failedDocuments: number;
-  jobsWithWarnings: number;
+  processedDocuments: number;    // total_documents (facturas + OCs)
+  failedDocuments: number;       // docs con campos insuficientes (doc_status = 'failed')
+  documentsWithWarnings: number; // docs con datos incompletos (doc_status = 'warning')
   jobsWithError: number;
 }
 
+const PDF_JOBS_SELECT = `
+  id,
+  status,
+  total_documents,
+  processed_documents,
+  failed_documents,
+  low_confidence_documents,
+  has_warnings,
+  error_message,
+  created_at,
+  period_month,
+  period_year,
+  clients ( id, name )
+`;
+
 export function useClientJobs(filters?: DashboardFilters) {
   const [jobs, setJobs] = useState<PdfJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  // initialLoading: true solo en la primera carga (sin datos todavía)
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<ClientJobsMetrics>({
     jobsCount: 0,
     totalDocuments: 0,
     processedDocuments: 0,
     failedDocuments: 0,
-    jobsWithWarnings: 0,
+    documentsWithWarnings: 0,
     jobsWithError: 0,
   });
   const { organizationId } = useAuth();
   const subscriptionRef = useRef<any>(null);
+  const hasLoadedOnce = useRef(false);
 
-  // Función para calcular métricas desde jobs
+  // Métricas leídas directamente de los campos que escribe n8n en pdf_jobs
   const calculateMetrics = (jobsData: PdfJob[]): ClientJobsMetrics => {
     const jobsCount = jobsData.length;
+
     const totalDocuments = jobsData.reduce(
       (sum, job) => sum + (job.total_documents ?? 0),
       0
     );
+    // processed_documents = documentos OK (n8n los clasifica por completitud de campos)
     const processedDocuments = jobsData.reduce(
       (sum, job) => sum + (job.processed_documents ?? 0),
       0
     );
+    // failed_documents = documentos con campos insuficientes
     const failedDocuments = jobsData.reduce(
       (sum, job) => sum + (job.failed_documents ?? 0),
       0
     );
-    const jobsWithWarnings = jobsData.filter(
-      (job) => job.has_warnings === true
-    ).length;
-    const jobsWithError = jobsData.filter(
-      (job) => job.status === 'error'
-    ).length;
+    // Advertencias: docs con datos incompletos (low_confidence_documents en la DB)
+    const documentsWithWarnings = jobsData.reduce(
+      (sum, job) => sum + (job.low_confidence_documents ?? 0),
+      0
+    );
+    const jobsWithError = jobsData.filter((job) => job.status === 'error').length;
 
     return {
       jobsCount,
       totalDocuments,
       processedDocuments,
       failedDocuments,
-      jobsWithWarnings,
+      documentsWithWarnings,
       jobsWithError,
     };
   };
 
   useEffect(() => {
     if (!organizationId) {
-      setLoading(false);
+      setInitialLoading(false);
       return;
     }
 
     async function fetchJobs() {
       try {
-        setLoading(true);
+        // Solo mostrar spinner en la primera carga real (sin datos previos)
+        if (!hasLoadedOnce.current) {
+          setInitialLoading(true);
+        }
         setError(null);
 
-        let query = supabase
-          .from('pdf_jobs')
-          .select(`
-            id,
-            status,
-            total_documents,
-            processed_documents,
-            failed_documents,
-            has_warnings,
-            error_message,
-            created_at,
-            period_month,
-            period_year,
-            clients ( id, name )
-          `);
+        let query = supabase.from('pdf_jobs').select(PDF_JOBS_SELECT);
 
-        // Filtrar por cliente si está presente en los filtros
         if (filters?.clientId) {
           query = query.eq('client_id', filters.clientId);
         }
 
         query = query.order('created_at', { ascending: false });
 
-        // Aplicar filtros de fecha si existen
         if (filters?.fechaDesde) {
           query = query.gte('created_at', filters.fechaDesde);
         }
         if (filters?.fechaHasta) {
-          // Agregar un día completo para incluir todo el día hasta
           const hastaDate = new Date(filters.fechaHasta);
           hastaDate.setHours(23, 59, 59, 999);
           query = query.lte('created_at', hastaDate.toISOString());
@@ -114,106 +120,43 @@ export function useClientJobs(filters?: DashboardFilters) {
 
         if (fetchError) {
           setError(fetchError.message);
-          setJobs([]);
-          setMetrics({
-            jobsCount: 0,
-            totalDocuments: 0,
-            processedDocuments: 0,
-            failedDocuments: 0,
-            jobsWithWarnings: 0,
-            jobsWithError: 0,
-          });
+          if (!hasLoadedOnce.current) setJobs([]);
         } else {
-          const jobsData = data || [];
-          
-          // Obtener los conteos de filas para cada job
-          const jobIds = jobsData.map(job => job.id);
-          let rowCountsMap = new Map<string, number>();
-          
-          if (jobIds.length > 0) {
-            const { data: rowCountsData } = await supabase
-              .from('pdf_job_rows')
-              .select('job_id')
-              .in('job_id', jobIds);
-
-            if (rowCountsData) {
-              rowCountsData.forEach(row => {
-                const count = rowCountsMap.get(row.job_id) || 0;
-                rowCountsMap.set(row.job_id, count + 1);
-              });
-            }
-          }
-
-          // Agregar rows_count a cada job
-          const jobsWithCounts = jobsData.map(job => ({
-            ...job,
-            rows_count: rowCountsMap.get(job.id) || 0,
-          }));
-
-          setJobs(jobsWithCounts);
-          setMetrics(calculateMetrics(jobsWithCounts));
+          const jobsData = (data || []) as unknown as PdfJob[];
+          setJobs(jobsData);
+          setMetrics(calculateMetrics(jobsData));
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error desconocido al cargar procesos');
-        setJobs([]);
-        setMetrics({
-          jobsCount: 0,
-          totalDocuments: 0,
-          processedDocuments: 0,
-          failedDocuments: 0,
-          jobsWithWarnings: 0,
-          jobsWithError: 0,
-        });
+        if (!hasLoadedOnce.current) setJobs([]);
       } finally {
-        setLoading(false);
+        hasLoadedOnce.current = true;
+        setInitialLoading(false);
       }
     }
 
     fetchJobs();
 
-    // Suscripción a Realtime para escuchar cambios en pdf_jobs
-    // RLS asegura que solo recibimos eventos de jobs de nuestra organización
+    // Suscripción Realtime — solo escucha pdf_jobs, sin queries adicionales
     const channel = supabase
       .channel('pdf_jobs_changes')
       .on(
         'postgres_changes',
-        {
-          event: '*', // INSERT, UPDATE, DELETE
-          schema: 'public',
-          table: 'pdf_jobs',
-        },
+        { event: '*', schema: 'public', table: 'pdf_jobs' },
         async (payload) => {
-          // Mapeo de estados: done y done_with_warnings → "Completado"
-          // El badge se actualiza automáticamente cuando cambia el status en la BD
-          
           if (payload.eventType === 'UPDATE') {
-            // Para UPDATE: obtener el job actualizado completo desde la BD
-            // Esto asegura que tenemos todos los campos (incluyendo relaciones)
             const updatedJobId = (payload.new as any).id;
-            
+
             try {
               const { data: jobData, error: jobError } = await supabase
                 .from('pdf_jobs')
-                .select(`
-                  id,
-                  status,
-                  total_documents,
-                  processed_documents,
-                  failed_documents,
-                  has_warnings,
-                  error_message,
-                  created_at,
-                  period_month,
-                  period_year,
-                  clients ( id, name )
-                `)
+                .select(PDF_JOBS_SELECT)
                 .eq('id', updatedJobId)
                 .single();
 
               if (!jobError && jobData) {
-                // Verificar si el job pasa los filtros actuales
                 let passesFilters = true;
-                if (filters?.clientId && jobData.client_id !== filters.clientId) {
+                if (filters?.clientId && (jobData as any).client_id !== filters.clientId) {
                   passesFilters = false;
                 }
                 if (filters?.fechaDesde && new Date(jobData.created_at) < new Date(filters.fechaDesde)) {
@@ -222,51 +165,33 @@ export function useClientJobs(filters?: DashboardFilters) {
                 if (filters?.fechaHasta) {
                   const hastaDate = new Date(filters.fechaHasta);
                   hastaDate.setHours(23, 59, 59, 999);
-                  if (new Date(jobData.created_at) > hastaDate) {
-                    passesFilters = false;
-                  }
+                  if (new Date(jobData.created_at) > hastaDate) passesFilters = false;
                 }
 
-                // Obtener conteo de filas
-                const { data: rowCountsData } = await supabase
-                  .from('pdf_job_rows')
-                  .select('job_id')
-                  .eq('job_id', updatedJobId);
-
-                const rowsCount = rowCountsData?.length || 0;
-
                 setJobs((currentJobs) => {
-                  const jobIndex = currentJobs.findIndex(j => j.id === updatedJobId);
-                  
+                  const jobIndex = currentJobs.findIndex((j) => j.id === updatedJobId);
+                  const updatedJob = jobData as unknown as PdfJob;
+
                   if (jobIndex === -1) {
-                    // Si no está en la lista y pasa los filtros, agregarlo
                     if (passesFilters) {
-                      const newJob = {
-                        ...jobData,
-                        rows_count: rowsCount,
-                      };
-                      const updated = [...currentJobs, newJob].sort((a, b) => 
-                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                      const updated = [...currentJobs, updatedJob].sort(
+                        (a, b) =>
+                          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
                       );
                       setMetrics(calculateMetrics(updated));
                       return updated;
                     }
                     return currentJobs;
                   }
-                  
-                  // Si está en la lista pero ya no pasa los filtros, removerlo
+
                   if (!passesFilters) {
-                    const filtered = currentJobs.filter(j => j.id !== updatedJobId);
+                    const filtered = currentJobs.filter((j) => j.id !== updatedJobId);
                     setMetrics(calculateMetrics(filtered));
                     return filtered;
                   }
-                  
-                  // Actualizar el job existente
+
                   const updated = [...currentJobs];
-                  updated[jobIndex] = {
-                    ...jobData,
-                    rows_count: rowsCount,
-                  };
+                  updated[jobIndex] = updatedJob;
                   setMetrics(calculateMetrics(updated));
                   return updated;
                 });
@@ -275,75 +200,39 @@ export function useClientJobs(filters?: DashboardFilters) {
               console.error('Error al actualizar job desde Realtime (UPDATE):', err);
             }
           } else if (payload.eventType === 'INSERT') {
-            // Para INSERT: refrescar toda la lista para incluir el nuevo job
-            // Esto asegura que los filtros se apliquen correctamente
+            // Agregar solo el job nuevo sin refetch completo (sin parpadeo)
+            const newJobId = (payload.new as any).id;
             try {
-              let query = supabase
+              const { data: jobData, error: jobError } = await supabase
                 .from('pdf_jobs')
-                .select(`
-                  id,
-                  status,
-                  total_documents,
-                  processed_documents,
-                  failed_documents,
-                  has_warnings,
-                  error_message,
-                  created_at,
-                  period_month,
-                  period_year,
-                  clients ( id, name )
-                `);
+                .select(PDF_JOBS_SELECT)
+                .eq('id', newJobId)
+                .single();
 
-              if (filters?.clientId) {
-                query = query.eq('client_id', filters.clientId);
-              }
-              if (filters?.fechaDesde) {
-                query = query.gte('created_at', filters.fechaDesde);
-              }
-              if (filters?.fechaHasta) {
-                const hastaDate = new Date(filters.fechaHasta);
-                hastaDate.setHours(23, 59, 59, 999);
-                query = query.lte('created_at', hastaDate.toISOString());
-              }
+              if (!jobError && jobData) {
+                const newJob = jobData as unknown as PdfJob;
 
-              query = query.order('created_at', { ascending: false });
+                // Verificar filtros básicos antes de agregar
+                const newRaw = payload.new as any;
+                if (filters?.clientId && newRaw.client_id !== filters.clientId) return;
 
-              const { data: jobsData, error: fetchError } = await query;
-
-              if (!fetchError && jobsData) {
-                const jobIds = jobsData.map(job => job.id);
-                let rowCountsMap = new Map<string, number>();
-                
-                if (jobIds.length > 0) {
-                  const { data: rowCountsData } = await supabase
-                    .from('pdf_job_rows')
-                    .select('job_id')
-                    .in('job_id', jobIds);
-
-                  if (rowCountsData) {
-                    rowCountsData.forEach(row => {
-                      const count = rowCountsMap.get(row.job_id) || 0;
-                      rowCountsMap.set(row.job_id, count + 1);
-                    });
-                  }
-                }
-
-                const jobsWithCounts = jobsData.map(job => ({
-                  ...job,
-                  rows_count: rowCountsMap.get(job.id) || 0,
-                }));
-
-                setJobs(jobsWithCounts);
-                setMetrics(calculateMetrics(jobsWithCounts));
+                setJobs((currentJobs) => {
+                  // Evitar duplicados
+                  if (currentJobs.some((j) => j.id === newJobId)) return currentJobs;
+                  const updated = [newJob, ...currentJobs].sort(
+                    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  );
+                  setMetrics(calculateMetrics(updated));
+                  return updated;
+                });
               }
             } catch (err) {
-              console.error('Error al actualizar jobs desde Realtime (INSERT):', err);
+              console.error('Error al agregar job desde Realtime (INSERT):', err);
             }
           } else if (payload.eventType === 'DELETE') {
-            // Para DELETE: remover el job de la lista
             const deletedJob = payload.old as any;
             setJobs((currentJobs) => {
-              const filtered = currentJobs.filter(j => j.id !== deletedJob.id);
+              const filtered = currentJobs.filter((j) => j.id !== deletedJob.id);
               setMetrics(calculateMetrics(filtered));
               return filtered;
             });
@@ -362,6 +251,49 @@ export function useClientJobs(filters?: DashboardFilters) {
     };
   }, [organizationId, filters?.clientId, filters?.fechaDesde, filters?.fechaHasta]);
 
-  return { jobs, loading, error, metrics };
-}
+  // ─── Polling de respaldo ─────────────────────────────────────────────────
+  // Cuando hay jobs en 'pending' o 'processing', consulta la DB cada 8 segundos.
+  // Esto garantiza actualizaciones aunque Realtime falle o el trigger de n8n
+  // tarde en ejecutarse.
+  useEffect(() => {
+    const hasActive = jobs.some(
+      (j) => j.status === 'pending' || j.status === 'processing'
+    );
+    if (!hasActive || !organizationId) return;
 
+    async function pollJobs() {
+      try {
+        let query = supabase.from('pdf_jobs').select(PDF_JOBS_SELECT);
+        if (filters?.clientId)  query = query.eq('client_id', filters.clientId);
+        if (filters?.fechaDesde) query = query.gte('created_at', filters.fechaDesde);
+        if (filters?.fechaHasta) {
+          const h = new Date(filters.fechaHasta);
+          h.setHours(23, 59, 59, 999);
+          query = query.lte('created_at', h.toISOString());
+        }
+        query = query.order('created_at', { ascending: false });
+
+        const { data, error: pollError } = await query;
+        if (!pollError && data) {
+          const jobsData = data as unknown as PdfJob[];
+          // Solo actualizar si algo cambió (evitar re-renders innecesarios)
+          const hasChange = jobsData.some((fresh) => {
+            const current = jobs.find((j) => j.id === fresh.id);
+            return current && current.status !== fresh.status;
+          });
+          if (hasChange) {
+            setJobs(jobsData);
+            setMetrics(calculateMetrics(jobsData));
+          }
+        }
+      } catch (_) {
+        // Silencioso: el polling nunca debe romper la UI
+      }
+    }
+
+    const intervalId = setInterval(pollJobs, 8000);
+    return () => clearInterval(intervalId);
+  }, [jobs, organizationId, filters?.clientId, filters?.fechaDesde, filters?.fechaHasta]);
+
+  return { jobs, loading: initialLoading, error, metrics };
+}

@@ -6,6 +6,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { JobStatusBadge } from '../components/pdf-jobs/JobStatusBadge';
 import { PdfJob } from '../hooks/usePdfJobs';
+import { formatDisplayDate } from '../utils/dateFormat';
 
 export function ClientDashboardPage() {
   const navigate = useNavigate();
@@ -30,17 +31,6 @@ export function ClientDashboardPage() {
     setFilters({});
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-AR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   const formatPeriod = (month: number | null, year: number | null) => {
     if (!month || !year) return '-';
     const months = [
@@ -51,13 +41,11 @@ export function ClientDashboardPage() {
   };
 
   const formatDocuments = (job: PdfJob) => {
-    const total = job.total_documents ?? 0;
+    const total     = job.total_documents ?? 0;
     const processed = job.processed_documents ?? 0;
-    
-    if (total === 0) {
-      return '-';
-    }
-    
+
+    if (total === 0) return '-';
+
     return `${processed} / ${total}`;
   };
 
@@ -133,11 +121,12 @@ export function ClientDashboardPage() {
         </div>
       </div>
 
-      {/* Métricas */}
+      {/* Spinner solo en la primera carga (sin datos todavía) */}
       {loading && <LoadingSpinner />}
       {error && <ErrorMessage message={error} />}
 
-      {!loading && !error && (
+      {/* Mostrar contenido si ya hay datos, aunque haya un refresh en curso */}
+      {(!loading || jobs.length > 0) && !error && (
         <>
           <div style={{ 
             display: 'grid', 
@@ -168,7 +157,7 @@ export function ClientDashboardPage() {
                 {metrics.processedDocuments}
               </div>
               <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
-                Documentos Procesados
+                Documentos Correctos
               </div>
             </div>
 
@@ -183,10 +172,10 @@ export function ClientDashboardPage() {
 
             <div className="card" style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--color-warning)', marginBottom: '0.5rem' }}>
-                {metrics.jobsWithWarnings}
+                {metrics.documentsWithWarnings}
               </div>
               <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
-                Procesos con Advertencias
+                Documentos con Advertencias
               </div>
             </div>
 
@@ -224,17 +213,16 @@ export function ClientDashboardPage() {
                 <tbody>
                   {jobs.map((job) => (
                     <tr key={job.id}>
-                      <td>{formatDate(job.created_at)}</td>
+                      <td>{formatDisplayDate(job.created_at)}</td>
                       <td>{job.clients?.name || '-'}</td>
                       <td>{formatPeriod(job.period_month, job.period_year)}</td>
                       <td>
-                        <JobStatusBadge 
-                          status={job.status} 
-                          total_documents={job.total_documents} 
-                          processed_documents={job.processed_documents} 
-                          failed_documents={job.failed_documents} 
-                          has_warnings={job.has_warnings} 
-                          rows_count={job.rows_count} 
+                        <JobStatusBadge
+                          status={job.status}
+                          total_documents={job.total_documents}
+                          processed_documents={job.processed_documents}
+                          failed_documents={job.failed_documents}
+                          has_warnings={job.has_warnings}
                         />
                       </td>
                       <td>{formatDocuments(job)}</td>

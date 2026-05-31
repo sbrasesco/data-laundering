@@ -23,7 +23,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg-light)' }}>
       <nav className="navbar">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '96%', margin: '0 auto' }}>
           <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
             <Link
               to="/dashboard"
@@ -69,7 +69,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
         </div>
       </nav>
-      <main className="container" style={{ paddingTop: '2rem', paddingBottom: '2rem' }}>
+      <main className="container" style={{ paddingTop: '1.25rem', paddingBottom: '1.25rem' }}>
         {children}
       </main>
     </div>

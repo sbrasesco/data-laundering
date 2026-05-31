@@ -17,7 +17,11 @@ export interface DocumentRow {
   neto_gravado: number | null;
   iva: number | null;
   total: number | null;
-  [key: string]: any; // Para otros campos dinámicos
+  _row_type: 'factura' | 'oc';
+  numero_oc?: string | null;
+  nombre_adjunto?: string | null;
+  codigo_obra?: string | null;
+  [key: string]: any;
   pdf_jobs: {
     id: string;
     created_at: string;
@@ -29,12 +33,10 @@ export interface DocumentRow {
     period_month: number | null;
     period_year: number | null;
     client_id: string | null;
-    rows_count?: number; // se calculará en el hook
+    rows_count?: number;
   };
-  clients: {
-    id: string;
-    name: string;
-  } | null;
+  clients: { id: string; name: string } | null;
+  pdf_job_row_oc?: { numero_oc: string; codigo_obra?: string | null; nombre_adjunto?: string | null }[];
 }
 
 export interface DocumentFilters {
@@ -43,6 +45,12 @@ export interface DocumentFilters {
   clientId?: string;
   searchText?: string;
 }
+
+const FACTURA_SELECT =
+  '*, pdf_job_row_oc ( numero_oc, codigo_obra, nombre_adjunto ), pdf_jobs!inner ( id, created_at, status, total_documents, processed_documents, failed_documents, has_warnings, period_month, period_year, client_id, clients ( id, name ) )';
+
+const OC_SELECT =
+  'id, row_id, numero_oc, nombre_adjunto, codigo_obra, created_at, pdf_job_rows!inner ( job_id, fecha, proveedor, cuit, receptor_nombre, receptor_cuit, pdf_jobs!inner ( id, created_at, status, total_documents, processed_documents, failed_documents, has_warnings, period_month, period_year, client_id, clients ( id, name ) ) )';
 
 export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pageSize: number = 50) {
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
@@ -56,16 +64,14 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
         setLoading(true);
         setError(null);
 
-        // Si hay filtro de cliente, primero obtenemos los job_ids
         let jobIds: string[] | undefined;
         if (filters?.clientId) {
           const { data: jobsData } = await supabase
             .from('pdf_jobs')
             .select('id')
             .eq('client_id', filters.clientId);
-          jobIds = jobsData?.map(j => j.id) || [];
+          jobIds = jobsData?.map((j: any) => j.id) || [];
           if (jobIds.length === 0) {
-            // Si no hay jobs para este cliente, retornar vacío
             setDocuments([]);
             setTotalCount(0);
             setLoading(false);
@@ -73,78 +79,98 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
           }
         }
 
-        let query = supabase
+        // Facturas
+        let facturaQuery = supabase
           .from('pdf_job_rows')
-          .select(`
-            *,
-            pdf_jobs!inner (
-              id,
-              created_at,
-              status,
-              total_documents,
-              processed_documents,
-              failed_documents,
-              has_warnings,
-              period_month,
-              period_year,
-              client_id,
-              clients (
-                id,
-                name
-              )
-            )
-          `, { count: 'exact' });
+          .select(FACTURA_SELECT, { count: 'exact' });
 
-        // Aplicar filtros
-        if (filters?.fechaDesde) {
-          query = query.gte('fecha', filters.fechaDesde);
-        }
-        if (filters?.fechaHasta) {
-          query = query.lte('fecha', filters.fechaHasta);
-        }
-        if (jobIds && jobIds.length > 0) {
-          query = query.in('job_id', jobIds);
-        }
+        if (filters?.fechaDesde) facturaQuery = facturaQuery.gte('fecha', filters.fechaDesde);
+        if (filters?.fechaHasta) facturaQuery = facturaQuery.lte('fecha', filters.fechaHasta);
+        if (jobIds && jobIds.length > 0) facturaQuery = facturaQuery.in('job_id', jobIds);
 
-        // Ordenar
-        query = query
+        facturaQuery = facturaQuery
           .order('created_at', { foreignTable: 'pdf_jobs', ascending: false })
-          .order('id', { ascending: false });
+          .order('id', { ascending: false })
+          .range((page - 1) * pageSize, page * pageSize - 1);
 
-        // Paginación
-        const from = (page - 1) * pageSize;
-        const to = from + pageSize - 1;
-        query = query.range(from, to);
-
-        const { data, error: fetchError, count } = await query;
+        const { data, error: fetchError, count } = await facturaQuery;
 
         if (fetchError) {
           setError(fetchError.message);
           setDocuments([]);
           setTotalCount(0);
-        } else {
-          // Calcular el conteo de filas por job_id
-          const jobRowCounts = new Map<string, number>();
-          (data || []).forEach((row: any) => {
-            if (row.job_id) {
-              const currentCount = jobRowCounts.get(row.job_id) || 0;
-              jobRowCounts.set(row.job_id, currentCount + 1);
-            }
+          return;
+        }
+
+        const jobRowCounts = new Map<string, number>();
+        (data || []).forEach((row: any) => {
+          if (row.job_id) jobRowCounts.set(row.job_id, (jobRowCounts.get(row.job_id) || 0) + 1);
+        });
+
+        const facturas: DocumentRow[] = (data || []).map((row: any) => ({
+          ...row,
+          _row_type: 'factura' as const,
+          clients: row.pdf_jobs?.clients || null,
+          pdf_jobs: row.pdf_jobs
+            ? { ...row.pdf_jobs, rows_count: jobRowCounts.get(row.job_id) || 0 }
+            : row.pdf_jobs,
+        }));
+
+        // Ordenes de Compra
+        let ocQuery = supabase.from('pdf_job_row_oc').select(OC_SELECT);
+
+        if (jobIds && jobIds.length > 0) {
+          ocQuery = ocQuery.in('pdf_job_rows.job_id', jobIds);
+        }
+
+        const { data: ocData } = await ocQuery;
+
+        const ocRows: DocumentRow[] = (ocData || [])
+          .filter((oc: any) => {
+            const fecha = oc.pdf_job_rows?.fecha;
+            if (filters?.fechaDesde && fecha && fecha < filters.fechaDesde) return false;
+            if (filters?.fechaHasta && fecha && fecha > filters.fechaHasta) return false;
+            return true;
+          })
+          .map((oc: any) => {
+            const padre = oc.pdf_job_rows;
+            const job = padre?.pdf_jobs;
+            return {
+              id: 'oc-' + oc.id,
+              job_id: padre?.job_id || '',
+              fecha: padre?.fecha || null,
+              moneda: null,
+              es_moneda_ars: null,
+              es_moneda_usd: null,
+              tipo_documento: 'Orden de Compra',
+              numero_comprobante: oc.numero_oc || null,
+              proveedor: padre?.proveedor || null,
+              cuit: padre?.cuit || null,
+              receptor_nombre: padre?.receptor_nombre || null,
+              receptor_cuit: padre?.receptor_cuit || null,
+              neto_gravado: null,
+              iva: null,
+              total: null,
+              _row_type: 'oc' as const,
+              numero_oc: oc.numero_oc || null,
+              nombre_adjunto: oc.nombre_adjunto || null,
+              codigo_obra: oc.codigo_obra || null,
+              pdf_jobs: job ? { ...job, rows_count: 0 } : null,
+              clients: job?.clients || null,
+            };
           });
 
-          // Transformar los datos para aplanar la estructura y agregar rows_count
-          const transformedData = (data || []).map((row: any) => ({
-            ...row,
-            clients: row.pdf_jobs?.clients || null,
-            pdf_jobs: row.pdf_jobs ? {
-              ...row.pdf_jobs,
-              rows_count: jobRowCounts.get(row.job_id) || 0,
-            } : row.pdf_jobs,
-          }));
-          
-          setDocuments(transformedData);
-          setTotalCount(count || 0);
-        }
+        // Combinar y ordenar por fecha desc
+        const combined = [...facturas, ...ocRows].sort((a, b) => {
+          const fa = a.fecha || '';
+          const fb = b.fecha || '';
+          if (fb !== fa) return fb.localeCompare(fa);
+          if (a._row_type !== b._row_type) return a._row_type === 'factura' ? -1 : 1;
+          return 0;
+        });
+
+        setDocuments(combined);
+        setTotalCount((count || 0) + ocRows.length);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error desconocido al cargar documentos');
         setDocuments([]);
@@ -159,4 +185,3 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
 
   return { documents, loading, error, totalCount };
 }
-

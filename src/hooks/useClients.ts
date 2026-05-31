@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuthContext } from '../contexts/AuthContext';
 
 export interface Client {
   id: string;
@@ -12,6 +13,7 @@ export interface Client {
 }
 
 export function useClients() {
+  const { organizationId } = useAuthContext();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,7 @@ export function useClients() {
           external_code: clientData.external_code || null,
           email: clientData.email || null,
           is_active: true,
+          organization_id: organizationId,
         })
         .select()
         .single();

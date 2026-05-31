@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { buildRowCountMaps, ROWS_CLASSIFICATION_SELECT } from '../lib/documentClassification';
 
 export interface PdfJob {
   id: string;
@@ -8,19 +9,24 @@ export interface PdfJob {
   processed_documents: number | null;
   failed_documents: number | null;
   has_warnings: boolean | null;
+  low_confidence_documents: number | null;
   error_message: string | null;
   created_at: string;
   period_month: number | null;
   period_year: number | null;
-  rows_count: number; // cantidad de filas reales (pdf_job_rows) para ese job
+  // Campos calculados desde pdf_job_rows (usados en vista de detalle / admin)
+  rows_count?: number;
+  ok_rows_count?: number;
+  warning_rows_count?: number;
+  failed_rows_count?: number;
+  oc_count?: number;
   clients: {
     id: string;
     name: string;
   } | null;
 }
 
-async function fetchJobsWithRowCounts() {
-  // Primero obtenemos los jobs
+async function fetchJobsWithRowCounts(): Promise<PdfJob[]> {
   const { data: jobsData, error: jobsError } = await supabase
     .from('pdf_jobs')
     .select(`
@@ -46,32 +52,28 @@ async function fetchJobsWithRowCounts() {
     return [];
   }
 
-  // Obtenemos los conteos de filas para cada job
-  const jobIds = jobsData.map(job => job.id);
-  
+  const jobIds = jobsData.map((job) => job.id);
+
   const { data: rowCountsData, error: countsError } = await supabase
     .from('pdf_job_rows')
-    .select('job_id')
+    .select(ROWS_CLASSIFICATION_SELECT)
     .in('job_id', jobIds);
 
   if (countsError) {
     throw countsError;
   }
 
-  // Contamos las filas por job_id
-  const rowCountsMap = new Map<string, number>();
-  if (rowCountsData) {
-    rowCountsData.forEach(row => {
-      const count = rowCountsMap.get(row.job_id) || 0;
-      rowCountsMap.set(row.job_id, count + 1);
-    });
-  }
+  const { rowCountsMap, okCountsMap, warnCountsMap, failedRowsMap, ocCountsMap } =
+    buildRowCountMaps(rowCountsData || []);
 
-  // Combinamos los datos
-  return jobsData.map(job => ({
-    ...job,
-    rows_count: rowCountsMap.get(job.id) || 0,
-  }));
+  return jobsData.map((job) => ({
+    ...(job as any),
+    rows_count:         rowCountsMap.get(job.id)  || 0,
+    ok_rows_count:      okCountsMap.get(job.id)   || 0,
+    warning_rows_count: warnCountsMap.get(job.id) || 0,
+    failed_rows_count:  failedRowsMap.get(job.id) || 0,
+    oc_count:           ocCountsMap.get(job.id)   || 0,
+  })) as PdfJob[];
 }
 
 export function usePdfJobs() {
@@ -79,7 +81,6 @@ export function usePdfJobs() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Función para cargar jobs, envuelta en useCallback para evitar recreaciones
   const loadJobs = useCallback(async () => {
     try {
       setLoading(true);
@@ -95,11 +96,9 @@ export function usePdfJobs() {
     }
   }, []);
 
-  // Efecto para carga inicial y suscripciones de Realtime
   useEffect(() => {
     loadJobs();
 
-    // Configurar suscripción de Realtime para pdf_jobs
     const jobsChannel = supabase
       .channel('pdf_jobs_changes')
       .on(
@@ -110,7 +109,6 @@ export function usePdfJobs() {
           table: 'pdf_jobs',
         },
         async () => {
-          // Cuando hay cambios en pdf_jobs, refrescar los datos
           try {
             const jobsWithCounts = await fetchJobsWithRowCounts();
             setJobs(jobsWithCounts);
@@ -121,8 +119,6 @@ export function usePdfJobs() {
       )
       .subscribe();
 
-    // Configurar suscripción de Realtime para pdf_job_rows
-    // (por si se agregan filas mientras el job está procesando)
     const rowsChannel = supabase
       .channel('pdf_job_rows_changes')
       .on(
@@ -133,7 +129,6 @@ export function usePdfJobs() {
           table: 'pdf_job_rows',
         },
         async () => {
-          // Cuando hay cambios en pdf_job_rows, refrescar los datos
           try {
             const jobsWithCounts = await fetchJobsWithRowCounts();
             setJobs(jobsWithCounts);
@@ -144,16 +139,14 @@ export function usePdfJobs() {
       )
       .subscribe();
 
-    // Cleanup: desuscribirse cuando el componente se desmonte
     return () => {
       supabase.removeChannel(jobsChannel);
       supabase.removeChannel(rowsChannel);
     };
   }, [loadJobs]);
 
-  // Efecto para polling mientras haya jobs activos
+  // Polling mientras haya jobs activos recientes
   useEffect(() => {
-    // Considerar activos cuando haya jobs que todavía no terminaron realmente Y sean recientes (últimos 15 minutos)
     const FIFTEEN_MIN = 15 * 60 * 1000;
     const now = Date.now();
 
@@ -178,16 +171,14 @@ export function usePdfJobs() {
 
     const intervalId = setInterval(() => {
       loadJobs();
-    }, 5000); // cada 5 segundos
+    }, 5000);
 
     return () => clearInterval(intervalId);
   }, [jobs, loadJobs]);
 
-  // Función reload para recargar manualmente si es necesario
   const reload = useCallback(() => {
     loadJobs();
   }, [loadJobs]);
 
   return { jobs, loading, error, reload };
 }
-
