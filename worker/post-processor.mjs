@@ -145,7 +145,6 @@ export async function finalizeJob(jobId, { total, successful, failed, lowConfide
         headers: supabaseHeaders(),
         body: JSON.stringify({
           status,
-          total_documents: total,        // Fix 1: solo PDFs principales, excluye adj/
           processed_documents: successful,
           failed_documents: failed,
           oc_relations: ocRelations,     // Fix 2: relaciones OC de pdf_job_row_oc
