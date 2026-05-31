@@ -145,7 +145,7 @@ export async function finalizeJob(jobId, { total, successful, failed, lowConfide
         headers: supabaseHeaders(),
         body: JSON.stringify({
           status,
-          processed_documents: successful,
+          processed_documents: successful + ocRelations,
           failed_documents: failed,
           oc_relations: ocRelations,     // Fix 2: relaciones OC de pdf_job_row_oc
           finished_at: new Date().toISOString(),
