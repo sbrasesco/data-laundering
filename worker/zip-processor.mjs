@@ -203,6 +203,7 @@ export async function processZip(jobData, log) {
       );
     }
 
+    await mkdir(adjDir, { recursive: true });
     // ── pdfdetach: extraer adjuntos embebidos (OCs) ───────────────────────────
     const pdfFiles = (await readdir(workDir)).filter(f => f.toLowerCase().endsWith('.pdf'));
     for (const pdf of pdfFiles) {
