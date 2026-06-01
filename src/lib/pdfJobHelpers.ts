@@ -25,7 +25,7 @@ export async function createPdfJob(params: CreateJobParams): Promise<CreateJobRe
         client_id: params.client_id,
         period_month: params.period_month,
         period_year: params.period_year,
-        status: 'processing', // Estado inicial: el proceso está siendo procesado por n8n
+        status: 'processing', // Estado inicial: el proceso está siendo encolado en el Worker
       })
       .select('id')
       .single();
@@ -44,11 +44,29 @@ export async function createPdfJob(params: CreateJobParams): Promise<CreateJobRe
 }
 
 /**
+ * Marca un pdf_job como fallido con un mensaje de error
+ */
+export async function failPdfJob(
+  jobId: string,
+  errorMessage: string,
+  errorType: 'processing' | 'credits' = 'processing'
+): Promise<void> {
+  const { error } = await supabase
+    .from('pdf_jobs')
+    .update({ status: 'error', error_message: errorMessage, error_type: errorType })
+    .eq('id', jobId);
+
+  if (error) {
+    console.error('[failPdfJob] No se pudo actualizar el job a error:', error.message);
+  }
+}
+
+/**
  * Sube un archivo al pipeline del worker:
  * 1. Sube el archivo a Supabase Storage (bucket facturas)
  * 2. Llama al Worker Gateway con job_id + file_url
  */
-export async function uploadFileToN8n(
+export async function uploadFileToWorker(
   file: File,
   jobId: string,
   clientName?: string,

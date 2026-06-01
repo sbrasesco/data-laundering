@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useActiveClients } from '../hooks/useActiveClients';
-import { createPdfJob, uploadFileToN8n } from '../lib/pdfJobHelpers';
+import { createPdfJob, uploadFileToWorker, failPdfJob } from '../lib/pdfJobHelpers';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 
@@ -63,11 +63,17 @@ export function SubirZipPage() {
       // 2. Lanzar el webhook de n8n EN SEGUNDO PLANO
       //    NO esperamos el resultado para navegar
       const selectedClient = clients.find((c) => c.id === clientId);
-      uploadFileToN8n(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId).then((result) => {
-        if (!result.success) console.error('[Gateway] Error:', result.error);
-        else console.log('[Gateway] OK, job_id:', job.id);
+      uploadFileToWorker(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId).then((result) => {
+        if (!result.success) {
+          console.error('[Gateway] Error:', result.error);
+          const isCredits = result.error?.includes('INSUFFICIENT_CREDITS') || result.error?.includes('créditos') || result.error?.includes('creditos');
+          failPdfJob(job.id, result.error ?? 'Error al encolar el trabajo en el gateway', isCredits ? 'credits' : 'processing');
+        } else {
+          console.log('[Gateway] OK, job_id:', job.id);
+        }
       }).catch((err) => {
         console.error('[Gateway] Exception:', err);
+        failPdfJob(job.id, err instanceof Error ? err.message : 'Error inesperado al encolar el trabajo');
       });
 
       // 3. Redirigir inmediatamente al Dashboard

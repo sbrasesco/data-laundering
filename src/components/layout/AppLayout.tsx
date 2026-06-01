@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useTenantCredits } from '../../hooks/useTenantCredits';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -8,6 +9,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { signOut, user } = useAuth();
+  const { balance, loading: creditsLoading } = useTenantCredits();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -63,6 +65,25 @@ export function AppLayout({ children }: AppLayoutProps) {
                 {user.email}
               </span>
             )}
+            <span
+              title="Créditos disponibles"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                backgroundColor: 'var(--color-bg-card, #f4f4f5)',
+                border: '1px solid var(--color-border, #e4e4e7)',
+                borderRadius: '999px',
+                padding: '0.3rem 0.75rem',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: 'var(--color-text-primary)',
+                minWidth: '5rem',
+                justifyContent: 'center',
+              }}
+            >
+              💳 {creditsLoading ? '—' : (balance ?? 0).toLocaleString()} créditos
+            </span>
             <button onClick={handleSignOut} className="btn btn-danger" style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}>
               Cerrar sesión
             </button>
