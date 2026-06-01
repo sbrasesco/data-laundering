@@ -259,6 +259,34 @@ export function MonitoringPage() {
         <LoadingSpinner />
       ) : (
         <>
+          {/* ── Indicador de salud del sistema ── */}
+          {totalJobs > 0 && (() => {
+            const sysErrorRate = totalJobs > 0
+              ? Math.round(((errorSystem + errorUnknown) / totalJobs) * 100)
+              : 0;
+            const isHealthy = sysErrorRate < 1;
+            const isWarning = sysErrorRate >= 1 && sysErrorRate <= 3;
+            const isCritical = sysErrorRate > 3;
+            const bg = isCritical ? '#fee2e2' : isWarning ? '#fef9c3' : '#dcfce7';
+            const color = isCritical ? '#991b1b' : isWarning ? '#854d0e' : '#166534';
+            const icon = isCritical ? '🔴' : isWarning ? '🟡' : '🟢';
+            const label = isCritical
+              ? `Sistema en estado crítico — tasa de error del sistema: ${sysErrorRate}% (umbral: > 3%)`
+              : isWarning
+              ? `Atención requerida — tasa de error del sistema: ${sysErrorRate}% (umbral: 1–3%)`
+              : `Sistema saludable — tasa de error del sistema: ${sysErrorRate}%`;
+            return (
+              <div style={{
+                background: bg, color, borderRadius: '8px',
+                padding: '0.75rem 1.25rem', marginBottom: '1.5rem',
+                fontWeight: 600, fontSize: '0.95rem',
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+              }}>
+                {icon} {label}
+              </div>
+            );
+          })()}
+
           {/* ── Stat cards ── */}
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
             <StatCard label="Jobs totales" value={totalJobs} />
