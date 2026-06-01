@@ -7,6 +7,7 @@ import { SubirZipPage } from './pages/SubirZipPage';
 import { ProcesoDetailPage } from './pages/ProcesoDetailPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { ClientDashboardPage } from './pages/ClientDashboardPage';
+import { MonitoringPage } from './pages/MonitoringPage';
 
 function App() {
   return (
@@ -50,6 +51,14 @@ function App() {
           element={
             <ProtectedRoute>
               <DocumentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/monitoring"
+          element={
+            <ProtectedRoute>
+              <MonitoringPage />
             </ProtectedRoute>
           }
         />

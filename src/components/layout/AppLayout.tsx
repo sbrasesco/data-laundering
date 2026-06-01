@@ -57,6 +57,12 @@ export function AppLayout({ children }: AppLayoutProps) {
               >
                 Clientes
               </Link>
+              <Link
+                to="/monitoring"
+                className={`nav-link ${isActive('/monitoring') ? 'active' : ''}`}
+              >
+                Monitoreo
+              </Link>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
