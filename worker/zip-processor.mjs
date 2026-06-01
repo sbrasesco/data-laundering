@@ -217,24 +217,38 @@ export async function processZip(jobData, log) {
       // Esto elimina la no-determinismo: si uno falla en un PDF, el otro lo atrapa.
       const tmpPdfdetach = join(jobDir, `adj_pdfdetach_${pdfBase}`);
       const tmpMutool    = join(jobDir, `adj_mutool_${pdfBase}`);
+      const tmpPymupdf   = join(jobDir, `adj_pymupdf_${pdfBase}`);
       await mkdir(tmpPdfdetach, { recursive: true });
       await mkdir(tmpMutool,    { recursive: true });
+      await mkdir(tmpPymupdf,   { recursive: true });
 
+      // Herramienta 1: pdfdetach (poppler)
       await runCmd(`pdfdetach -saveall -o "${tmpPdfdetach}/" "${pdfPath}" 2>/dev/null || true`);
+      // Herramienta 2: mutool (mupdf-tools)
       await runCmd(`cd "${tmpMutool}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
+      // Herramienta 3: PyMuPDF — cubre FileAttachment annotations que pdfdetach+mutool pierden (DT-009)
+      const pymupdfResult = await runCmd(
+        `python3 /app/extract_attachments.py "${pdfPath}" "${tmpPymupdf}" 2>/dev/null || echo '{"files":[]}'`
+      );
 
       const fromPdfdetach = (await readdir(tmpPdfdetach)).filter(f => f.toLowerCase().endsWith('.pdf'));
       const fromMutool    = (await readdir(tmpMutool)).filter(f => f.toLowerCase().endsWith('.pdf'));
+      const fromPymupdf   = (await readdir(tmpPymupdf)).filter(f => f.toLowerCase().endsWith('.pdf'));
 
       log?.('info', 'zip.adj_extracted', {
         job_id, pdf,
         pdfdetach: fromPdfdetach.length,
-        mutool: fromMutool.length,
+        mutool:    fromMutool.length,
+        pymupdf:   fromPymupdf.length,
       });
 
-      // Mover todos los adjuntos a tmpAdj, deduplicando por nombre (case-insensitive)
+      // Combinar las 3 herramientas, deduplicando por nombre (case-insensitive)
       const seen = new Set();
-      for (const [src, files] of [[tmpPdfdetach, fromPdfdetach], [tmpMutool, fromMutool]]) {
+      for (const [src, files] of [
+        [tmpPdfdetach, fromPdfdetach],
+        [tmpMutool,    fromMutool],
+        [tmpPymupdf,   fromPymupdf],
+      ]) {
         for (const f of files) {
           const key = f.toLowerCase();
           if (!seen.has(key)) {
@@ -245,6 +259,7 @@ export async function processZip(jobData, log) {
       }
       await rm(tmpPdfdetach, { recursive: true, force: true }).catch(() => {});
       await rm(tmpMutool,    { recursive: true, force: true }).catch(() => {});
+      await rm(tmpPymupdf,   { recursive: true, force: true }).catch(() => {});
 
       const adjFiles = (await readdir(tmpAdj)).filter(f => f.toLowerCase().endsWith('.pdf'));
       for (const af of adjFiles) {
@@ -326,7 +341,9 @@ export async function processZip(jobData, log) {
       try {
         log('info', 'zip.uploading_doc', { job_id, file: fileName, ext, storage_path: storagePath });
         const publicUrl = await uploadToStorage(filePath, storagePath);
-        const ocEntries = ocMap[fileName] || [];
+        const ocEntries = ocMap[fileName]
+          ?? (ext === 'png' ? ocMap[basename(fileName, '.png') + '.pdf'] : null)
+          ?? [];
         documents.push({
           file_url: publicUrl,
           file_type: ext === 'jpeg' ? 'jpg' : ext,
