@@ -19,10 +19,13 @@ import { processDocumentResult, finalizeJob, failJob } from './post-processor.mj
 import { processDocument } from './document-processor.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
-const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.8.0';
-const QUEUE_NAME = 'pdf-processing';
-const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 3);
+// DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
+const WORKER_VERSION  = process.env.WORKER_VERSION     ?? '0.8.0';
+const QUEUE_NAME      = 'pdf-processing';
+const CONCURRENCY     = Number(process.env.WORKER_CONCURRENCY ?? 3);
 const DLQ_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
+const SUPABASE_URL    = process.env.SUPABASE_URL;
+const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
 
 // ─── Conexión Redis ──────────────────────────────────────────────────────────
 const connection = new IORedis({
@@ -39,6 +42,23 @@ connection.on('connect', () =>
 connection.on('error', (err) =>
   log('error', 'redis.error', { message: err.message })
 );
+
+// ─── Credit check (DEC-012) ──────────────────────────────────────────────────
+
+async function getBalance(organizationId) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/organization_credits?organization_id=eq.${encodeURIComponent(organizationId)}&select=balance`,
+    {
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+      },
+    }
+  );
+  if (!res.ok) throw new Error(`Error consultando balance: ${res.status}`);
+  const data = await res.json();
+  return data[0]?.balance ?? 0;
+}
 
 // ─── Logger estructurado (Pino-compatible) ───────────────────────────────────
 function log(level, event, data = {}) {
@@ -85,8 +105,21 @@ const worker = new Worker(
           failed_uploads: failedUploads,
         });
 
-        let successful = 0, failed = failedUploads, lowConfidence = 0;
         const orgId = job.data.organization_id;
+
+        // DEC-012: chequear balance vs documentos a procesar ANTES de llamar a Mistral
+        const docsToProcess = documents.length;
+        if (docsToProcess > 0) {
+          const balance = await getBalance(orgId);
+          if (balance < docsToProcess) {
+            const msg = `Saldo insuficiente: tenés ${balance} crédito${balance !== 1 ? 's' : ''}, el ZIP tiene ${docsToProcess} documento${docsToProcess !== 1 ? 's' : ''}. Cargá ${docsToProcess - balance} crédito${docsToProcess - balance !== 1 ? 's' : ''} más.`;
+            log('warn', 'job.insufficient_credits', { job_id: jobId, organization_id: orgId, balance, docs_needed: docsToProcess });
+            throw new TerminalError(msg);
+          }
+          log('info', 'job.credits_ok', { job_id: jobId, balance, docs_needed: docsToProcess });
+        }
+
+        let successful = 0, failed = failedUploads, lowConfidence = 0;
 
         for (const doc of documents) {
           try {
@@ -131,6 +164,14 @@ const worker = new Worker(
       // ── Documento individual ─────────────────────────────────────────────────
       if (['pdf', 'jpg', 'jpeg', 'png'].includes(fileType)) {
         log('info', 'job.single_doc_start', { job_id: jobId, file_type: fileType });
+
+        // DEC-012: chequear balance >= 1 antes de llamar a Mistral
+        const balance = await getBalance(job.data.organization_id);
+        if (balance < 1) {
+          const msg = 'Saldo insuficiente: no tenés créditos disponibles. Cargá créditos para continuar.';
+          log('warn', 'job.insufficient_credits', { job_id: jobId, organization_id: job.data.organization_id, balance });
+          throw new TerminalError(msg);
+        }
 
         const singlePayload = {
           job_id:            jobId,
