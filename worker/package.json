@@ -5,7 +5,11 @@
   "type": "module",
   "main": "worker.mjs",
   "dependencies": {
+    "@bull-board/api": "^6.0.0",
+    "@bull-board/express": "^6.0.0",
     "bullmq": "^5.0.0",
+    "express": "^4.19.0",
+    "express-basic-auth": "^1.2.1",
     "ioredis": "^5.3.2"
   },
   "engines": {

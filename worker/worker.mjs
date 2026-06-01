@@ -14,6 +14,7 @@ import { processDLQ } from './dlq-processor.mjs';
 import { insertQueueJob, syncJobState } from './persistence.mjs';
 import { startMetricsServer } from './metrics.mjs';
 import { startGateway } from './gateway.mjs';
+import { startBullBoard } from './bull-board.mjs';
 import { processZip } from './zip-processor.mjs';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 import { processDocument } from './document-processor.mjs';
@@ -285,12 +286,16 @@ const metricsServer = startMetricsServer(queue, log);
 // ─── Input Gateway ────────────────────────────────────────────────────────────
 const gatewayServer = startGateway(queue, log);
 
+// ─── Bull Board (dashboard de cola) ──────────────────────────────────────────
+const bullBoardServer = startBullBoard(queue, log);
+
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
 async function shutdown(signal) {
   log('info', 'worker.shutdown', { signal });
   clearInterval(dlqInterval);
   metricsServer.close();
   gatewayServer.close();
+  bullBoardServer.close();
   await worker.close();
   await queue.close();
   await connection.quit();
