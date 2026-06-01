@@ -29,10 +29,11 @@ export class RetryableError extends Error {
  *        payload inválido, tenant sin créditos (cuando se implemente billing)
  */
 export class TerminalError extends Error {
-  constructor(message, cause) {
+  constructor(message, { cause, code } = {}) {
     super(message);
     this.name = 'TerminalError';
-    this.cause = cause;
+    this.cause = cause ?? null;
+    this.code = code ?? null;
   }
 }
 

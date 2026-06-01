@@ -196,7 +196,7 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
 /**
  * Marca el job como error cuando el Worker falla después de agotar los retries.
  */
-export async function failJob(jobId, errorMessage, log) {
+export async function failJob(jobId, errorMessage, log, errorType = 'processing') {
   if (!SUPABASE_URL || !SUPABASE_KEY) return;
 
   try {
@@ -208,11 +208,12 @@ export async function failJob(jobId, errorMessage, log) {
         body: JSON.stringify({
           status: 'error',
           error_message: errorMessage,
+          error_type: errorType,
           finished_at: new Date().toISOString(),
         }),
       }
     );
-    log('error', 'post.job_failed', { job_id: jobId, error: errorMessage });
+    log('error', 'post.job_failed', { job_id: jobId, error: errorMessage, error_type: errorType });
   } catch (err) {
     log('warn', 'post.job_fail_error', { job_id: jobId, error: err.message });
   }

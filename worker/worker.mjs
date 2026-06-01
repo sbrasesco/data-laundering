@@ -114,7 +114,7 @@ const worker = new Worker(
           if (balance < docsToProcess) {
             const msg = `Saldo insuficiente: tenés ${balance} crédito${balance !== 1 ? 's' : ''}, el ZIP tiene ${docsToProcess} documento${docsToProcess !== 1 ? 's' : ''}. Cargá ${docsToProcess - balance} crédito${docsToProcess - balance !== 1 ? 's' : ''} más.`;
             log('warn', 'job.insufficient_credits', { job_id: jobId, organization_id: orgId, balance, docs_needed: docsToProcess });
-            throw new TerminalError(msg);
+            throw new TerminalError(msg, { code: 'INSUFFICIENT_CREDITS' });
           }
           log('info', 'job.credits_ok', { job_id: jobId, balance, docs_needed: docsToProcess });
         }
@@ -170,7 +170,7 @@ const worker = new Worker(
         if (balance < 1) {
           const msg = 'Saldo insuficiente: no tenés créditos disponibles. Cargá créditos para continuar.';
           log('warn', 'job.insufficient_credits', { job_id: jobId, organization_id: job.data.organization_id, balance });
-          throw new TerminalError(msg);
+          throw new TerminalError(msg, { code: 'INSUFFICIENT_CREDITS' });
         }
 
         const singlePayload = {
@@ -212,8 +212,9 @@ const worker = new Worker(
           attempt,
           note: 'Sin retry — error permanente',
         });
+        const errorType = err.code === 'INSUFFICIENT_CREDITS' ? 'credits' : 'processing';
         await syncJobState(job, 'dead', { error: err.message }, log);
-        await failJob(jobId, err.message, log);
+        await failJob(jobId, err.message, log, errorType);
         throw toUnrecoverable(err);
       }
 
