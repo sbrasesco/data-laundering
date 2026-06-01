@@ -213,21 +213,38 @@ export async function processZip(jobData, log) {
       const tmpAdj = join(jobDir, `adj_tmp_${pdfBase}`);
       await mkdir(tmpAdj, { recursive: true });
 
-      await runCmd(`pdfdetach -saveall -o "${tmpAdj}/" "${pdfPath}" 2>/dev/null || true`);
+      // Correr pdfdetach Y mutool siempre — combinar resultados (deduplicar por nombre).
+      // Esto elimina la no-determinismo: si uno falla en un PDF, el otro lo atrapa.
+      const tmpPdfdetach = join(jobDir, `adj_pdfdetach_${pdfBase}`);
+      const tmpMutool    = join(jobDir, `adj_mutool_${pdfBase}`);
+      await mkdir(tmpPdfdetach, { recursive: true });
+      await mkdir(tmpMutool,    { recursive: true });
 
-      // Si pdfdetach extrajo 0 adjuntos, intentar con mutool como fallback.
-      // Algunos PDFs embeben adjuntos via FileAttachment annotations (no /EmbeddedFiles estándar)
-      // o tienen AcroForms malformados que abortan poppler en Alpine pero no en Ubuntu.
-      const adjFilesCheck = (await readdir(tmpAdj)).filter(f => f.toLowerCase().endsWith('.pdf'));
-      if (adjFilesCheck.length === 0) {
-        log?.('info', 'zip.pdfdetach_empty', {
-          job_id,
-          pdf: pdf,
-          note: 'pdfdetach extrajo 0 adjuntos — intentando mutool como fallback',
-        });
-        // mutool extract escribe al directorio actual, por eso usamos cd
-        await runCmd(`cd "${tmpAdj}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
+      await runCmd(`pdfdetach -saveall -o "${tmpPdfdetach}/" "${pdfPath}" 2>/dev/null || true`);
+      await runCmd(`cd "${tmpMutool}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
+
+      const fromPdfdetach = (await readdir(tmpPdfdetach)).filter(f => f.toLowerCase().endsWith('.pdf'));
+      const fromMutool    = (await readdir(tmpMutool)).filter(f => f.toLowerCase().endsWith('.pdf'));
+
+      log?.('info', 'zip.adj_extracted', {
+        job_id, pdf,
+        pdfdetach: fromPdfdetach.length,
+        mutool: fromMutool.length,
+      });
+
+      // Mover todos los adjuntos a tmpAdj, deduplicando por nombre (case-insensitive)
+      const seen = new Set();
+      for (const [src, files] of [[tmpPdfdetach, fromPdfdetach], [tmpMutool, fromMutool]]) {
+        for (const f of files) {
+          const key = f.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            await runCmd(`mv "${join(src, f)}" "${tmpAdj}/${f}" 2>/dev/null || true`);
+          }
+        }
       }
+      await rm(tmpPdfdetach, { recursive: true, force: true }).catch(() => {});
+      await rm(tmpMutool,    { recursive: true, force: true }).catch(() => {});
 
       const adjFiles = (await readdir(tmpAdj)).filter(f => f.toLowerCase().endsWith('.pdf'));
       for (const af of adjFiles) {
