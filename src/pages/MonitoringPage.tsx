@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AppLayout } from '../components/layout/AppLayout';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { supabase } from '../lib/supabase';
 
@@ -241,7 +240,7 @@ export function MonitoringPage() {
     : 0;
 
   return (
-    <AppLayout>
+    <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <h1 style={{ margin: 0 }}>📊 Monitoreo</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -348,6 +347,6 @@ export function MonitoringPage() {
           </div>
         </>
       )}
-    </AppLayout>
+    </div>
   );
 }
