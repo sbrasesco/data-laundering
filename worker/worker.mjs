@@ -16,9 +16,9 @@ import { startMetricsServer } from './metrics.mjs';
 import { startGateway } from './gateway.mjs';
 import { processZip } from './zip-processor.mjs';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
+import { processDocument } from './document-processor.mjs';
 
-const N8N_SUB_WORKFLOW_URL = process.env.N8N_SUB_WORKFLOW_URL ?? 'https://automation.aignition.net/webhook/sub-document';
-
+// DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.8.0';
 const QUEUE_NAME = 'pdf-processing';
 const CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 3);
@@ -90,22 +90,19 @@ const worker = new Worker(
 
         for (const doc of documents) {
           try {
-            const res = await fetch(N8N_SUB_WORKFLOW_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                job_id: jobId,
-                organization_id: orgId,
-                file_url: doc.file_url,
-                file_type: doc.file_type,
-                original_filename: doc.original_filename,
-                client_cuit: doc.client_cuit,
-                client_name: doc.client_name,
-                oc_entries: doc.oc_entries,
-                input_source: job.data.metadata?.source ?? 'frontend_upload',
-              }),
-            });
-            const data = await res.json();
+            const docPayload = {
+              job_id:            jobId,
+              organization_id:   orgId,
+              file_url:          doc.file_url,
+              file_type:         doc.file_type,
+              original_filename: doc.original_filename,
+              client_cuit:       doc.client_cuit,
+              client_name:       doc.client_name,
+              oc_entries:        doc.oc_entries,
+              input_source:      job.data.metadata?.source ?? 'frontend_upload',
+            };
+
+            const data = await processDocument(docPayload, log);
             if (data.success) {
               successful++;
               log('info', 'job.doc_done', { job_id: jobId, file: doc.original_filename, row_id: data.row_id });
@@ -131,25 +128,24 @@ const worker = new Worker(
         return result;
       }
 
-      // ── Documento individual: llamar sub-workflow directamente ───────────────
+      // ── Documento individual ─────────────────────────────────────────────────
       if (['pdf', 'jpg', 'jpeg', 'png'].includes(fileType)) {
         log('info', 'job.single_doc_start', { job_id: jobId, file_type: fileType });
-        const res = await fetch(N8N_SUB_WORKFLOW_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            job_id: jobId,
-            organization_id: job.data.organization_id,
-            file_url: job.data.file_url,
-            file_type: fileType,
-            original_filename: job.data.original_filename,
-            client_cuit: job.data.client_cuit ?? null,
-            client_name: job.data.client_name ?? null,
-            oc_entries: job.data.oc_entries ?? [],
-            input_source: job.data.metadata?.source ?? 'frontend_upload',
-          }),
-        });
-        const data = await res.json();
+
+        const singlePayload = {
+          job_id:            jobId,
+          organization_id:   job.data.organization_id,
+          file_url:          job.data.file_url,
+          file_type:         fileType,
+          original_filename: job.data.original_filename,
+          client_cuit:       job.data.client_cuit  ?? null,
+          client_name:       job.data.client_name  ?? null,
+          oc_entries:        job.data.oc_entries   ?? [],
+          input_source:      job.data.metadata?.source ?? 'frontend_upload',
+        };
+
+        const data = await processDocument(singlePayload, log);
+
         const result = { ...data, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
         return result;
