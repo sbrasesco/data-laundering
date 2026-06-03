@@ -15,20 +15,15 @@ export function getJobStatusLabel(status: string) {
   }
 }
 
-export function getJobStatusClass(status: string) {
+// Retorna variantes de shadcn Badge
+export function getJobStatusVariant(status: string): 'secondary' | 'success' | 'destructive' | 'warning' | 'outline' {
   switch (status) {
     case 'pending':
-      return 'badge badge-secondary';
-    case 'processing':
-      return 'badge badge-info';
+    case 'processing':        return 'secondary';
     case 'done':
-      return 'badge badge-success';
-    case 'done_with_warnings':
-      return 'badge badge-success';
-    case 'error':
-      return 'badge badge-danger';
-    default:
-      return 'badge badge-secondary';
+    case 'done_with_warnings':return 'success';
+    case 'error':             return 'destructive';
+    default:                  return 'outline';
   }
 }
 

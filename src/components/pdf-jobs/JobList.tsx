@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { PdfJob } from '../../hooks/usePdfJobs';
-import { getJobStatusLabel, getJobStatusClass } from '../../utils/status';
+import { getJobStatusLabel, getJobStatusVariant } from '../../utils/status';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface JobListProps {
@@ -53,9 +54,9 @@ export function JobList({ jobs }: JobListProps) {
             const failed    = job.failed_documents ?? 0;
 
             const isProcessing = job.status === 'pending' || job.status === 'processing' || total === 0 || processed + failed < total;
-            const computedStatus = job.status === 'done_with_warnings' ? 'done' : job.status;
-            const displayLabel = isProcessing ? 'Procesando' : getJobStatusLabel(computedStatus);
-            const displayClass = isProcessing ? getJobStatusClass('pending') : getJobStatusClass(computedStatus);
+            const computedStatus = isProcessing ? 'pending' : (job.status === 'done_with_warnings' ? 'done' : job.status);
+            const displayLabel   = isProcessing ? 'Procesando' : getJobStatusLabel(computedStatus);
+            const displayVariant = getJobStatusVariant(computedStatus);
 
             return (
               <TableRow key={job.id}>
@@ -63,9 +64,7 @@ export function JobList({ jobs }: JobListProps) {
                 <TableCell className="text-sm">{job.clients?.name || '-'}</TableCell>
                 <TableCell className="text-sm">{formatPeriod(job.period_month, job.period_year)}</TableCell>
                 <TableCell>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${displayClass}`}>
-                    {displayLabel}
-                  </span>
+                  <Badge variant={displayVariant}>{displayLabel}</Badge>
                 </TableCell>
                 <TableCell className="text-sm tabular-nums">
                   {total > 0 ? `${processed} / ${total}` : '-'}

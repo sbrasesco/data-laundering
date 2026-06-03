@@ -12,6 +12,9 @@ module.exports = {
       screens: { '2xl': '1400px' },
     },
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
       colors: {
         // Las variables CSS ya contienen el valor oklch() completo,
         // por eso usamos var() directamente sin wrapper hsl().

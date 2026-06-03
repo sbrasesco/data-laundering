@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reporte de Arquitectura — Aignition Data Laundering</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg2: #161b27;
+      --bg3: #1e2535;
+      --border: #2a3147;
+      --accent: #4f8ef7;
+      --accent2: #7c5cbf;
+      --accent3: #2dba87;
+      --accent4: #e8913a;
+      --accent5: #e05c6a;
+      --text: #e4e8f5;
+      --text2: #8b94b2;
+      --text3: #c5cde8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* ── HEADER ── */
+    .hero {
+      background: linear-gradient(135deg, #0f1117 0%, #1a1f35 50%, #0d1a2e 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 48px 40px 36px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(79,142,247,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-tag {
+      display: inline-block;
+      background: rgba(79,142,247,0.15);
+      border: 1px solid rgba(79,142,247,0.4);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+    .hero h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .hero p {
+      color: var(--text2);
+      font-size: 15px;
+      max-width: 680px;
+    }
+    .hero-meta {
+      margin-top: 20px;
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .meta-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text2);
+      font-size: 12px;
+    }
+    .meta-chip .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+
+    /* ── LAYOUT ── */
+    .container { max-width: 1100px; margin: 0 auto; padding: 40px 32px; }
+
+    /* ── SECTION HEADERS ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      flex-shrink: 0;
+    }
+    .section-header h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .section-header p {
+      color: var(--text2);
+      font-size: 13px;
+      margin-top: 1px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── TECH STACK PILLS ── */
+    .stack-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .stack-pill {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text3);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .stack-pill .pill-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+
+    /* ── DB SCHEMA ── */
+    .schema-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 14px;
+    }
+    .table-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .table-header {
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-header .table-icon { font-size: 14px; }
+    .table-body { padding: 10px 14px; }
+    .field-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(42,49,71,0.5);
+      font-size: 12px;
+    }
+    .field-row:last-child { border-bottom: none; }
+    .field-name { color: var(--text3); font-family: 'Consolas', monospace; }
+    .field-type {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: 600;
+    }
+    .type-uuid { background: rgba(79,142,247,0.15); color: #7ab3ff; }
+    .type-text { background: rgba(45,186,135,0.15); color: #5dd4a8; }
+    .type-int  { background: rgba(232,145,58,0.15); color: #f0b06a; }
+    .type-bool { background: rgba(124,92,191,0.15); color: #a98ee0; }
+    .type-ts   { background: rgba(224,92,106,0.15); color: #f08090; }
+    .field-pk  { color: #f0d060; font-size: 10px; margin-left: 4px; }
+    .field-fk  { color: #7ab3ff; font-size: 10px; margin-left: 4px; }
+
+    /* ── RELATION DIAGRAM ── */
+    .relation-diagram {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+    }
+
+    /* ── N8N FLOW ── */
+    .flow-container {
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    .flow-phase {
+      margin-bottom: 20px;
+    }
+    .phase-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text2);
+      margin-bottom: 8px;
+      padding-left: 4px;
+    }
+    .flow-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .flow-node {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--text3);
+      white-space: nowrap;
+    }
+    .flow-node .node-icon { font-size: 13px; }
+    .flow-arrow {
+      color: var(--text2);
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .flow-node.node-trigger { border-color: rgba(79,142,247,0.5); background: rgba(79,142,247,0.08); }
+    .flow-node.node-ai      { border-color: rgba(124,92,191,0.5); background: rgba(124,92,191,0.08); }
+    .flow-node.node-db      { border-color: rgba(45,186,135,0.5); background: rgba(45,186,135,0.08); }
+    .flow-node.node-code    { border-color: rgba(232,145,58,0.5); background: rgba(232,145,58,0.08); }
+    .flow-node.node-file    { border-color: rgba(200,180,80,0.5); background: rgba(200,180,80,0.08); }
+    .flow-node.node-cond    { border-color: rgba(224,92,106,0.5); background: rgba(224,92,106,0.08); }
+    .flow-node.node-resp    { border-color: rgba(79,142,247,0.5); background: rgba(79,142,247,0.08); }
+
+    /* ── PAGES TABLE ── */
+    .pages-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .page-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .page-route {
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--accent);
+      background: rgba(79,142,247,0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 6px;
+    }
+    .page-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .page-desc {
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    /* ── HOOKS TABLE ── */
+    .hooks-list { list-style: none; }
+    .hook-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(42,49,71,0.6);
+      gap: 12px;
+    }
+    .hook-row:last-child { border-bottom: none; }
+    .hook-name {
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--accent4);
+      min-width: 180px;
+    }
+    .hook-desc { font-size: 12px; color: var(--text2); }
+    .hook-features {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 3px;
+    }
+    .feature-tag {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .ft-realtime { background: rgba(45,186,135,0.2); color: #5dd4a8; }
+    .ft-polling  { background: rgba(232,145,58,0.2); color: #f0b06a; }
+    .ft-rls      { background: rgba(79,142,247,0.2); color: #7ab3ff; }
+
+    /* ── ARCH DIAGRAM SVG ── */
+    .arch-svg-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+
+    /* ── SECTION SPACER ── */
+    .section { margin-bottom: 52px; }
+
+    /* ── INFO CALLOUT ── */
+    .callout {
+      border-left: 3px solid;
+      border-radius: 0 8px 8px 0;
+      padding: 12px 16px;
+      font-size: 13px;
+      margin: 16px 0;
+    }
+    .callout-blue  { border-color: var(--accent);  background: rgba(79,142,247,0.08); color: var(--text3); }
+    .callout-green { border-color: var(--accent3); background: rgba(45,186,135,0.08); color: var(--text3); }
+    .callout-orange{ border-color: var(--accent4); background: rgba(232,145,58,0.08); color: var(--text3); }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 40px;
+      color: var(--text2);
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     HERO
+════════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="hero-tag">Documentación técnica</div>
+  <h1>Aignition Data Laundering — Reporte de Arquitectura</h1>
+  <p>Descripción completa de la base de datos, el frontend React y el flujo de automatización n8n para el sistema de digitalización de comprobantes PDF → Excel.</p>
+  <div class="hero-meta">
+    <div class="meta-chip"><span class="dot" style="background:#4f8ef7"></span> Frontend: React 18 + Vite + TypeScript</div>
+    <div class="meta-chip"><span class="dot" style="background:#2dba87"></span> DB: Supabase (PostgreSQL)</div>
+    <div class="meta-chip"><span class="dot" style="background:#7c5cbf"></span> Automatización: n8n (40 nodos)</div>
+    <div class="meta-chip"><span class="dot" style="background:#e8913a"></span> IA: Mistral OCR + OpenAI GPT</div>
+    <div class="meta-chip"><span class="dot" style="background:#e05c6a"></span> Generado: Mayo 2026</div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════════════
+     1. VISIÓN GENERAL
+════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:rgba(79,142,247,0.15)">🏗️</div>
+    <div>
+      <h2>1. Visión General</h2>
+      <p>Arquitectura end-to-end del sistema</p>
+    </div>
+  </div>
+
+  <div class="arch-svg-wrap">
+    <svg viewBox="0 0 960 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:700px;">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7" opacity="0.7"/>
+        </marker>
+        <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#2dba87" opacity="0.7"/>
+        </marker>
+        <marker id="arr3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#7c5cbf" opacity="0.7"/>
+        </marker>
+      </defs>
+
+      <!-- BROWSER -->
+      <rect x="20" y="120" width="160" height="120" rx="10" fill="#1e2535" stroke="#2a3147" stroke-width="1.5"/>
+      <rect x="20" y="120" width="160" height="32" rx="10" fill="#4f8ef7" opacity="0.25"/>
+      <rect x="20" y="140" width="160" height="12" rx="0" fill="#4f8ef7" opacity="0.25"/>
+      <text x="100" y="139" text-anchor="middle" fill="#7ab3ff" font-size="11" font-weight="700">BROWSER</text>
+      <text x="100" y="165" text-anchor="middle" fill="#c5cde8" font-size="10">React 18 SPA</text>
+      <text x="100" y="181" text-anchor="middle" fill="#8b94b2" font-size="9">Vite + TypeScript</text>
+      <text x="100" y="197" text-anchor="middle" fill="#8b94b2" font-size="9">React Router v6</text>
+      <text x="100" y="213" text-anchor="middle" fill="#8b94b2" font-size="9">Supabase JS Client</text>
+      <text x="100" y="229" text-anchor="middle" fill="#8b94b2" font-size="9">xlsx export</text>
+
+      <!-- SUPABASE -->
+      <rect x="380" y="60" width="200" height="240" rx="10" fill="#1e2535" stroke="#2a3147" stroke-width="1.5"/>
+      <rect x="380" y="60" width="200" height="32" rx="10" fill="#2dba87" opacity="0.22"/>
+      <rect x="380" y="80" width="200" height="12" rx="0" fill="#2dba87" opacity="0.22"/>
+      <text x="480" y="79" text-anchor="middle" fill="#5dd4a8" font-size="11" font-weight="700">SUPABASE</text>
+      <text x="480" y="108" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">Auth (JWT)</text>
+      <text x="480" y="126" text-anchor="middle" fill="#8b94b2" font-size="9">email + password</text>
+      <line x1="400" y1="135" x2="560" y2="135" stroke="#2a3147" stroke-width="1"/>
+      <text x="480" y="152" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">PostgreSQL</text>
+      <text x="480" y="168" text-anchor="middle" fill="#8b94b2" font-size="9">organizations · profiles</text>
+      <text x="480" y="183" text-anchor="middle" fill="#8b94b2" font-size="9">clients · pdf_jobs</text>
+      <text x="480" y="198" text-anchor="middle" fill="#8b94b2" font-size="9">pdf_job_rows · pdf_job_row_oc</text>
+      <text x="480" y="213" text-anchor="middle" fill="#8b94b2" font-size="9">pdf_document_audit_log</text>
+      <line x1="400" y1="222" x2="560" y2="222" stroke="#2a3147" stroke-width="1"/>
+      <text x="480" y="240" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">Realtime</text>
+      <text x="480" y="256" text-anchor="middle" fill="#8b94b2" font-size="9">Websocket subscriptions</text>
+      <text x="480" y="271" text-anchor="middle" fill="#8b94b2" font-size="9">postgres_changes</text>
+      <line x1="400" y1="280" x2="560" y2="280" stroke="#2a3147" stroke-width="1"/>
+      <text x="480" y="293" text-anchor="middle" fill="#8b94b2" font-size="9">Row Level Security (RLS)</text>
+
+      <!-- N8N -->
+      <rect x="720" y="60" width="220" height="240" rx="10" fill="#1e2535" stroke="#2a3147" stroke-width="1.5"/>
+      <rect x="720" y="60" width="220" height="32" rx="10" fill="#7c5cbf" opacity="0.22"/>
+      <rect x="720" y="80" width="220" height="12" rx="0" fill="#7c5cbf" opacity="0.22"/>
+      <text x="830" y="79" text-anchor="middle" fill="#a98ee0" font-size="11" font-weight="700">n8n WORKFLOW</text>
+      <text x="830" y="108" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">Webhook POST /pdf-to-excel</text>
+      <line x1="740" y1="118" x2="920" y2="118" stroke="#2a3147" stroke-width="1"/>
+      <text x="830" y="136" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">Procesamiento de archivos</text>
+      <text x="830" y="152" text-anchor="middle" fill="#8b94b2" font-size="9">ZIP → PDF/JPG/PNG</text>
+      <line x1="740" y1="162" x2="920" y2="162" stroke="#2a3147" stroke-width="1"/>
+      <text x="830" y="180" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">OCR con IA</text>
+      <text x="830" y="196" text-anchor="middle" fill="#8b94b2" font-size="9">Mistral AI (imágenes)</text>
+      <text x="830" y="211" text-anchor="middle" fill="#8b94b2" font-size="9">Extract from File (PDF)</text>
+      <line x1="740" y1="220" x2="920" y2="220" stroke="#2a3147" stroke-width="1"/>
+      <text x="830" y="238" text-anchor="middle" fill="#c5cde8" font-size="10" font-weight="600">Extracción con IA</text>
+      <text x="830" y="254" text-anchor="middle" fill="#8b94b2" font-size="9">AI Agent (OpenAI GPT)</text>
+      <text x="830" y="269" text-anchor="middle" fill="#8b94b2" font-size="9">40 nodos, loop por doc</text>
+      <line x1="740" y1="278" x2="920" y2="278" stroke="#2a3147" stroke-width="1"/>
+      <text x="830" y="293" text-anchor="middle" fill="#8b94b2" font-size="9">Escribe en Supabase DB</text>
+
+      <!-- arrows: Browser ↔ Supabase -->
+      <line x1="182" y1="165" x2="378" y2="165" stroke="#4f8ef7" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)" opacity="0.7"/>
+      <text x="280" y="157" text-anchor="middle" fill="#4f8ef7" font-size="9">REST / Realtime WS</text>
+
+      <!-- arrow: Browser → n8n webhook -->
+      <path d="M 100 120 Q 100 40 830 58" stroke="#e8913a" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#arr3)" opacity="0.7"/>
+      <text x="460" y="28" text-anchor="middle" fill="#e8913a" font-size="9">POST multipart/form-data (ZIP + job_id)</text>
+
+      <!-- arrow: n8n → Supabase -->
+      <line x1="718" y1="200" x2="582" y2="200" stroke="#2dba87" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr2)" opacity="0.7"/>
+      <text x="650" y="193" text-anchor="middle" fill="#2dba87" font-size="9">INSERT / UPDATE</text>
+
+      <!-- LABELS bottom -->
+      <text x="100" y="258" text-anchor="middle" fill="#8b94b2" font-size="9">Puerto 5173 (dev)</text>
+      <text x="480" y="315" text-anchor="middle" fill="#8b94b2" font-size="9">cloud.supabase.com</text>
+      <text x="830" y="315" text-anchor="middle" fill="#8b94b2" font-size="9">n8n self-hosted</text>
+    </svg>
+  </div>
+
+  <div class="callout callout-blue">
+    <strong>Flujo de datos principal:</strong> El usuario sube un ZIP desde el frontend → se crea el registro en <code>pdf_jobs</code> → se llama al webhook de n8n de forma asíncrona → n8n procesa los PDFs/imágenes con IA y escribe resultados en Supabase → el frontend se actualiza en tiempo real vía Realtime WebSockets.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     2. BASE DE DATOS
+════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:rgba(45,186,135,0.15)">🗄️</div>
+    <div>
+      <h2>2. Base de Datos — Supabase (PostgreSQL)</h2>
+      <p>Modelo multi-tenant con RLS. Proyecto: "Agnition Data Laundering"</p>
+    </div>
+  </div>
+
+  <!-- Relaciones diagram -->
+  <div class="relation-diagram">
+    <svg viewBox="0 0 920 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:620px;">
+      <defs>
+        <marker id="fk" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+          <path d="M0,0 L0,7 L7,3.5 z" fill="#5dd4a8" opacity="0.8"/>
+        </marker>
+      </defs>
+
+      <!-- auth.users (external) -->
+      <rect x="10" y="100" width="130" height="56" rx="8" fill="#161b27" stroke="#2a3147" stroke-width="1" stroke-dasharray="4,2"/>
+      <text x="75" y="122" text-anchor="middle" fill="#8b94b2" font-size="10" font-weight="700">auth.users</text>
+      <text x="75" y="138" text-anchor="middle" fill="#8b94b2" font-size="9">(Supabase Auth)</text>
+      <text x="75" y="150" text-anchor="middle" fill="#8b94b2" font-size="9">id · email · …</text>
+
+      <!-- organizations -->
+      <rect x="180" y="20" width="150" height="72" rx="8" fill="#1e2535" stroke="#2dba87" stroke-width="1.5"/>
+      <rect x="180" y="20" width="150" height="22" rx="8" fill="rgba(45,186,135,0.2)"/>
+      <rect x="180" y="34" width="150" height="8" fill="rgba(45,186,135,0.2)"/>
+      <text x="255" y="35" text-anchor="middle" fill="#5dd4a8" font-size="10" font-weight="700">organizations</text>
+      <text x="255" y="55" text-anchor="middle" fill="#c5cde8" font-size="9">id (PK) · name</text>
+      <text x="255" y="69" text-anchor="middle" fill="#8b94b2" font-size="9">created_at</text>
+      <text x="255" y="84" text-anchor="middle" fill="#8b94b2" font-size="9">Raíz del multi-tenant</text>
+
+      <!-- profiles -->
+      <rect x="180" y="130" width="150" height="88" rx="8" fill="#1e2535" stroke="#2dba87" stroke-width="1.5"/>
+      <rect x="180" y="130" width="150" height="22" rx="8" fill="rgba(45,186,135,0.2)"/>
+      <rect x="180" y="144" width="150" height="8" fill="rgba(45,186,135,0.2)"/>
+      <text x="255" y="145" text-anchor="middle" fill="#5dd4a8" font-size="10" font-weight="700">profiles</text>
+      <text x="255" y="165" text-anchor="middle" fill="#c5cde8" font-size="9">id (PK → auth.users)</text>
+      <text x="255" y="179" text-anchor="middle" fill="#c5cde8" font-size="9">organization_id (FK)</text>
+      <text x="255" y="193" text-anchor="middle" fill="#8b94b2" font-size="9">full_name</text>
+      <text x="255" y="207" text-anchor="middle" fill="#8b94b2" font-size="9">role: owner | user</text>
+
+      <!-- clients -->
+      <rect x="180" y="248" width="150" height="22" rx="6" fill="#1e2535" stroke="#2dba87" stroke-width="1.5"/>
+      <text x="255" y="263" text-anchor="middle" fill="#5dd4a8" font-size="10" font-weight="700">clients</text>
+
+      <!-- pdf_jobs -->
+      <rect x="400" y="80" width="175" height="130" rx="8" fill="#1e2535" stroke="#4f8ef7" stroke-width="1.5"/>
+      <rect x="400" y="80" width="175" height="22" rx="8" fill="rgba(79,142,247,0.18)"/>
+      <rect x="400" y="94" width="175" height="8" fill="rgba(79,142,247,0.18)"/>
+      <text x="487" y="95" text-anchor="middle" fill="#7ab3ff" font-size="10" font-weight="700">pdf_jobs</text>
+      <text x="487" y="115" text-anchor="middle" fill="#c5cde8" font-size="9">id (PK) · organization_id (FK)</text>
+      <text x="487" y="129" text-anchor="middle" fill="#c5cde8" font-size="9">client_id (FK) · user_id (FK)</text>
+      <text x="487" y="143" text-anchor="middle" fill="#8b94b2" font-size="9">status: pending|processing|done</text>
+      <text x="487" y="157" text-anchor="middle" fill="#8b94b2" font-size="9">|done_with_warnings|error</text>
+      <text x="487" y="171" text-anchor="middle" fill="#8b94b2" font-size="9">total/processed/failed_documents</text>
+      <text x="487" y="185" text-anchor="middle" fill="#8b94b2" font-size="9">period_month · period_year</text>
+      <text x="487" y="199" text-anchor="middle" fill="#8b94b2" font-size="9">has_warnings · error_message</text>
+
+      <!-- pdf_job_rows -->
+      <rect x="650" y="40" width="190" height="160" rx="8" fill="#1e2535" stroke="#e8913a" stroke-width="1.5"/>
+      <rect x="650" y="40" width="190" height="22" rx="8" fill="rgba(232,145,58,0.18)"/>
+      <rect x="650" y="54" width="190" height="8" fill="rgba(232,145,58,0.18)"/>
+      <text x="745" y="55" text-anchor="middle" fill="#f0b06a" font-size="10" font-weight="700">pdf_job_rows</text>
+      <text x="745" y="77" text-anchor="middle" fill="#c5cde8" font-size="9">id (PK) · job_id (FK)</text>
+      <text x="745" y="91" text-anchor="middle" fill="#8b94b2" font-size="9">tipo_documento · fecha</text>
+      <text x="745" y="105" text-anchor="middle" fill="#8b94b2" font-size="9">emisor_nombre · emisor_cuit</text>
+      <text x="745" y="119" text-anchor="middle" fill="#8b94b2" font-size="9">receptor_nombre · receptor_cuit</text>
+      <text x="745" y="133" text-anchor="middle" fill="#8b94b2" font-size="9">neto_gravado · iva · total</text>
+      <text x="745" y="147" text-anchor="middle" fill="#8b94b2" font-size="9">moneda · numero_comprobante</text>
+      <text x="745" y="161" text-anchor="middle" fill="#8b94b2" font-size="9">confidence_score</text>
+      <text x="745" y="175" text-anchor="middle" fill="#8b94b2" font-size="9">low_confidence · raw_ocr_text</text>
+      <text x="745" y="189" text-anchor="middle" fill="#8b94b2" font-size="9">orden_compra · documento_relacionado</text>
+
+      <!-- pdf_job_row_oc -->
+      <rect x="650" y="220" width="150" height="22" rx="6" fill="#1e2535" stroke="#e8913a" stroke-width="1.5"/>
+      <text x="725" y="235" text-anchor="middle" fill="#f0b06a" font-size="10" font-weight="700">pdf_job_row_oc</text>
+
+      <!-- pdf_document_audit_log -->
+      <rect x="650" y="258" width="150" height="22" rx="6" fill="#1e2535" stroke="#7c5cbf" stroke-width="1.5"/>
+      <text x="725" y="273" text-anchor="middle" fill="#a98ee0" font-size="10" font-weight="700">pdf_document_audit_log</text>
+
+      <!-- FK lines -->
+      <!-- auth.users → profiles -->
+      <line x1="142" y1="128" x2="178" y2="174" stroke="#5dd4a8" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- organizations → profiles -->
+      <line x1="255" y1="92" x2="255" y2="128" stroke="#5dd4a8" stroke-width="1.2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- organizations → clients -->
+      <line x1="255" y1="218" x2="255" y2="246" stroke="#5dd4a8" stroke-width="1.2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- organizations → pdf_jobs -->
+      <line x1="330" y1="56" x2="398" y2="110" stroke="#5dd4a8" stroke-width="1.2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- clients → pdf_jobs -->
+      <line x1="330" y1="259" x2="460" y2="212" stroke="#5dd4a8" stroke-width="1.2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- pdf_jobs → pdf_job_rows -->
+      <line x1="575" y1="130" x2="648" y2="130" stroke="#5dd4a8" stroke-width="1.2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- pdf_job_rows → pdf_job_row_oc -->
+      <line x1="745" y1="200" x2="725" y2="218" stroke="#5dd4a8" stroke-width="1.2" marker-end="url(#fk)" opacity="0.7"/>
+      <!-- pdf_jobs → audit_log -->
+      <line x1="490" y1="210" x2="650" y2="263" stroke="#5dd4a8" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#fk)" opacity="0.5"/>
+    </svg>
+  </div>
+
+  <div class="schema-grid">
+
+    <!-- organizations -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(45,186,135,0.1);color:#5dd4a8">
+        <span class="table-icon">🏢</span> organizations
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">name</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">created_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+    <!-- profiles -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(45,186,135,0.1);color:#5dd4a8">
+        <span class="table-icon">👤</span> profiles
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span> <span class="field-fk">→ auth.users</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">organization_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">full_name</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">role</span><span class="field-type type-text">owner | user</span></div>
+        <div class="field-row"><span class="field-name">created_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+    <!-- clients -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(45,186,135,0.1);color:#5dd4a8">
+        <span class="table-icon">🏭</span> clients
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">organization_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">name</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">tax_id (CUIT)</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">external_code</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">email</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">is_active</span><span class="field-type type-bool">bool</span></div>
+        <div class="field-row"><span class="field-name">created_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+    <!-- pdf_jobs -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(79,142,247,0.1);color:#7ab3ff">
+        <span class="table-icon">📦</span> pdf_jobs
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">organization_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">client_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">user_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">status</span><span class="field-type type-text">pending|processing|done…</span></div>
+        <div class="field-row"><span class="field-name">total_documents</span><span class="field-type type-int">int</span></div>
+        <div class="field-row"><span class="field-name">processed_documents</span><span class="field-type type-int">int</span></div>
+        <div class="field-row"><span class="field-name">failed_documents</span><span class="field-type type-int">int</span></div>
+        <div class="field-row"><span class="field-name">has_warnings</span><span class="field-type type-bool">bool</span></div>
+        <div class="field-row"><span class="field-name">error_message</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">period_month</span><span class="field-type type-int">int</span></div>
+        <div class="field-row"><span class="field-name">period_year</span><span class="field-type type-int">int</span></div>
+        <div class="field-row"><span class="field-name">created_at / finished_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+    <!-- pdf_job_rows -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(232,145,58,0.1);color:#f0b06a">
+        <span class="table-icon">📄</span> pdf_job_rows
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">job_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">tipo_documento</span><span class="field-type type-text">FACTURA_A/B/C…</span></div>
+        <div class="field-row"><span class="field-name">fecha</span><span class="field-type type-text">text (DD-MM-YYYY)</span></div>
+        <div class="field-row"><span class="field-name">emisor_nombre / emisor_cuit</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">receptor_nombre / receptor_cuit</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">numero_comprobante</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">moneda</span><span class="field-type type-text">ARS | USD</span></div>
+        <div class="field-row"><span class="field-name">neto_gravado / iva / total</span><span class="field-type type-int">numeric</span></div>
+        <div class="field-row"><span class="field-name">percepcion_iibb / iva</span><span class="field-type type-int">numeric</span></div>
+        <div class="field-row"><span class="field-name">confidence_score</span><span class="field-type type-int">0.0–1.0</span></div>
+        <div class="field-row"><span class="field-name">low_confidence</span><span class="field-type type-bool">bool</span></div>
+        <div class="field-row"><span class="field-name">orden_compra</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">documento_relacionado</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">raw_ocr_text</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">created_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+    <!-- pdf_job_row_oc -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(232,145,58,0.1);color:#f0b06a">
+        <span class="table-icon">📋</span> pdf_job_row_oc
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">row_id <span class="field-fk">FK</span> → pdf_job_rows</span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">oc_number</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">created_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+    <!-- audit_log -->
+    <div class="table-card">
+      <div class="table-header" style="background:rgba(124,92,191,0.1);color:#a98ee0">
+        <span class="table-icon">📝</span> pdf_document_audit_log
+      </div>
+      <div class="table-body">
+        <div class="field-row"><span class="field-name">id <span class="field-pk">PK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">job_id <span class="field-fk">FK</span></span><span class="field-type type-uuid">uuid</span></div>
+        <div class="field-row"><span class="field-name">event_type</span><span class="field-type type-text">text</span></div>
+        <div class="field-row"><span class="field-name">payload</span><span class="field-type type-text">jsonb</span></div>
+        <div class="field-row"><span class="field-name">created_at</span><span class="field-type type-ts">timestamptz</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="callout callout-green" style="margin-top:20px">
+    <strong>Multi-tenancy via RLS:</strong> Cada registro en <code>pdf_jobs</code>, <code>clients</code> y <code>pdf_job_rows</code> lleva <code>organization_id</code>. Las políticas de Row Level Security de Supabase garantizan que cada organización solo vea sus propios datos. Los clientes usan soft-delete via el campo <code>is_active</code>.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     3. FRONTEND
+════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:rgba(79,142,247,0.15)">⚛️</div>
+    <div>
+      <h2>3. Frontend — React 18 + Vite</h2>
+      <p>SPA con rutas protegidas, autenticación Supabase y actualizaciones en tiempo real</p>
+    </div>
+  </div>
+
+  <div class="stack-row">
+    <div class="stack-pill"><span class="pill-dot" style="background:#4f8ef7"></span> React 18.2</div>
+    <div class="stack-pill"><span class="pill-dot" style="background:#e8913a"></span> Vite 5</div>
+    <div class="stack-pill"><span class="pill-dot" style="background:#7ab3ff"></span> TypeScript 5</div>
+    <div class="stack-pill"><span class="pill-dot" style="background:#2dba87"></span> @supabase/supabase-js 2</div>
+    <div class="stack-pill"><span class="pill-dot" style="background:#f0b06a"></span> React Router v6</div>
+    <div class="stack-pill"><span class="pill-dot" style="background:#a98ee0"></span> xlsx 0.18</div>
+  </div>
+
+  <!-- Páginas -->
+  <div class="card">
+    <div class="card-title">📄 Páginas y rutas</div>
+    <div class="pages-grid">
+      <div class="page-card">
+        <div class="page-route">/login</div>
+        <div class="page-name">LoginPage</div>
+        <div class="page-desc">Autenticación email/password vía Supabase Auth. Redirige al dashboard si ya hay sesión activa.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-route">/dashboard</div>
+        <div class="page-name">ClientDashboardPage</div>
+        <div class="page-desc">Lista de jobs con filtros por cliente y fecha. Métricas agregadas (total docs, procesados, errores). Acceso al detalle de cada job.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-route">/jobs/new</div>
+        <div class="page-name">SubirZipPage</div>
+        <div class="page-desc">Formulario de carga: selector de cliente, período (mes/año) y archivo ZIP. Crea el job en Supabase y dispara el webhook de n8n en background.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-route">/jobs/:id</div>
+        <div class="page-name">ProcesoDetailPage</div>
+        <div class="page-desc">Detalle de un job: header con estado y métricas, tabla de filas extraídas (pdf_job_rows). Actualización en tiempo real vía Realtime.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-route">/clients</div>
+        <div class="page-name">ClientsPage</div>
+        <div class="page-desc">CRUD de clientes: crear, editar, soft-delete (toggle is_active). Campos: nombre, CUIT, código externo, email.</div>
+      </div>
+      <div class="page-card">
+        <div class="page-route">/documents</div>
+        <div class="page-name">DocumentsPage</div>
+        <div class="page-desc">Vista global de todos los documentos extraídos. Filtros por fecha, cliente y texto libre. Paginación server-side (50/pág). Export a Excel y CSV.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hooks -->
+  <div class="card">
+    <div class="card-title">🪝 Custom Hooks de datos</div>
+    <ul class="hooks-list">
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">usePdfJobs</div>
+          <div class="hook-features">
+            <span class="feature-tag ft-realtime">Realtime</span>
+            <span class="feature-tag ft-polling">Polling 5s</span>
+          </div>
+        </div>
+        <div class="hook-desc">Carga todos los jobs de la organización con conteo de filas. Suscripción Realtime a <code>pdf_jobs</code> y <code>pdf_job_rows</code>. Polling automático cada 5 segundos cuando hay jobs activos (últimos 15 min).</div>
+      </li>
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">usePdfJob</div>
+          <div class="hook-features">
+            <span class="feature-tag ft-realtime">Realtime</span>
+          </div>
+        </div>
+        <div class="hook-desc">Detalle de un job específico. Suscripción Realtime filtrada por <code>id=eq.{jobId}</code> para actualizaciones en tiempo real del estado.</div>
+      </li>
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">usePdfJobRows</div>
+        </div>
+        <div class="hook-desc">Filas extraídas de un job específico, ordenadas por <code>created_at</code>. Carga estática (sin Realtime en la versión actual).</div>
+      </li>
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">useClientJobs</div>
+          <div class="hook-features">
+            <span class="feature-tag ft-realtime">Realtime</span>
+            <span class="feature-tag ft-rls">RLS</span>
+          </div>
+        </div>
+        <div class="hook-desc">Jobs filtrados por cliente, rango de fechas. Calcula métricas agregadas. Suscripción Realtime con lógica de INSERT/UPDATE/DELETE diferenciada.</div>
+      </li>
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">useClients</div>
+          <div class="hook-features">
+            <span class="feature-tag ft-rls">RLS</span>
+          </div>
+        </div>
+        <div class="hook-desc">CRUD completo de clientes. Expone <code>createClient</code>, <code>updateClient</code>, <code>toggleClientActive</code>. Aplica <code>organization_id</code> desde el contexto de auth.</div>
+      </li>
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">useActiveClients</div>
+        </div>
+        <div class="hook-desc">Clientes activos simplificados (id, name, tax_id). Usados en el selector del formulario de carga.</div>
+      </li>
+      <li class="hook-row">
+        <div>
+          <div class="hook-name">useAllDocuments</div>
+        </div>
+        <div class="hook-desc">Todos los documentos (pdf_job_rows) con join a pdf_jobs y clients. Paginación server-side, filtros por fecha y cliente. Búsqueda de texto client-side.</div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Auth Flow -->
+  <div class="card">
+    <div class="card-title">🔐 Flujo de autenticación</div>
+    <div style="color:var(--text2);font-size:13px;line-height:1.8">
+      <strong style="color:var(--text)">AuthContext</strong> gestiona la sesión globalmente con <code>supabase.auth.getSession()</code> y <code>onAuthStateChange()</code>.<br>
+      Al autenticarse, se consulta <code>profiles</code> para obtener el <code>organization_id</code> del usuario.<br>
+      <strong style="color:var(--text)">ProtectedRoute</strong> envuelve todas las rutas privadas y redirige a <code>/login</code> si no hay sesión.<br>
+      El <code>organization_id</code> se propaga via contexto y se usa en todos los hooks para el aislamiento RLS.
+    </div>
+  </div>
+
+  <!-- Upload flow -->
+  <div class="card">
+    <div class="card-title">📤 Flujo de carga de archivo (SubirZipPage)</div>
+    <div class="flow-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="flow-node"><span class="node-icon">1️⃣</span> Usuario selecciona ZIP + cliente + período</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-db"><span class="node-icon">2️⃣</span> INSERT pdf_jobs (status: processing)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-trigger"><span class="node-icon">3️⃣</span> POST webhook n8n (background, no await)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><span class="node-icon">4️⃣</span> Navigate → /dashboard</div>
+      </div>
+    </div>
+    <div class="callout callout-orange" style="margin-top:12px;font-size:12px">
+      La llamada al webhook de n8n se hace con <code>uploadFileToN8n(...).catch()</code> — el frontend no espera la respuesta. El dashboard se actualiza en tiempo real vía Realtime cuando n8n va escribiendo en la DB.
+    </div>
+  </div>
+
+  <!-- Exports -->
+  <div class="card">
+    <div class="card-title">📊 Exportación de datos</div>
+    <div style="color:var(--text2);font-size:13px">
+      La página <strong style="color:var(--text)">Documents</strong> permite exportar los documentos filtrados en dos formatos:<br>
+      <code>exportDocumentsToXlsx()</code> — genera un archivo <strong>.xlsx</strong> usando la librería <em>xlsx</em> con todos los campos del comprobante.<br>
+      <code>exportToCSV()</code> — genera un <strong>.csv</strong> plano para compatibilidad general.<br>
+      Ambas funciones se ejecutan completamente en el cliente (browser).
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     4. FLUJO N8N
+════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:rgba(124,92,191,0.15)">⚙️</div>
+    <div>
+      <h2>4. Workflow n8n — "Aignition PDF → Excel Data Laundering"</h2>
+      <p>40 nodos · procesamiento asíncrono de PDFs e imágenes con extracción IA de comprobantes argentinos</p>
+    </div>
+  </div>
+
+  <div class="flow-container">
+
+    <!-- FASE 1 -->
+    <div class="flow-phase">
+      <div class="phase-label">Fase 1 — Ingesta y setup</div>
+      <div class="flow-row">
+        <div class="flow-node node-trigger">🌐 Webhook POST /pdf-to-excel<br><span style="font-size:10px;color:var(--text2)">file, job_id, client_name, client_cuit</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">🔧 Edit Fields<br><span style="font-size:10px;color:var(--text2)">job_id, client_name, client_cuit</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-file">💾 Guardar archivo en disco<br><span style="font-size:10px;color:var(--text2)">/home/node/facturas/input.archive</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-db">🟢 Marcar job "processing"<br><span style="font-size:10px;color:var(--text2)">UPDATE pdf_jobs</span></div>
+      </div>
+    </div>
+
+    <!-- FASE 2 -->
+    <div class="flow-phase">
+      <div class="phase-label">Fase 2 — Descompresión y mapeo OC</div>
+      <div class="flow-row">
+        <div class="flow-node node-code">🗜️ Descomprimir ZIP<br><span style="font-size:10px;color:var(--text2)">7z x → /home/node/facturas/work/</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">📋 Leer OC Map<br><span style="font-size:10px;color:var(--text2)">Parsea PDFs adjuntos para extraer OC → PDF mapping</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">📊 Contar adjuntos<br><span style="font-size:10px;color:var(--text2)">ADJ_COUNT vía shell</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-db">🔢 Actualizar total_documents<br><span style="font-size:10px;color:var(--text2)">UPDATE pdf_jobs</span></div>
+      </div>
+    </div>
+
+    <!-- FASE 3 -->
+    <div class="flow-phase">
+      <div class="phase-label">Fase 3 — Extracción de texto (PDFs + imágenes en paralelo)</div>
+      <div class="flow-row">
+        <div class="flow-node node-file">📄 Leer PDFs del disco<br><span style="font-size:10px;color:var(--text2)">Read/Write Files</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">📝 Añadir fileName + Normalizar PDF</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">🗂️ Extract from File<br><span style="font-size:10px;color:var(--text2)">Extrae texto nativo del PDF</span></div>
+      </div>
+      <div class="flow-row" style="margin-top:8px">
+        <div class="flow-node node-file">🖼️ Leer JPG / PNG<br><span style="font-size:10px;color:var(--text2)">Read/Write Files (x2)</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-ai">🤖 Mistral AI OCR<br><span style="font-size:10px;color:var(--text2)">Extract text (x2) · vision model</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">📝 Normalizar OCR JPG/PNG</div>
+      </div>
+      <div class="flow-row" style="margin-top:8px">
+        <div class="flow-node">🔀 Merge: Unir OCR imágenes</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">🔀 Merge: Unir todo texto<br><span style="font-size:10px;color:var(--text2)">PDFs + imágenes OCR</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">💉 Inyectar OC Map<br><span style="font-size:10px;color:var(--text2)">Adjunta oc_map a cada item</span></div>
+      </div>
+    </div>
+
+    <!-- FASE 4 -->
+    <div class="flow-phase">
+      <div class="phase-label">Fase 4 — Loop de extracción IA por documento</div>
+      <div class="flow-row">
+        <div class="flow-node">🔄 Loop Over Items<br><span style="font-size:10px;color:var(--text2)">splitInBatches</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-ai">🧠 AI Agent (OpenAI GPT)<br><span style="font-size:10px;color:var(--text2)">Extractor de comprobantes argentinos. Devuelve JSON con CUIT, importes, tipo_doc, emisor, receptor…</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">🔍 Parsear JSON IA<br><span style="font-size:10px;color:var(--text2)">Normaliza campos, valida confidence_score 0-1</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">🔗 Adjuntar job_id a filas</div>
+      </div>
+    </div>
+
+    <!-- FASE 5 -->
+    <div class="flow-phase">
+      <div class="phase-label">Fase 5 — Escritura en Supabase</div>
+      <div class="flow-row">
+        <div class="flow-node node-cond">❓ ¿Tiene Factura?<br><span style="font-size:10px;color:var(--text2)">IF: tipo_documento != null</span></div>
+        <span class="flow-arrow">→ SÍ →</span>
+        <div class="flow-node node-db">✅ INSERT pdf_job_rows<br><span style="font-size:10px;color:var(--text2)">Todos los campos extraídos</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">📋 Expandir OCs</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-db">📋 INSERT pdf_job_row_oc</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-db">📝 Log documento creado<br><span style="font-size:10px;color:var(--text2)">audit_log</span></div>
+      </div>
+      <div class="flow-row" style="margin-top:8px">
+        <div class="flow-node node-cond">❓ ¿Confianza baja? (confidence &lt; umbral)<br><span style="font-size:10px;color:var(--text2)">IF: confidence_score bajo</span></div>
+        <span class="flow-arrow">→ SÍ →</span>
+        <div class="flow-node node-db">⚠️ Log low confidence<br><span style="font-size:10px;color:var(--text2)">audit_log</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-db">🏷️ Marcar fila low_confidence=true<br><span style="font-size:10px;color:var(--text2)">UPDATE pdf_job_rows</span></div>
+      </div>
+    </div>
+
+    <!-- FASE 6 -->
+    <div class="flow-phase">
+      <div class="phase-label">Fase 6 — Finalización</div>
+      <div class="flow-row">
+        <div class="flow-node node-db">📊 Contar docs procesados<br><span style="font-size:10px;color:var(--text2)">getAll pdf_job_rows</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-code">🧮 Calcular totales y fallos</div>
+        <span class="flow-arrow">→ éxito →</span>
+        <div class="flow-node node-db">✅ Marcar job "done" / "done_with_warnings"<br><span style="font-size:10px;color:var(--text2)">UPDATE pdf_jobs</span></div>
+      </div>
+      <div class="flow-row" style="margin-top:8px">
+        <span style="color:var(--text2);font-size:12px">En caso de error:</span>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-cond">❌ Marcar job "error"<br><span style="font-size:10px;color:var(--text2)">UPDATE pdf_jobs + error_message</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node node-resp">📡 Responder al cliente<br><span style="font-size:10px;color:var(--text2)">respondToWebhook</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- N8N Details -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px">
+    <div class="card">
+      <div class="card-title">🤖 IA: Prompt del AI Agent (OpenAI)</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.7">
+        El sistema prompt instruye al modelo a actuar como <strong style="color:var(--text)">extractor de comprobantes argentinos</strong>.<br><br>
+        Reglas clave del prompt:<br>
+        • Devolver <strong>solo JSON válido</strong>, sin texto extra<br>
+        • Fechas en formato <code>DD-MM-YYYY</code>, importes como número<br>
+        • Distingue <strong>EMISOR</strong> (encabezado del comprobante) vs <strong>RECEPTOR</strong> (identificado por etiquetas como "Señor/es:", "Cliente:", "A:")<br>
+        • Ancla de receptor: si el frontend pasa un CUIT confirmado, ese CUIT ES el receptor con certeza absoluta<br>
+        • Infiere tipo de letra (A/B/C) del título o número de comprobante<br>
+        • Moneda: USD si aparece USD/U$S/Dólares, sino ARS<br>
+        • Retorna <code>confidence_score</code> (0–1) por documento
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🗺️ Nodo especial: Leer OC Map</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.7">
+        El nodo <strong style="color:var(--text)">Leer OC Map</strong> es un Code Node que recorre el directorio de trabajo y parsea los PDFs adjuntos del ZIP para extraer el mapeo entre archivos PDF y Órdenes de Compra (OC).<br><br>
+        Técnica: extrae nombres de archivo desde el stream binario del PDF buscando las claves <code>/F</code>, <code>/UF</code> en formato raw. Soporta encoding UTF-16BE.<br><br>
+        Resultado: un objeto <code>oc_map</code> <code>{ "archivo.pdf": ["OC-001", "OC-002"] }</code> que luego se inyecta en el contexto de cada documento para anclar las OC en el AI Agent.
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-blue" style="margin-top:4px">
+    <strong>Tipos de documento soportados:</strong> FACTURA_A/B/C, NOTA_DEBITO_A/B/C, NOTA_CREDITO_A/B/C, ORDEN_COMPRA, SOLICITUD_COTIZACION. El flujo procesa PDFs con texto nativo (Extract from File) y PDFs escaneados / imágenes JPG/PNG (Mistral AI Vision). Ambas rutas convergen antes del AI Agent.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     5. VARIABLES DE ENTORNO
+════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:rgba(232,145,58,0.15)">🔑</div>
+    <div>
+      <h2>5. Variables de entorno requeridas</h2>
+      <p>Configuración del frontend (.env)</p>
+    </div>
+  </div>
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px">
+      <div>
+        <div style="font-family:monospace;font-size:12px;color:#f0b06a;padding:8px 0;border-bottom:1px solid var(--border)">VITE_SUPABASE_URL</div>
+        <div style="font-family:monospace;font-size:12px;color:#f0b06a;padding:8px 0;border-bottom:1px solid var(--border)">VITE_SUPABASE_ANON_KEY</div>
+        <div style="font-family:monospace;font-size:12px;color:#f0b06a;padding:8px 0">VITE_N8N_WEBHOOK_URL</div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--text2);padding:8px 0;border-bottom:1px solid var(--border)">URL del proyecto Supabase (ej: https://xxxx.supabase.co)</div>
+        <div style="font-size:12px;color:var(--text2);padding:8px 0;border-bottom:1px solid var(--border)">Clave anon pública para el cliente JS</div>
+        <div style="font-size:12px;color:var(--text2);padding:8px 0">URL completa del webhook n8n que recibe el ZIP (POST multipart)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<footer>
+  <span>Aignition Data Laundering MVP — Reporte generado el 20 de mayo de 2026</span>
+  <span>React 18 · Supabase · n8n · Mistral AI · OpenAI GPT</span>
+</footer>
+
+</body>
+</html>

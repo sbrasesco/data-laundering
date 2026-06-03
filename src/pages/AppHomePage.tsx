@@ -1,71 +1,30 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function AppHomePage() {
   const { signOut, session } = useAuth();
   const navigate = useNavigate();
 
-  const handleSignOut = async () => {
-    await signOut();
-  };
-
   return (
-    <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Panel Data Laundering</h1>
-      <p>Área privada Data Laundering</p>
-      {session?.user?.email && (
-        <p style={{ color: '#666', marginTop: '1rem' }}>
-          Sesión iniciada como: {session.user.email}
-        </p>
-      )}
-      <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => navigate('/app/mis-procesos')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontSize: '1rem',
-            fontWeight: '500',
-            cursor: 'pointer',
-          }}
-        >
-          Ir a Mis Procesos
-        </button>
-        <button
-          onClick={() => navigate('/app/subir-zip')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontSize: '1rem',
-            fontWeight: '500',
-            cursor: 'pointer',
-          }}
-        >
-          Subir nuevo ZIP
-        </button>
-        <button
-          onClick={handleSignOut}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: '#dc3545',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontSize: '1rem',
-            fontWeight: '500',
-            cursor: 'pointer',
-          }}
-        >
-          Cerrar sesión
-        </button>
+    <div className="p-6 lg:p-8 max-w-2xl mx-auto space-y-6">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Panel Data Laundering</h1>
+        {session?.user?.email && (
+          <p className="text-sm text-muted-foreground">
+            Sesión iniciada como: {session.user.email}
+          </p>
+        )}
       </div>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Accesos rápidos</CardTitle></CardHeader>
+        <CardContent className="flex flex-wrap gap-3">
+          <Button onClick={() => navigate('/dashboard')}>Ir al Dashboard</Button>
+          <Button variant="outline" onClick={() => navigate('/jobs/new')}>Subir nuevo archivo</Button>
+          <Button variant="destructive" onClick={() => signOut()}>Cerrar sesión</Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
-
