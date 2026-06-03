@@ -61,7 +61,7 @@ export function SettingsPage() {
               {/* Preview swatch — usa previewPrimary directamente, sin wrapper hsl() */}
               <div className="w-full h-10 rounded-md overflow-hidden flex">
                 <div className="w-1/3 h-full bg-foreground" />
-                <div className="flex-1 h-full flex flex-col gap-0.5 p-1 bg-muted">
+                <div className="flex-1 h-full flex flex-col gap-0.5 p-1" style={{ background: theme.previewBg }}>
                   <div className="h-1.5 w-3/4 rounded-full" style={{ background: theme.previewPrimary }} />
                   <div className="h-1.5 w-1/2 rounded-full bg-muted-foreground opacity-30" />
                   <div className="h-1.5 w-2/3 rounded-full" style={{ background: theme.previewPrimary, opacity: 0.5 }} />
