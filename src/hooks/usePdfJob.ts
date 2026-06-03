@@ -69,7 +69,7 @@ export function usePdfJob(jobId: string) {
           const rowsCount = countError ? 0 : (count || 0);
 
           setJob({
-            ...data,
+            ...(data as unknown as PdfJobDetail),
             rows_count: rowsCount,
           });
         }
@@ -126,7 +126,7 @@ export function usePdfJob(jobId: string) {
               const rowsCount = countError ? 0 : (count || 0);
 
               setJob({
-                ...data,
+                ...(data as unknown as PdfJobDetail),
                 rows_count: rowsCount,
               });
             }

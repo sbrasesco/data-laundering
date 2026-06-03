@@ -18,10 +18,13 @@ import { startBullBoard } from './bull-board.mjs';
 import { processZip } from './zip-processor.mjs';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 import { processDocument } from './document-processor.mjs';
+import { pollGoogleDriveIntegrations } from './integration-poller.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
-const WORKER_VERSION  = process.env.WORKER_VERSION     ?? '0.8.0';
+const WORKER_VERSION           = process.env.WORKER_VERSION     ?? '0.8.0';
+const INTEGRATION_POLL_INTERVAL_MS = 60 * 1000; // 1 min — el poller filtra qué tenants están "due"
+const GATEWAY_URL              = process.env.GATEWAY_URL ?? 'https://automation.aignition.net/worker/api/enqueue';
 const QUEUE_NAME      = 'pdf-processing';
 const CONCURRENCY     = Number(process.env.WORKER_CONCURRENCY ?? 3);
 const DLQ_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
@@ -277,6 +280,27 @@ async function runDLQCron() {
 runDLQCron();
 const dlqInterval = setInterval(runDLQCron, DLQ_INTERVAL_MS);
 
+// ─── Cron de integraciones (cada 1 min) ──────────────────────────────────────
+async function runIntegrationPoller() {
+  try {
+    await pollGoogleDriveIntegrations({
+      supabaseUrl: SUPABASE_URL,
+      supabaseKey: SUPABASE_KEY,
+      gatewayUrl:  GATEWAY_URL,
+      log,
+    });
+  } catch (err) {
+    log('error', 'integration.cron_error', { error: err.message });
+  }
+}
+
+// Primera ejecución con delay de 10s para dar tiempo al worker a conectarse
+let integrationInterval;
+setTimeout(() => {
+  runIntegrationPoller();
+  integrationInterval = setInterval(runIntegrationPoller, INTEGRATION_POLL_INTERVAL_MS);
+}, 10_000);
+
 // ─── Queue (para métricas — lectura de stats) ────────────────────────────────
 const queue = new Queue(QUEUE_NAME, { connection });
 
@@ -293,6 +317,7 @@ const bullBoardServer = startBullBoard(queue, log);
 async function shutdown(signal) {
   log('info', 'worker.shutdown', { signal });
   clearInterval(dlqInterval);
+  if (integrationInterval) clearInterval(integrationInterval);
   metricsServer.close();
   gatewayServer.close();
   bullBoardServer.close();

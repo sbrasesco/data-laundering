@@ -31,7 +31,7 @@ const TYPE_ICONS: Record<IntegrationType, string> = {
   frontend_only: '🖥️', google_drive: '📁', ftp: '🗄️', sftp: '🔒', remote_folder: '🗂️', firebase_storage: '🔥',
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
-  frontend_only: 'available', google_drive: 'coming_soon', ftp: 'coming_soon', sftp: 'coming_soon', remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
+  frontend_only: 'available', google_drive: 'available', ftp: 'coming_soon', sftp: 'coming_soon', remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
 };
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only: [],

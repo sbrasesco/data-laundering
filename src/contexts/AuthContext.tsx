@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if ('error' in result && result.error) {
         if (result.error.message === 'Timeout') {
           console.warn('Profile fetch timeout after 5 seconds - continuing without profile');
-        } else if (result.error.code === 'PGRST116') {
+        } else if ('code' in result.error && result.error.code === 'PGRST116') {
           // No se encontró el perfil - esto es normal si el usuario no tiene uno aún
           console.log('Profile not found for user - this is OK');
         } else {
