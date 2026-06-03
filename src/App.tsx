@@ -9,6 +9,7 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { ClientDashboardPage } from './pages/ClientDashboardPage';
 import { MonitoringPage } from './pages/MonitoringPage';
 import { IntegracionesPage } from './pages/IntegracionesPage';
+import { MisProcesosPage } from './pages/MisProcesosPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 function App() {
@@ -77,6 +78,14 @@ function App() {
           element={
             <ProtectedRoute>
               <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/mis-procesos"
+          element={
+            <ProtectedRoute>
+              <MisProcesosPage />
             </ProtectedRoute>
           }
         />
