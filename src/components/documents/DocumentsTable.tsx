@@ -3,6 +3,8 @@ import { DocumentRow } from '../../hooks/useAllDocuments';
 import { JobStatusBadge } from '../pdf-jobs/JobStatusBadge';
 import { DocumentDetailModal } from './DocumentDetailModal';
 import { formatDisplayDate } from '../../utils/dateFormat';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 interface DocumentsTableProps {
   documents: DocumentRow[];
@@ -19,19 +21,19 @@ interface ColDef {
 }
 
 const COLS: ColDef[] = [
-  { id: 'fecha',     header: 'Fecha',          className: 'doc-table-date',      sortable: true,  getVal: (d) => d.fecha },
-  { id: 'tipo',      header: 'Tipo',                                              sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'OC' : (d.tipo_documento || '') },
-  { id: 'proveedor', header: 'Proveedor',       className: 'doc-table-proveedor', sortable: true,  getVal: (d) => d.proveedor },
-  { id: 'cuit',      header: 'CUIT',            className: 'doc-table-cuit',      sortable: true,  getVal: (d) => d.cuit },
-  { id: 'receptor',  header: 'Receptor',        className: 'doc-table-receptor',  sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.receptor_nombre },
-  { id: 'numero',    header: 'Número / OC',     className: 'doc-table-numero',    sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.numero_oc || null) : d.numero_comprobante },
-  { id: 'obra',      header: 'Cód. Obra',                                         sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.codigo_obra || null) : null },
-  { id: 'moneda',    header: 'Moneda',                                            sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : (d.es_moneda_usd ? 'USD' : 'ARS') },
-  { id: 'neto',      header: 'Neto',            className: 'doc-table-neto',      sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.neto_gravado },
-  { id: 'iva',       header: 'IVA',             className: 'doc-table-iva',       sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.iva },
-  { id: 'total',     header: 'Total',                                             sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.total },
-  { id: 'estado',    header: 'Estado Proceso',                                    sortable: true,  getVal: (d) => d.pdf_jobs?.status || null },
-  { id: 'accion',    header: 'Acción',                                            sortable: false, getVal: () => null },
+  { id: 'fecha',     header: 'Fecha',        className: 'doc-table-date',      sortable: true,  getVal: (d) => d.fecha },
+  { id: 'tipo',      header: 'Tipo',                                            sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'OC' : (d.tipo_documento || '') },
+  { id: 'proveedor', header: 'Proveedor',     className: 'doc-table-proveedor', sortable: true,  getVal: (d) => d.proveedor },
+  { id: 'cuit',      header: 'CUIT',          className: 'doc-table-cuit',      sortable: true,  getVal: (d) => d.cuit },
+  { id: 'receptor',  header: 'Receptor',      className: 'doc-table-receptor',  sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.receptor_nombre },
+  { id: 'numero',    header: 'Número / OC',   className: 'doc-table-numero',    sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.numero_oc || null) : d.numero_comprobante },
+  { id: 'obra',      header: 'Cód. Obra',                                       sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.codigo_obra || null) : null },
+  { id: 'moneda',    header: 'Moneda',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : (d.es_moneda_usd ? 'USD' : 'ARS') },
+  { id: 'neto',      header: 'Neto',          className: 'doc-table-neto',      sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.neto_gravado },
+  { id: 'iva',       header: 'IVA',           className: 'doc-table-iva',       sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.iva },
+  { id: 'total',     header: 'Total',                                           sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.total },
+  { id: 'estado',    header: 'Estado Proceso',                                  sortable: true,  getVal: (d) => d.pdf_jobs?.status || null },
+  { id: 'accion',    header: 'Acción',                                          sortable: false, getVal: () => null },
 ];
 
 export function DocumentsTable({ documents }: DocumentsTableProps) {
@@ -39,9 +41,9 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
   const [sortCol, setSortCol] = useState<string>('fecha');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  const fmtCurrency = (v: any) => {
+  const fmtCurrency = (v: unknown) => {
     if (v == null) return '-';
-    const n = typeof v === 'string' ? parseFloat(v) : v;
+    const n = typeof v === 'string' ? parseFloat(v) : (v as number);
     if (isNaN(n)) return String(v);
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n);
   };
@@ -62,36 +64,27 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
       if (va == null) return 1;
       if (vb == null) return -1;
       let cmp = 0;
-      if (typeof va === 'number' && typeof vb === 'number') {
-        cmp = va - vb;
-      } else {
-        cmp = String(va).localeCompare(String(vb), 'es', { numeric: true });
-      }
+      if (typeof va === 'number' && typeof vb === 'number') { cmp = va - vb; }
+      else { cmp = String(va).localeCompare(String(vb), 'es', { numeric: true }); }
       return sortDir === 'asc' ? cmp : -cmp;
     });
   }, [documents, sortCol, sortDir]);
 
   const arrow = (id: string) => {
-    if (sortCol !== id) return <span style={{ opacity: 0.3, marginLeft: 4 }}>↕</span>;
-    return <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+    if (sortCol !== id) return <span className="opacity-30 ml-1">↕</span>;
+    return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const thStyle = (sortable: boolean): React.CSSProperties => ({
-    cursor: sortable ? 'pointer' : 'default',
-    userSelect: 'none',
-    whiteSpace: 'nowrap',
-  });
-
   const getMonedaBadge = (row: DocumentRow) => {
-    if (row._row_type === 'oc') return <span className="badge" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>-</span>;
-    if (row.es_moneda_usd) return <span className="badge badge-info">USD</span>;
-    return <span className="badge badge-success">ARS</span>;
+    if (row._row_type === 'oc') return <Badge variant="secondary">-</Badge>;
+    if (row.es_moneda_usd) return <Badge variant="info">USD</Badge>;
+    return <Badge variant="success">ARS</Badge>;
   };
 
   if (documents.length === 0) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
-        <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>No se encontraron documentos con estos filtros.</p>
+      <div className="rounded-lg border bg-card p-8 text-center">
+        <p className="text-sm text-muted-foreground">No se encontraron documentos con estos filtros.</p>
       </div>
     );
   }
@@ -107,17 +100,20 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
           .doc-table-numero, .doc-table-proveedor { display: none; }
         }
         tr.oc-row { background-color: rgba(99,102,241,0.04); border-left: 3px solid #6366f1; }
-        .sort-th:hover { background-color: var(--color-bg-tertiary); }
+        .sort-th:hover { background-color: hsl(var(--muted)); }
       `}</style>
-      <div className="table-wrapper" style={{ overflowX: 'auto' }}>
-        <table className="documents-table">
+      <div className="rounded-lg border bg-card overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr>
+            <tr className="border-b bg-muted/50">
               {COLS.map(col => (
                 <th
                   key={col.id}
-                  className={[col.className || '', col.sortable ? 'sort-th' : ''].filter(Boolean).join(' ')}
-                  style={thStyle(col.sortable)}
+                  className={[
+                    'px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap',
+                    col.className || '',
+                    col.sortable ? 'sort-th cursor-pointer select-none' : '',
+                  ].filter(Boolean).join(' ')}
                   onClick={() => handleSort(col.id, col.sortable)}
                 >
                   {col.header}{col.sortable && arrow(col.id)}
@@ -125,39 +121,38 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-border">
             {sorted.map((doc) => {
               const isOC = doc._row_type === 'oc';
               return (
-                <tr key={doc.id} className={isOC ? 'oc-row' : ''}>
-                  <td className="doc-table-date">{formatDisplayDate(doc.fecha)}</td>
-                  <td>
-                    {isOC ? (
-                      <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#6366f1', fontWeight: 600 }}>OC</span>
-                    ) : (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{doc.tipo_documento || 'Comprobante'}</span>
-                    )}
-                  </td>
-                  <td className="doc-table-proveedor">{doc.proveedor || '-'}</td>
-                  <td className="doc-table-cuit">{doc.cuit || '-'}</td>
-                  <td className="doc-table-receptor">{isOC ? '-' : (doc.receptor_nombre || '-')}</td>
-                  <td className="doc-table-numero">
+                <tr key={doc.id} className={isOC ? 'oc-row' : 'hover:bg-muted/30 transition-colors'}>
+                  <td className="doc-table-date px-3 py-2 text-sm whitespace-nowrap">{formatDisplayDate(doc.fecha)}</td>
+                  <td className="px-3 py-2">
                     {isOC
-                      ? <span style={{ fontWeight: 600 }}>{doc.numero_oc || '-'}</span>
+                      ? <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200">OC</Badge>
+                      : <span className="text-xs text-muted-foreground">{doc.tipo_documento || 'Comprobante'}</span>
+                    }
+                  </td>
+                  <td className="doc-table-proveedor px-3 py-2 text-sm">{doc.proveedor || '-'}</td>
+                  <td className="doc-table-cuit px-3 py-2 text-sm">{doc.cuit || '-'}</td>
+                  <td className="doc-table-receptor px-3 py-2 text-sm">{isOC ? '-' : (doc.receptor_nombre || '-')}</td>
+                  <td className="doc-table-numero px-3 py-2 text-sm">
+                    {isOC
+                      ? <span className="font-medium">{doc.numero_oc || '-'}</span>
                       : (doc.numero_comprobante || '-')
                     }
                   </td>
-                  <td>
+                  <td className="px-3 py-2 text-sm">
                     {isOC && doc.codigo_obra
-                      ? <span style={{ fontWeight: 600, color: '#6366f1' }}>{doc.codigo_obra}</span>
-                      : <span style={{ color: 'var(--color-text-secondary)' }}>-</span>
+                      ? <span className="font-medium text-indigo-600">{doc.codigo_obra}</span>
+                      : <span className="text-muted-foreground">-</span>
                     }
                   </td>
-                  <td>{getMonedaBadge(doc)}</td>
-                  <td className="doc-table-neto">{isOC ? '-' : fmtCurrency(doc.neto_gravado)}</td>
-                  <td className="doc-table-iva">{isOC ? '-' : fmtCurrency(doc.iva)}</td>
-                  <td style={{ fontWeight: 600 }}>{isOC ? '-' : fmtCurrency(doc.total)}</td>
-                  <td>
+                  <td className="px-3 py-2">{getMonedaBadge(doc)}</td>
+                  <td className="doc-table-neto px-3 py-2 text-sm tabular-nums">{isOC ? '-' : fmtCurrency(doc.neto_gravado)}</td>
+                  <td className="doc-table-iva px-3 py-2 text-sm tabular-nums">{isOC ? '-' : fmtCurrency(doc.iva)}</td>
+                  <td className="px-3 py-2 text-sm font-medium tabular-nums">{isOC ? '-' : fmtCurrency(doc.total)}</td>
+                  <td className="px-3 py-2">
                     {doc.pdf_jobs?.status && (
                       <JobStatusBadge
                         status={doc.pdf_jobs.status}
@@ -169,14 +164,11 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
                       />
                     )}
                   </td>
-                  <td>
-                    {isOC ? (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>{doc.nombre_adjunto || '-'}</span>
-                    ) : (
-                      <button type="button" onClick={() => setSelectedDoc(doc)} className="btn btn-primary" style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}>
-                        Ver documento
-                      </button>
-                    )}
+                  <td className="px-3 py-2">
+                    {isOC
+                      ? <span className="text-xs text-muted-foreground">{doc.nombre_adjunto || '-'}</span>
+                      : <Button size="sm" onClick={() => setSelectedDoc(doc)}>Ver documento</Button>
+                    }
                   </td>
                 </tr>
               );

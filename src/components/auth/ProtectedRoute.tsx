@@ -9,18 +9,15 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { session, loading, user, profile } = useAuth();
 
-  // Debug: mostrar información en desarrollo
   if (process.env.NODE_ENV === 'development') {
     console.log('ProtectedRoute state:', { loading, hasSession: !!session, hasUser: !!user, hasProfile: !!profile });
   }
 
   if (loading) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <div className="spinner"></div>
-        <div style={{ marginTop: '1rem', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-          Verificando autenticación...
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background gap-3">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-foreground" />
+        <p className="text-sm text-muted-foreground">Verificando autenticación...</p>
       </div>
     );
   }
@@ -32,4 +29,3 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   return <AppLayout>{children}</AppLayout>;
 }
-

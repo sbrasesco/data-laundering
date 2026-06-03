@@ -1,9 +1,7 @@
 export function LoadingSpinner() {
   return (
-    <div style={{ padding: '2rem', textAlign: 'center' }}>
-      <div className="spinner"></div>
-      <p style={{ marginTop: '1rem', color: 'var(--color-text-secondary)' }}>Cargando…</p>
+    <div className="flex items-center justify-center p-8">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-foreground" />
     </div>
   );
 }
-

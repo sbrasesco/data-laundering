@@ -8,6 +8,7 @@ import { ProcesoDetailPage } from './pages/ProcesoDetailPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { ClientDashboardPage } from './pages/ClientDashboardPage';
 import { MonitoringPage } from './pages/MonitoringPage';
+import { IntegracionesPage } from './pages/IntegracionesPage';
 
 function App() {
   return (
@@ -59,6 +60,14 @@ function App() {
           element={
             <ProtectedRoute>
               <MonitoringPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/integrations"
+          element={
+            <ProtectedRoute>
+              <IntegracionesPage />
             </ProtectedRoute>
           }
         />

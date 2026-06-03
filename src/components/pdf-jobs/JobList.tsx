@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { PdfJob } from '../../hooks/usePdfJobs';
 import { getJobStatusLabel, getJobStatusClass } from '../../utils/status';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface JobListProps {
   jobs: PdfJob[];
@@ -9,30 +11,22 @@ interface JobListProps {
 export function JobList({ jobs }: JobListProps) {
   const navigate = useNavigate();
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-AR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('es-AR', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
-  };
 
   const formatPeriod = (month: number | null, year: number | null) => {
     if (!month || !year) return '-';
-    const months = [
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
-    ];
+    const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
     return `${months[month - 1]} ${year}`;
   };
 
   if (jobs.length === 0) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
-        <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
+      <div className="rounded-lg border bg-card text-card-foreground p-12 text-center">
+        <p className="text-sm text-muted-foreground">
           Todavía no tenés procesos. Creá tu primer proceso.
         </p>
       </div>
@@ -40,75 +34,52 @@ export function JobList({ jobs }: JobListProps) {
   }
 
   return (
-    <div className="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Cliente</th>
-            <th>Período</th>
-            <th>Estado</th>
-            <th>Documentos</th>
-            <th>Acción</th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className="rounded-lg border bg-card overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Fecha</TableHead>
+            <TableHead>Cliente</TableHead>
+            <TableHead>Período</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead>Documentos</TableHead>
+            <TableHead>Acción</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {jobs.map((job) => {
-            // Lógica derivada para mostrar "Procesando" mientras no se hayan resuelto todos los documentos
-            const total = job.total_documents ?? 0;
+            const total     = job.total_documents ?? 0;
             const processed = job.processed_documents ?? 0;
-            const failed = job.failed_documents ?? 0;
+            const failed    = job.failed_documents ?? 0;
 
-            const isProcessing =
-              job.status === 'pending' ||
-              job.status === 'processing' ||
-              total === 0 ||
-              processed + failed < total;
-
-            // Mapear done_with_warnings a done para la visualización
-            const computedStatus =
-              job.status === 'done_with_warnings' ? 'done' : job.status;
-
-            const displayLabel = isProcessing
-              ? 'Procesando'
-              : getJobStatusLabel(computedStatus);
-
-            const displayClass = isProcessing
-              ? getJobStatusClass('pending') // pill gris
-              : getJobStatusClass(computedStatus);
+            const isProcessing = job.status === 'pending' || job.status === 'processing' || total === 0 || processed + failed < total;
+            const computedStatus = job.status === 'done_with_warnings' ? 'done' : job.status;
+            const displayLabel = isProcessing ? 'Procesando' : getJobStatusLabel(computedStatus);
+            const displayClass = isProcessing ? getJobStatusClass('pending') : getJobStatusClass(computedStatus);
 
             return (
-              <tr key={job.id}>
-                <td>{formatDate(job.created_at)}</td>
-                <td>{job.clients?.name || '-'}</td>
-                <td>{formatPeriod(job.period_month, job.period_year)}</td>
-                <td>
-                  <span
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${displayClass}`}
-                  >
+              <TableRow key={job.id}>
+                <TableCell className="text-sm">{formatDate(job.created_at)}</TableCell>
+                <TableCell className="text-sm">{job.clients?.name || '-'}</TableCell>
+                <TableCell className="text-sm">{formatPeriod(job.period_month, job.period_year)}</TableCell>
+                <TableCell>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${displayClass}`}>
                     {displayLabel}
                   </span>
-                </td>
-                <td>
-                  {job.total_documents && job.total_documents > 0
-                    ? `${job.processed_documents ?? 0} / ${job.total_documents}`
-                    : '-'}
-                </td>
-                <td>
-                  <button
-                    onClick={() => navigate(`/jobs/${job.id}`)}
-                    className="btn btn-primary"
-                    style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}
-                  >
+                </TableCell>
+                <TableCell className="text-sm tabular-nums">
+                  {total > 0 ? `${processed} / ${total}` : '-'}
+                </TableCell>
+                <TableCell>
+                  <Button size="sm" onClick={() => navigate(`/jobs/${job.id}`)}>
                     Ver detalles
-                  </button>
-                </td>
-              </tr>
+                  </Button>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }
-

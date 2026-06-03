@@ -1,16 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // Excluir scripts Node del build de Vite
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') },
+  },
   build: {
     rollupOptions: {
-      input: {
-        main: './index.html',
-      },
+      input: { main: './index.html' },
     },
   },
 });
-

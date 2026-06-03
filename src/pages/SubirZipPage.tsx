@@ -5,6 +5,9 @@ import { useActiveClients } from '../hooks/useActiveClients';
 import { createPdfJob, uploadFileToWorker, failPdfJob } from '../lib/pdfJobHelpers';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function SubirZipPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -13,228 +16,118 @@ export function SubirZipPage() {
   const [periodYear, setPeriodYear] = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { user, organizationId } = useAuth();
   const { clients, loading: clientsLoading, error: clientsError } = useActiveClients();
   const navigate = useNavigate();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
-    }
+    if (e.target.files && e.target.files[0]) { setFile(e.target.files[0]); setError(null); }
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-
-    if (!file) {
-      setError('Por favor seleccioná un archivo');
-      return;
-    }
-
-    if (!clientId) {
-      setError('Por favor seleccioná un cliente');
-      return;
-    }
-
-    if (!user) {
-      setError('No hay sesión activa. Por favor iniciá sesión nuevamente.');
-      return;
-    }
+    if (!file) { setError('Por favor seleccioná un archivo'); return; }
+    if (!clientId) { setError('Por favor seleccioná un cliente'); return; }
+    if (!user) { setError('No hay sesión activa. Por favor iniciá sesión nuevamente.'); return; }
 
     setLoading(true);
     setError(null);
-    setSuccessMessage(null);
 
     try {
-      // 1. Crear el job en pdf_jobs (status = 'pending')
-      const { data: job, error: jobError } = await createPdfJob({
-        user_id: user.id,
-        client_id: clientId,
-        period_month: periodMonth,
-        period_year: periodYear,
-      });
+      const { data: job, error: jobError } = await createPdfJob({ user_id: user.id, client_id: clientId, period_month: periodMonth, period_year: periodYear });
+      if (jobError || !job) throw new Error(jobError || 'Error al crear el proceso');
 
-      if (jobError || !job) {
-        throw new Error(jobError || 'Error al crear el proceso');
-      }
-
-      // 2. Lanzar el webhook de n8n EN SEGUNDO PLANO
-      //    NO esperamos el resultado para navegar
       const selectedClient = clients.find((c) => c.id === clientId);
-      uploadFileToWorker(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId).then((result) => {
-        if (!result.success) {
-          console.error('[Gateway] Error:', result.error);
-          const isCredits = result.error?.includes('INSUFFICIENT_CREDITS') || result.error?.includes('créditos') || result.error?.includes('creditos');
-          failPdfJob(job.id, result.error ?? 'Error al encolar el trabajo en el gateway', isCredits ? 'credits' : 'processing');
-        } else {
-          console.log('[Gateway] OK, job_id:', job.id);
-        }
-      }).catch((err) => {
-        console.error('[Gateway] Exception:', err);
-        failPdfJob(job.id, err instanceof Error ? err.message : 'Error inesperado al encolar el trabajo');
-      });
+      uploadFileToWorker(file, job.id, selectedClient?.name, selectedClient?.tax_id, organizationId)
+        .then((result) => {
+          if (!result.success) {
+            const isCredits = result.error?.includes('INSUFFICIENT_CREDITS') || result.error?.includes('créditos') || result.error?.includes('creditos');
+            failPdfJob(job.id, result.error ?? 'Error al encolar el trabajo', isCredits ? 'credits' : 'processing');
+          }
+        })
+        .catch((err) => { failPdfJob(job.id, err instanceof Error ? err.message : 'Error inesperado'); });
 
-      // 3. Redirigir inmediatamente al Dashboard
       navigate('/dashboard');
     } catch (err) {
-      console.error(err);
       setError(err instanceof Error ? err.message : 'Error desconocido al crear el proceso');
     } finally {
       setLoading(false);
     }
   };
 
-  // Generar años recientes (año actual y 2 años anteriores)
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
 
   const months = [
-    { value: 1, label: 'Enero' },
-    { value: 2, label: 'Febrero' },
-    { value: 3, label: 'Marzo' },
-    { value: 4, label: 'Abril' },
-    { value: 5, label: 'Mayo' },
-    { value: 6, label: 'Junio' },
-    { value: 7, label: 'Julio' },
-    { value: 8, label: 'Agosto' },
-    { value: 9, label: 'Septiembre' },
-    { value: 10, label: 'Octubre' },
-    { value: 11, label: 'Noviembre' },
-    { value: 12, label: 'Diciembre' },
+    { value: 1, label: 'Enero' }, { value: 2, label: 'Febrero' }, { value: 3, label: 'Marzo' },
+    { value: 4, label: 'Abril' }, { value: 5, label: 'Mayo' }, { value: 6, label: 'Junio' },
+    { value: 7, label: 'Julio' }, { value: 8, label: 'Agosto' }, { value: 9, label: 'Septiembre' },
+    { value: 10, label: 'Octubre' }, { value: 11, label: 'Noviembre' }, { value: 12, label: 'Diciembre' },
   ];
 
+  const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
-    <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
-      <h1>Crear nuevo proceso</h1>
-      <p style={{ color: 'var(--color-text-secondary)', marginBottom: '2rem' }}>
-        Subí un archivo ZIP o PDF con comprobantes para procesar.
-      </p>
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Crear nuevo proceso</h1>
+        <p className="text-sm text-muted-foreground">Subí un archivo ZIP o PDF con comprobantes para procesar.</p>
+      </div>
 
       {clientsError && <ErrorMessage message={clientsError} />}
 
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label htmlFor="client" className="form-label">
-            Cliente <span style={{ color: 'var(--color-primary)' }}>*</span>
-          </label>
-          {clientsLoading ? (
-            <div style={{ padding: '0.75rem', color: 'var(--color-text-secondary)' }}>
-              Cargando clientes...
+      <Card className="max-w-xl">
+        <CardHeader><CardTitle className="text-base">Datos del proceso</CardTitle></CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="client">Cliente <span className="text-destructive">*</span></Label>
+              {clientsLoading
+                ? <p className="text-sm text-muted-foreground py-1">Cargando clientes...</p>
+                : (
+                  <select id="client" value={clientId} onChange={(e) => setClientId(e.target.value)} required disabled={loading || clientsLoading} className={selectCls}>
+                    <option value="">Seleccionar cliente</option>
+                    {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                )}
             </div>
-          ) : (
-            <select
-              id="client"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              required
-              disabled={loading || clientsLoading}
-              className="form-control"
-            >
-              <option value="">Seleccionar cliente</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div className="form-group">
-            <label htmlFor="period_month" className="form-label">
-              Mes <span style={{ color: 'var(--color-primary)' }}>*</span>
-            </label>
-            <select
-              id="period_month"
-              value={periodMonth}
-              onChange={(e) => setPeriodMonth(Number(e.target.value))}
-              required
-              disabled={loading}
-              className="form-control"
-            >
-              {months.map((month) => (
-                <option key={month.value} value={month.value}>
-                  {month.label}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="period_month">Mes <span className="text-destructive">*</span></Label>
+                <select id="period_month" value={periodMonth} onChange={(e) => setPeriodMonth(Number(e.target.value))} required disabled={loading} className={selectCls}>
+                  {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="period_year">Año <span className="text-destructive">*</span></Label>
+                <select id="period_year" value={periodYear} onChange={(e) => setPeriodYear(Number(e.target.value))} required disabled={loading} className={selectCls}>
+                  {years.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
 
-          <div className="form-group">
-            <label htmlFor="period_year" className="form-label">
-              Año <span style={{ color: 'var(--color-primary)' }}>*</span>
-            </label>
-            <select
-              id="period_year"
-              value={periodYear}
-              onChange={(e) => setPeriodYear(Number(e.target.value))}
-              required
-              disabled={loading}
-              className="form-control"
-            >
-              {years.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="file">Archivo (ZIP o PDF) <span className="text-destructive">*</span></Label>
+              <input id="file" type="file" accept=".zip,.pdf" onChange={handleFileChange} disabled={loading} required
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50" />
+              {file && <p className="text-xs text-muted-foreground">{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</p>}
+            </div>
 
-        <div className="form-group">
-          <label htmlFor="file" className="form-label">
-            Archivo (ZIP o PDF) <span style={{ color: 'var(--color-primary)' }}>*</span>
-          </label>
-          <input
-            id="file"
-            type="file"
-            accept=".zip,.pdf"
-            onChange={handleFileChange}
-            disabled={loading}
-            required
-            className="form-control"
-          />
-          {file && (
-            <p style={{ marginTop: '0.5rem', color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>
-              Archivo seleccionado: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-            </p>
-          )}
-        </div>
+            {error && <ErrorMessage message={error} />}
 
-        {error && <ErrorMessage message={error} />}
-        {successMessage && (
-          <div className="alert alert-success">
-            {successMessage}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button
-            type="submit"
-            disabled={loading || !file || !clientId || clientsLoading}
-            className="btn btn-success"
-          >
-            {loading ? 'Creando proceso...' : 'Crear proceso'}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/dashboard')}
-            disabled={loading}
-            className="btn btn-secondary"
-          >
-            Cancelar
-          </button>
-        </div>
-      </form>
-
-      {loading && (
-        <div style={{ marginTop: '2rem' }}>
-          <LoadingSpinner />
-        </div>
-      )}
+            <div className="flex gap-3 pt-2">
+              <Button type="submit" disabled={loading || !file || !clientId || clientsLoading}>
+                {loading ? 'Creando proceso…' : 'Crear proceso'}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} disabled={loading}>
+                Cancelar
+              </Button>
+            </div>
+          </form>
+          {loading && <div className="mt-4"><LoadingSpinner /></div>}
+        </CardContent>
+      </Card>
     </div>
   );
 }
