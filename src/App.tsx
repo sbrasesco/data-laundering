@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
+import { LandingPage } from './pages/LandingPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { SubirZipPage } from './pages/SubirZipPage';
 import { ProcesoDetailPage } from './pages/ProcesoDetailPage';
@@ -11,6 +12,8 @@ import { MonitoringPage } from './pages/MonitoringPage';
 import { IntegracionesPage } from './pages/IntegracionesPage';
 import { MisProcesosPage } from './pages/MisProcesosPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { PaymentSuccessPage } from './pages/PaymentSuccessPage';
+import { PaymentFailurePage } from './pages/PaymentFailurePage';
 
 function App() {
   return (
@@ -89,11 +92,14 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<LandingPage />} />
+        {/* Payment pages — public, MercadoPago redirects here after checkout */}
+        <Route path="/payment/success" element={<PaymentSuccessPage />} />
+        <Route path="/payment/failure" element={<PaymentFailurePage />} />
+        <Route path="/payment/pending" element={<PaymentFailurePage />} />
       </Routes>
     </AuthProvider>
   );
 }
 
 export default App;
-
