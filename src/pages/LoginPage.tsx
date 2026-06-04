@@ -1,5 +1,5 @@
 import { useState, FormEvent, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 type TabType = 'login' | 'signup';
 
 export function LoginPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('login');
+  const [searchParams] = useSearchParams();
+  const planSlug = searchParams.get('plan') ?? '';
+  const tabParam = searchParams.get('tab');
+
+  const [activeTab, setActiveTab] = useState<TabType>(tabParam === 'signup' ? 'signup' : 'login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -28,9 +32,56 @@ export function LoginPage() {
   const { signInWithPassword, session, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
+  const handlePostAuth = async () => {
+    if (!planSlug) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+
+    try {
+      const { data: planData, error: planError } = await supabase
+        .from('billing_plans')
+        .select('id')
+        .eq('name', planSlug)
+        .eq('active', true)
+        .single();
+
+      if (planError || !planData) {
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+
+      const { data: { session: freshSession } } = await supabase.auth.getSession();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-preference`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${freshSession?.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ plan_id: planData.id }),
+        }
+      );
+
+      if (!response.ok) {
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+
+      const data = await response.json();
+      const checkoutUrl = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
+      window.location.href = checkoutUrl;
+    } catch {
+      navigate('/dashboard', { replace: true });
+    }
+  };
+
+  // !loading is critical: blocks redirect while handleSignUp is still creating org+profile
   useEffect(() => {
-    if (!authLoading && session) navigate('/dashboard', { replace: true });
-  }, [session, authLoading, navigate]);
+    if (!authLoading && !loading && session) handlePostAuth();
+  }, [session, authLoading, loading]);
 
   useEffect(() => {
     setError(null);
@@ -42,8 +93,13 @@ export function LoginPage() {
     setLoading(true);
     setError(null);
     const { error } = await signInWithPassword(email, password);
-    if (error) { setError(error.message); setLoading(false); }
-    else navigate('/dashboard');
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+    } else {
+      setLoading(false);
+      // useEffect handles redirect via handlePostAuth
+    }
   };
 
   const handleSignUp = async (e: FormEvent) => {
@@ -69,7 +125,10 @@ export function LoginPage() {
       if (signInError) {
         const msg = signInError.message?.toLowerCase() || '';
         if (msg.includes('email not confirmed') || msg.includes('email_not_confirmed') || msg.includes('confirm') || signInError.status === 400) {
-          setSuccessMessage(`Se ha enviado un correo a ${signupEmail.trim()}. Por favor, confirmá tu registro.`);
+          const confirmMsg = planSlug
+            ? `Se ha enviado un correo a ${signupEmail.trim()}. Confirmá tu registro y volvé a la landing para completar tu compra.`
+            : `Se ha enviado un correo a ${signupEmail.trim()}. Por favor, confirmá tu registro.`;
+          setSuccessMessage(confirmMsg);
           setOrganizationName(''); setSignupEmail(''); setSignupPassword(''); setPasswordConfirm('');
           setLoading(false);
           return;
@@ -77,15 +136,17 @@ export function LoginPage() {
         throw new Error(signInError.message || 'No se pudo iniciar sesión automáticamente.');
       }
 
+      // Create org+profile BEFORE setLoading(false) so the !loading guard in useEffect holds
       const { data: org, error: orgError } = await supabase.from('organizations').insert({ name: organizationName.trim() }).select().single();
       if (orgError || !org) throw new Error(orgError?.message || 'Error al crear la organización');
       const { error: profileError } = await supabase.from('profiles').insert({ id: user.id, organization_id: org.id });
       if (profileError) throw new Error(profileError.message || 'Error al crear el perfil');
 
-      setSuccessMessage('Cuenta creada con éxito. Redirigiendo...');
+      const successMsg = planSlug ? 'Cuenta creada. Redirigiendo al pago...' : 'Cuenta creada con éxito. Redirigiendo...';
+      setSuccessMessage(successMsg);
       setOrganizationName(''); setSignupEmail(''); setSignupPassword(''); setPasswordConfirm('');
       setLoading(false);
-      setTimeout(() => navigate('/dashboard'), 1500);
+      // useEffect handles redirect via handlePostAuth
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido al crear la cuenta');
       setLoading(false);
@@ -96,7 +157,18 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-muted/40 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center pb-4">
-          <CardTitle className="text-2xl font-semibold tracking-tight">Data Laundering</CardTitle>
+          {planSlug ? (
+            <>
+              <CardTitle className="text-2xl font-semibold tracking-tight">
+                Contratar plan — {planSlug.charAt(0).toUpperCase() + planSlug.slice(1)}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                {activeTab === 'signup' ? 'Creá tu cuenta para continuar con el pago' : 'Ingresá para continuar con el pago'}
+              </p>
+            </>
+          ) : (
+            <CardTitle className="text-2xl font-semibold tracking-tight">Data Laundering</CardTitle>
+          )}
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)}>
@@ -117,7 +189,7 @@ export function LoginPage() {
                 </div>
                 {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
                 <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? 'Ingresando...' : 'Ingresar'}
+                  {loading ? 'Ingresando...' : planSlug ? 'Ingresar y pagar' : 'Ingresar'}
                 </Button>
               </form>
             </TabsContent>
@@ -143,7 +215,7 @@ export function LoginPage() {
                 {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
                 {successMessage && <Alert variant="success"><AlertDescription>{successMessage}</AlertDescription></Alert>}
                 <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? 'Creando cuenta...' : 'Crear cuenta'}
+                  {loading ? 'Creando cuenta...' : planSlug ? 'Crear cuenta y pagar' : 'Crear cuenta'}
                 </Button>
               </form>
             </TabsContent>

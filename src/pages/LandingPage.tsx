@@ -219,7 +219,7 @@ function Precios() {
 
       if (!session) {
         // Not logged in — redirect to login with plan param (TASK-61 will handle inline registration)
-        navigate(`/login?plan=${slug}`);
+        navigate(`/login?plan=${slug}&tab=signup`);
         return;
       }
 
