@@ -19,6 +19,7 @@ import { processZip } from './zip-processor.mjs';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 import { processDocument } from './document-processor.mjs';
 import { pollGoogleDriveIntegrations } from './integration-poller.mjs';
+import { pollFtpSftpIntegrations }     from './ftp-sftp-poller.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
@@ -282,15 +283,16 @@ const dlqInterval = setInterval(runDLQCron, DLQ_INTERVAL_MS);
 
 // ─── Cron de integraciones (cada 1 min) ──────────────────────────────────────
 async function runIntegrationPoller() {
+  const ctx = { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, gatewayUrl: GATEWAY_URL, log };
   try {
-    await pollGoogleDriveIntegrations({
-      supabaseUrl: SUPABASE_URL,
-      supabaseKey: SUPABASE_KEY,
-      gatewayUrl:  GATEWAY_URL,
-      log,
-    });
+    await pollGoogleDriveIntegrations(ctx);
   } catch (err) {
-    log('error', 'integration.cron_error', { error: err.message });
+    log('error', 'integration.cron_error', { protocol: 'google_drive', error: err.message });
+  }
+  try {
+    await pollFtpSftpIntegrations(ctx);
+  } catch (err) {
+    log('error', 'integration.cron_error', { protocol: 'ftp_sftp', error: err.message });
   }
 }
 

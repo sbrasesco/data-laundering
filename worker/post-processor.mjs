@@ -11,6 +11,8 @@
  * testeable, observable y versionada.
  */
 
+import { depositOutputIfConfigured } from './output-depositor.mjs';
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const WORKER_VERSION = process.env.WORKER_VERSION ?? '0.6.0';
@@ -163,6 +165,10 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
   } catch (err) {
     log('warn', 'post.job_finalize_error', { job_id: jobId, error: err.message });
   }
+
+  // ── TASK-65: Depósito automático de CSV en integración de salida ─────────
+  // Best-effort: si falla no afecta el job.
+  await depositOutputIfConfigured(jobId, orgId, log);
 
   // ── TASK-18: Descuento de créditos post-procesamiento ─────────────────────
   // Orden: procesar → finalizar job → descontar crédito. Nunca al revés.

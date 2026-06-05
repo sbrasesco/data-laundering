@@ -20,6 +20,9 @@ interface TenantIntegration {
   polling_interval_minutes: number;
   last_polled_at: string | null;
   updated_at: string;
+  output_enabled: boolean;
+  output_folder_path: string | null;
+  output_format: 'csv' | 'json';
 }
 
 type CredentialFields = Record<string, string>;
@@ -31,7 +34,7 @@ const TYPE_ICONS: Record<IntegrationType, string> = {
   frontend_only: '🖥️', google_drive: '📁', ftp: '🗄️', sftp: '🔒', remote_folder: '🗂️', firebase_storage: '🔥',
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
-  frontend_only: 'available', google_drive: 'available', ftp: 'coming_soon', sftp: 'coming_soon', remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
+  frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available', remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
 };
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only: [],
@@ -56,8 +59,11 @@ export function IntegracionesPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<IntegrationType>('frontend_only');
   const [credentials, setCredentials]   = useState<CredentialFields>({});
-  const [folderPath, setFolderPath]     = useState('');
+  const [folderPath, setFolderPath]         = useState('');
   const [pollingInterval, setPollingInterval] = useState(15);
+  const [outputEnabled, setOutputEnabled]   = useState(false);
+  const [outputFolder, setOutputFolder]     = useState('output');
+  const [outputFormat, setOutputFormat]     = useState<'csv' | 'json'>('csv');
 
   const loadIntegrations = useCallback(async () => {
     setLoading(true); setError(null);
@@ -70,13 +76,13 @@ export function IntegracionesPage() {
 
   useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
 
-  const openAddForm = () => { setEditingId(null); setSelectedType('frontend_only'); setCredentials({}); setFolderPath(''); setPollingInterval(15); setSaveError(null); setShowForm(true); };
-  const openEditForm = (i: TenantIntegration) => { setEditingId(i.id); setSelectedType(i.integration_type); setCredentials({ ...i.credentials }); setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes); setSaveError(null); setShowForm(true); };
+  const openAddForm = () => { setEditingId(null); setSelectedType('frontend_only'); setCredentials({}); setFolderPath(''); setPollingInterval(15); setOutputEnabled(false); setOutputFolder('output'); setOutputFormat('csv'); setSaveError(null); setShowForm(true); };
+  const openEditForm = (i: TenantIntegration) => { setEditingId(i.id); setSelectedType(i.integration_type); setCredentials({ ...i.credentials }); setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes); setOutputEnabled(i.output_enabled ?? false); setOutputFolder(i.output_folder_path ?? 'output'); setOutputFormat(i.output_format ?? 'csv'); setSaveError(null); setShowForm(true); };
 
   const handleSave = async () => {
     setSaving(true); setSaveError(null);
     try {
-      const { error: rpcError } = await supabase.rpc('upsert_tenant_integration', { p_type: selectedType, p_config: {}, p_credentials: credentials, p_folder_path: folderPath || null, p_interval: pollingInterval });
+      const { error: rpcError } = await supabase.rpc('upsert_tenant_integration', { p_type: selectedType, p_config: {}, p_credentials: credentials, p_folder_path: folderPath || null, p_interval: pollingInterval, p_output_enabled: outputEnabled, p_output_folder: outputEnabled ? (outputFolder || 'output') : null, p_output_format: outputFormat });
       if (rpcError) throw rpcError;
       setShowForm(false); await loadIntegrations();
     } catch (e: unknown) { setSaveError(e instanceof Error ? e.message : 'Error al guardar'); } finally { setSaving(false); }
@@ -153,6 +159,40 @@ export function IntegracionesPage() {
                 </div>
               )}
 
+              {selectedType !== 'frontend_only' && (
+                <div className="space-y-3 border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm font-medium">Salida automática</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">Depositar el CSV de resultados automáticamente al terminar el procesamiento.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOutputEnabled((v) => !v)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  {outputEnabled && (
+                    <div className="grid grid-cols-[2fr_1fr] gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Carpeta de salida</Label>
+                        <Input value={outputFolder} onChange={(e) => setOutputFolder(e.target.value)} placeholder="output" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Formato</Label>
+                        <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value as 'csv' | 'json')}
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                          <option value="csv">CSV</option>
+                          <option value="json">JSON (próximamente)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {saveError && <Alert variant="destructive"><AlertDescription>{saveError}</AlertDescription></Alert>}
 
               <div className="flex gap-3">
@@ -187,6 +227,7 @@ export function IntegracionesPage() {
                           <Badge variant={integration.is_active ? 'success' : 'secondary'}>{integration.is_active ? '● Activa' : '○ Inactiva'}</Badge>
                           <Badge variant={WORKER_STATUS[integration.integration_type] === 'available' ? 'default' : 'secondary'}>{WORKER_STATUS[integration.integration_type] === 'available' ? '🟢 Disponible' : '🔜 Próximamente'}</Badge>
                           {integration.integration_type !== 'frontend_only' && <span className="text-xs text-muted-foreground self-center">Cada {integration.polling_interval_minutes} min</span>}
+                          {integration.output_enabled && <Badge variant="secondary">📤 Salida automática</Badge>}
                         </div>
                       </div>
                     </div>
