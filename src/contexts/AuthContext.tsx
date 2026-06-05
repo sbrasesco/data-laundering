@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 export interface Profile {
   id: string;
   organization_id: string;
+  onboarding_completed: boolean;
 }
 
 interface AuthContextType {
@@ -27,14 +28,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (userId: string): Promise<void> => {
     try {
-      // Crear un timeout manual
       const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
         setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 5000);
       });
 
       const profilePromise = supabase
         .from('profiles')
-        .select('id, organization_id')
+        .select('id, organization_id, onboarding_completed')
         .eq('id', userId)
         .single();
 
@@ -44,7 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (result.error.message === 'Timeout') {
           console.warn('Profile fetch timeout after 5 seconds - continuing without profile');
         } else if ('code' in result.error && result.error.code === 'PGRST116') {
-          // No se encontró el perfil - esto es normal si el usuario no tiene uno aún
           console.log('Profile not found for user - this is OK');
         } else {
           console.warn('Error fetching profile (non-blocking):', result.error.message);
@@ -79,7 +78,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Timeout de seguridad: si después de 10 segundos no se carga, forzar el fin del loading
     const timeoutId = setTimeout(() => {
       if (mounted) {
         console.warn('Auth loading timeout - forzando fin del loading');
@@ -87,7 +85,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 10000);
 
-    // Obtener sesión inicial
     supabase.auth.getSession().then(async ({ data: { session }, error: sessionError }) => {
       if (!mounted) {
         clearTimeout(timeoutId);
@@ -98,29 +95,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (sessionError) {
         console.error('Error getting session:', sessionError);
-        if (mounted) {
-          setLoading(false);
-        }
+        if (mounted) setLoading(false);
         return;
       }
 
       setSession(session);
       setUser(session?.user ?? null);
-      
-      // Intentar obtener el perfil, pero no bloquear si falla
+
       if (session?.user) {
-        // No esperamos el perfil - lo cargamos en paralelo
-        fetchProfile(session.user.id).catch(() => {
-          // Ya manejado en fetchProfile
-        });
+        fetchProfile(session.user.id).catch(() => {});
       } else {
         setProfile(null);
       }
-      
-      // Siempre terminamos el loading después de obtener la sesión
-      if (mounted) {
-        setLoading(false);
-      }
+
+      if (mounted) setLoading(false);
     }).catch((err) => {
       console.error('Error in getSession promise:', err);
       if (mounted) {
@@ -129,7 +117,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Escuchar cambios en el estado de autenticación
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -142,21 +129,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSession(session);
       setUser(session?.user ?? null);
-      
-      // Intentar obtener el perfil, pero no bloquear si falla
+
       if (session?.user) {
-        // No esperamos el perfil - lo cargamos en paralelo
-        fetchProfile(session.user.id).catch(() => {
-          // Ya manejado en fetchProfile
-        });
+        fetchProfile(session.user.id).catch(() => {});
       } else {
         setProfile(null);
       }
-      
-      // Siempre terminamos el loading después de actualizar la sesión
-      if (mounted) {
-        setLoading(false);
-      }
+
+      if (mounted) setLoading(false);
     });
 
     return () => {
@@ -167,10 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithPassword = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
   };
 
@@ -200,4 +177,3 @@ export function useAuthContext() {
   }
   return context;
 }
-
