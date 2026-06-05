@@ -16,6 +16,8 @@ const GATEWAY_PORT = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const GATEWAY_API_KEY = process.env.GATEWAY_API_KEY;
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
 const VALID_FILE_TYPES = ['zip', 'rar', 'pdf', 'jpg', 'jpeg', 'png'];
 const VALID_SOURCES = ['frontend_upload', 'integration_drive', 'integration_remote', 'api_direct'];
@@ -126,6 +128,133 @@ async function handleEnqueue(body, queue, log) {
 }
 
 /**
+ * POST /api/mp/create-preference — crea preferencia de pago en MercadoPago.
+ */
+async function handleCreateMpPreference(body, log) {
+  const { plan_id, user_id } = body ?? {};
+
+  if (!plan_id || !user_id) {
+    return { status: 400, body: { error: 'Campos requeridos: plan_id, user_id' } };
+  }
+  if (!isUUID(plan_id) || !isUUID(user_id)) {
+    return { status: 400, body: { error: 'plan_id y user_id deben ser UUIDs válidos' } };
+  }
+  if (!MP_ACCESS_TOKEN) {
+    return { status: 500, body: { error: 'MP_ACCESS_TOKEN no configurado en el servidor' } };
+  }
+
+  // ── 0. Resolver organization_id desde user_id ─────────────────────────────
+  const profileRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(user_id)}&select=organization_id&limit=1`,
+    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!profileRes.ok) {
+    log('error', 'mp.profile_fetch_error', { user_id, status: profileRes.status });
+    return { status: 502, body: { error: 'Error consultando profiles en Supabase' } };
+  }
+  const profiles = await profileRes.json();
+  if (!profiles.length || !profiles[0].organization_id) {
+    return { status: 404, body: { error: 'Perfil de usuario no encontrado o sin organización asociada' } };
+  }
+  const organization_id = profiles[0].organization_id;
+
+  // ── 1. Consultar plan en Supabase ─────────────────────────────────────────
+  const planRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/billing_plans?id=eq.${encodeURIComponent(plan_id)}&active=eq.true&select=id,display_name,price,currency&limit=1`,
+    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!planRes.ok) {
+    log('error', 'mp.plan_fetch_error', { plan_id, status: planRes.status });
+    return { status: 502, body: { error: 'Error consultando billing_plans en Supabase' } };
+  }
+  const plans = await planRes.json();
+  if (!plans.length) {
+    return { status: 404, body: { error: 'Plan no encontrado o inactivo' } };
+  }
+  const plan = plans[0];
+
+  // ── 2. Crear preferencia en MercadoPago ───────────────────────────────────
+  const mpBody = {
+    items: [{
+      title: plan.display_name,
+      quantity: 1,
+      unit_price: Number(plan.price),
+      currency_id: plan.currency,
+    }],
+    back_urls: {
+      success: `${FRONTEND_URL}/payment/success`,
+      failure: `${FRONTEND_URL}/payment/failure`,
+      pending: `${FRONTEND_URL}/payment/pending`,
+    },
+    ...(FRONTEND_URL.startsWith('https://') ? { auto_return: 'approved' } : {}),
+    external_reference: organization_id,
+  };
+
+  const mpRes = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${MP_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(mpBody),
+  });
+
+  if (!mpRes.ok) {
+    const mpErr = await mpRes.text();
+    log('error', 'mp.preference_error', { plan_id, organization_id, status: mpRes.status, error: mpErr });
+    return { status: 502, body: { error: 'Error creando preferencia en MercadoPago', detail: mpErr } };
+  }
+  const mpData = await mpRes.json();
+
+  // ── 3. Insertar en tabla payments ─────────────────────────────────────────
+  const paymentPayload = {
+    organization_id,
+    plan_id,
+    amount: Number(plan.price),
+    currency: plan.currency,
+    gateway: 'mercadopago',
+    gateway_preference_id: mpData.id,
+    status: 'pending',
+  };
+
+  const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify(paymentPayload),
+  });
+
+  if (!payRes.ok) {
+    const payErr = await payRes.text();
+    log('error', 'mp.payment_insert_error', { organization_id, plan_id, status: payRes.status, error: payErr });
+    return { status: 502, body: { error: 'Error insertando payment en Supabase', detail: payErr } };
+  }
+  const [payment] = await payRes.json();
+
+  log('info', 'mp.preference_created', {
+    payment_id: payment.id,
+    preference_id: mpData.id,
+    organization_id,
+    user_id,
+    plan_id,
+  });
+
+  return {
+    status: 200,
+    body: {
+      payment_id: payment.id,
+      preference_id: mpData.id,
+      init_point: mpData.init_point,
+      sandbox_init_point: mpData.sandbox_init_point,
+    },
+  };
+}
+
+/**
  * Inicia el servidor HTTP del Input Gateway.
  */
 export function startGateway(queue, log) {
@@ -159,14 +288,25 @@ export function startGateway(queue, log) {
       }
     }
 
-    json(res, 404, { error: 'Not Found', endpoints: ['POST /api/enqueue', 'GET /health'] });
+    if (req.method === 'POST' && req.url === '/api/mp/create-preference') {
+      try {
+        const body = await readBody(req);
+        const result = await handleCreateMpPreference(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'mp.request_error', { error: err.message });
+        return json(res, 500, { error: err.message });
+      }
+    }
+
+    json(res, 404, { error: 'Not Found', endpoints: ['POST /api/enqueue', 'POST /api/mp/create-preference', 'GET /health'] });
   });
 
   server.listen(GATEWAY_PORT, () => {
     log('info', 'gateway.started', {
       port: GATEWAY_PORT,
       auth: GATEWAY_API_KEY ? 'Bearer token' : 'NONE (staging)',
-      endpoints: ['POST /api/enqueue', 'GET /health'],
+      endpoints: ['POST /api/enqueue', 'POST /api/mp/create-preference', 'GET /health'],
     });
   });
 
