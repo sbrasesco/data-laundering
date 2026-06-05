@@ -24,6 +24,8 @@ const GATEWAY_API_KEY  = import.meta.env.VITE_WORKER_API_KEY as string ?? '';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type IntegrationType = 'frontend_only' | 'google_drive' | 'ftp' | 'sftp' | 'remote_folder' | 'firebase_storage';
+// Tipos disponibles en el selector (frontend_only no es una "integración" — es el comportamiento base)
+const SELECTABLE_TYPES: IntegrationType[] = ['google_drive', 'ftp', 'sftp', 'remote_folder', 'firebase_storage'];
 
 interface TenantIntegration {
   id: string;
@@ -110,7 +112,7 @@ export function IntegracionesPage() {
   const [saving, setSaving]         = useState(false);
   const [saveError, setSaveError]   = useState<string | null>(null);
 
-  const [selectedType, setSelectedType]       = useState<IntegrationType>('frontend_only');
+  const [selectedType, setSelectedType]       = useState<IntegrationType>('google_drive');
   const [credentials, setCredentials]         = useState<CredentialFields>({});
   const [folderPath, setFolderPath]           = useState('');
   const [pollingInterval, setPollingInterval] = useState(15);
@@ -215,7 +217,7 @@ export function IntegracionesPage() {
 
   // ── Formulario ────────────────────────────────────────────────────────────────
   const resetForm = () => {
-    setEditingId(null); setSelectedType('frontend_only'); setCredentials({});
+    setEditingId(null); setSelectedType('google_drive'); setCredentials({});
     setFolderPath(''); setPollingInterval(15); setOutputEnabled(false);
     setOutputFolder('output'); setOutputFormat('csv'); setSaveError(null);
   };
@@ -322,7 +324,7 @@ export function IntegracionesPage() {
               <div>
                 <Label className="mb-2 block">Tipo de fuente</Label>
                 <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}>
-                  {(Object.keys(TYPE_LABELS) as IntegrationType[]).map((type) => (
+                  {SELECTABLE_TYPES.map((type) => (
                     <button key={type} type="button"
                       onClick={() => { setSelectedType(type); setCredentials({ ...EMPTY_CREDS[type] }); }}
                       className={`rounded-lg border-2 p-3 text-left cursor-pointer transition-colors ${selectedType === type ? 'border-foreground bg-muted' : 'border-border bg-background hover:bg-muted/50'}`}>
@@ -367,8 +369,8 @@ export function IntegracionesPage() {
                 </div>
               )}
 
-              {/* Intervalo + carpeta (no frontend_only) */}
-              {selectedType !== 'frontend_only' && (
+              {/* Intervalo + carpeta */}
+              {(
                 <div className="grid grid-cols-[2fr_1fr] gap-3">
                   {selectedType !== 'google_drive' && (
                     <div className="space-y-1.5">
@@ -384,7 +386,7 @@ export function IntegracionesPage() {
               )}
 
               {/* Salida automática */}
-              {selectedType !== 'frontend_only' && (
+              {(
                 <div className="space-y-3 border-t pt-4">
                   <div className="flex items-center justify-between">
                     <div>
