@@ -1,21 +1,26 @@
 /**
- * output-depositor.mjs — TASK-65: Depósito automático de CSV en integración de salida
+ * output-depositor.mjs — TASK-73: Output depositor Google Drive + formato XLSX
  * Data Laundering V2.0
  *
- * Luego de finalizar un job, si el tenant tiene output_enabled = true en su integración,
- * genera el CSV con los resultados y lo deposita en la carpeta configurada.
+ * Cambios v2 (TASK-73):
+ * - Google Drive: OAuth2 (refresh_token) en lugar de Service Account
+ * - Soporte formato XLSX además de CSV
+ * - Nombre de archivo incluye timestamp legible
  *
  * Best-effort: si falla, loguea warning pero el job NO falla.
  */
 
 import path        from 'node:path';
-import { google } from 'googleapis';
+import { google }  from 'googleapis';
+import XLSX        from 'xlsx';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const SUPABASE_URL         = process.env.SUPABASE_URL;
+const SUPABASE_KEY         = process.env.SUPABASE_SERVICE_KEY;
+const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
-// Columnas del CSV en orden
-const CSV_COLUMNS = [
+// Columnas del CSV/XLSX en orden
+const COLUMNS = [
   'fecha', 'tipo_documento', 'codigo_afip', 'punto_venta', 'numero_comprobante',
   'proveedor', 'cuit', 'receptor_nombre', 'receptor_cuit', 'cliente',
   'neto_gravado', 'iva', 'iva_21', 'iva_105', 'iva_27', 'iva_5', 'iva_25',
@@ -24,7 +29,7 @@ const CSV_COLUMNS = [
   'fecha_vto_cae', 'confidence_score', 'doc_status',
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Generadores de archivo ───────────────────────────────────────────────────
 
 function escapeCSV(value) {
   if (value === null || value === undefined) return '';
@@ -36,12 +41,24 @@ function escapeCSV(value) {
 }
 
 function rowsToCSV(rows) {
-  const header = CSV_COLUMNS.join(',');
-  const lines = rows.map(row =>
-    CSV_COLUMNS.map(col => escapeCSV(row[col])).join(',')
-  );
+  const header = COLUMNS.join(',');
+  const lines = rows.map(row => COLUMNS.map(col => escapeCSV(row[col])).join(','));
   return [header, ...lines].join('\n');
 }
+
+function rowsToXLSX(rows) {
+  const data = rows.map(row => {
+    const obj = {};
+    COLUMNS.forEach(col => { obj[col] = row[col] ?? ''; });
+    return obj;
+  });
+  const ws = XLSX.utils.json_to_sheet(data, { header: COLUMNS });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+// ─── Helpers Supabase ─────────────────────────────────────────────────────────
 
 async function supabaseFetch(path, options = {}) {
   const res = await fetch(`${SUPABASE_URL}${path}`, {
@@ -56,9 +73,79 @@ async function supabaseFetch(path, options = {}) {
   return res;
 }
 
-// ─── SFTP output (ssh2-sftp-client) ──────────────────────────────────────────
+// ─── Google Drive OAuth2 ──────────────────────────────────────────────────────
 
-async function depositToSftp(credentials, baseFolderPath, outputFolderPath, filename, csvContent, log) {
+/**
+ * Crea un cliente Drive autenticado via OAuth2 (refresh_token).
+ * Reutiliza la lógica del gateway — mismas credenciales de entorno.
+ */
+function createDriveClient(refreshToken) {
+  const auth = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+  auth.setCredentials({ refresh_token: refreshToken });
+  return google.drive({ version: 'v3', auth });
+}
+
+/**
+ * Busca o crea la carpeta /procesados/ dentro del folder configurado.
+ */
+async function ensureProcesadosFolder(drive, parentFolderId, log) {
+  const folderName = 'procesados';
+  const searchRes = await drive.files.list({
+    q: `name='${folderName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+    spaces: 'drive',
+  });
+
+  if (searchRes.data.files?.length > 0) {
+    return searchRes.data.files[0].id;
+  }
+
+  // Crear si no existe
+  const createRes = await drive.files.create({
+    requestBody: {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    },
+    fields: 'id',
+  });
+  log('info', 'output.drive_procesados_created', { parent: parentFolderId, id: createRes.data.id });
+  return createRes.data.id;
+}
+
+// ─── Depositores por tipo ─────────────────────────────────────────────────────
+
+async function depositToDrive(credentials, filename, fileContent, mimeType, log) {
+  const refreshToken = credentials.oauth_refresh_token;
+  if (!refreshToken) throw new Error('Google Drive: oauth_refresh_token no configurado');
+
+  const folderId = credentials.folder_id;
+  if (!folderId) throw new Error('Google Drive: folder_id no configurado');
+
+  const drive = createDriveClient(refreshToken);
+
+  // Depositar en /procesados/ dentro de la carpeta configurada
+  const procesadosFolderId = await ensureProcesadosFolder(drive, folderId, log);
+
+  const { Readable } = await import('node:stream');
+  const body = Buffer.isBuffer(fileContent)
+    ? Readable.from(fileContent)
+    : Readable.from([fileContent]);
+
+  const uploadRes = await drive.files.create({
+    requestBody: {
+      name:    filename,
+      parents: [procesadosFolderId],
+      mimeType,
+    },
+    media: { mimeType, body },
+    fields: 'id, name',
+  });
+
+  return uploadRes.data.id;
+}
+
+async function depositToSftp(credentials, baseFolderPath, outputFolderPath, filename, fileContent, log) {
   const { default: SftpClient } = await import('ssh2-sftp-client');
   const sftp = new SftpClient();
 
@@ -76,7 +163,6 @@ async function depositToSftp(credentials, baseFolderPath, outputFolderPath, file
 
     await sftp.connect(connectConfig);
 
-    // Resolver carpeta destino: outputFolderPath relativo a la carpeta base
     const targetDir = outputFolderPath
       ? path.posix.join(baseFolderPath || '/', outputFolderPath)
       : (baseFolderPath || '/');
@@ -88,16 +174,15 @@ async function depositToSftp(credentials, baseFolderPath, outputFolderPath, file
     }
 
     const remotePath = path.posix.join(targetDir, filename);
-    await sftp.put(Buffer.from(csvContent, 'utf-8'), remotePath);
+    const buf = Buffer.isBuffer(fileContent) ? fileContent : Buffer.from(fileContent, 'utf-8');
+    await sftp.put(buf, remotePath);
     return remotePath;
   } finally {
     await sftp.end();
   }
 }
 
-// ─── FTP output (basic-ftp) ───────────────────────────────────────────────────
-
-async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filename, csvContent, log) {
+async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filename, fileContent, log) {
   const { ftp: ftpLib } = await import('basic-ftp');
   const { Readable }    = await import('node:stream');
   const client = new ftpLib.Client();
@@ -118,74 +203,14 @@ async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filen
 
     await client.ensureDir(targetDir);
 
-    const stream = Readable.from([Buffer.from(csvContent, 'utf-8')]);
+    const buf = Buffer.isBuffer(fileContent) ? fileContent : Buffer.from(fileContent, 'utf-8');
+    const stream = Readable.from([buf]);
     await client.uploadFrom(stream, filename);
 
     return path.posix.join(targetDir, filename);
   } finally {
     client.close();
   }
-}
-
-// ─── Google Drive output ──────────────────────────────────────────────────────
-
-async function depositToDrive(credentials, outputFolderPath, filename, csvContent, log) {
-  const serviceAccountJson = typeof credentials.service_account_json === 'string'
-    ? JSON.parse(credentials.service_account_json)
-    : credentials.service_account_json;
-
-  const auth = new google.auth.GoogleAuth({
-    credentials: serviceAccountJson,
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
-  });
-  const drive = google.drive({ version: 'v3', auth });
-
-  // Resolver folder ID: puede ser un ID directo o un path relativo al folder_id de la integración
-  const folderId = credentials.folder_id ?? 'root';
-
-  // Crear subcarpeta de salida si no es la raíz
-  let targetFolderId = folderId;
-  if (outputFolderPath && outputFolderPath !== '.' && outputFolderPath !== '/') {
-    // Buscar o crear la carpeta de salida
-    const folderName = outputFolderPath.replace(/^\/+|\/+$/g, ''); // trim slashes
-    const searchRes = await drive.files.list({
-      q: `name='${folderName}' and '${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id)',
-    });
-    if (searchRes.data.files?.length > 0) {
-      targetFolderId = searchRes.data.files[0].id;
-    } else {
-      const createRes = await drive.files.create({
-        requestBody: {
-          name: folderName,
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [folderId],
-        },
-        fields: 'id',
-      });
-      targetFolderId = createRes.data.id;
-      log('info', 'output.drive_folder_created', { folder: folderName, id: targetFolderId });
-    }
-  }
-
-  // Subir el CSV
-  const { Readable } = await import('node:stream');
-  const stream = Readable.from([csvContent]);
-
-  const uploadRes = await drive.files.create({
-    requestBody: {
-      name: filename,
-      parents: [targetFolderId],
-      mimeType: 'text/csv',
-    },
-    media: {
-      mimeType: 'text/csv',
-      body: stream,
-    },
-    fields: 'id, name',
-  });
-
-  return uploadRes.data.id;
 }
 
 // ─── Función principal ────────────────────────────────────────────────────────
@@ -200,7 +225,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       method: 'POST',
       body: JSON.stringify({ p_organization_id: orgId }),
     });
-    if (!res.ok) return; // Sin output configurado, silencioso
+    if (!res.ok) return;
     const data = await res.json();
     if (!data || data.length === 0) return;
     outputConfig = Array.isArray(data) ? data[0] : data;
@@ -209,18 +234,20 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     return;
   }
 
+  const outputFormat = outputConfig.output_format ?? 'csv';
+
   log('info', 'output.deposit_start', {
-    job_id: jobId,
-    organization_id: orgId,
+    job_id:           jobId,
+    organization_id:  orgId,
     integration_type: outputConfig.integration_type,
-    format: outputConfig.output_format,
+    format:           outputFormat,
   });
 
   // 2. Obtener filas del job
   let rows;
   try {
     const res = await supabaseFetch(
-      `/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=${CSV_COLUMNS.join(',')}&order=id.asc`
+      `/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=${COLUMNS.join(',')}&order=id.asc`
     );
     if (!res.ok) throw new Error(`pdf_job_rows fetch failed: ${res.status}`);
     rows = await res.json();
@@ -234,60 +261,62 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     return;
   }
 
-  // 3. Generar CSV
-  const csvContent = rowsToCSV(rows);
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const filename = `resultado_${jobId.slice(0, 8)}_${timestamp}.csv`;
+  // 3. Generar archivo según formato
+  const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
+  let fileContent, filename, mimeType;
+
+  if (outputFormat === 'xlsx') {
+    fileContent = rowsToXLSX(rows);
+    filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.xlsx`;
+    mimeType    = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  } else {
+    fileContent = rowsToCSV(rows);
+    filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.csv`;
+    mimeType    = 'text/csv';
+  }
 
   // 4. Depositar según tipo de integración
   try {
     if (outputConfig.integration_type === 'google_drive') {
       const fileId = await depositToDrive(
         outputConfig.credentials,
-        outputConfig.output_folder_path,
         filename,
-        csvContent,
+        fileContent,
+        mimeType,
         log
       );
       log('info', 'output.deposited', {
-        job_id: jobId,
-        organization_id: orgId,
-        integration_type: 'google_drive',
-        filename,
+        job_id: jobId, organization_id: orgId,
+        integration_type: 'google_drive', filename, format: outputFormat,
         drive_file_id: fileId,
       });
+
     } else if (outputConfig.integration_type === 'sftp') {
       const remotePath = await depositToSftp(
         outputConfig.credentials,
         outputConfig.folder_path ?? '/',
         outputConfig.output_folder_path,
-        filename,
-        csvContent,
-        log
+        filename, fileContent, log
       );
       log('info', 'output.deposited', {
-        job_id: jobId,
-        organization_id: orgId,
-        integration_type: 'sftp',
-        filename,
+        job_id: jobId, organization_id: orgId,
+        integration_type: 'sftp', filename, format: outputFormat,
         remote_path: remotePath,
       });
+
     } else if (outputConfig.integration_type === 'ftp') {
       const remotePath = await depositToFtp(
         outputConfig.credentials,
         outputConfig.folder_path ?? '/',
         outputConfig.output_folder_path,
-        filename,
-        csvContent,
-        log
+        filename, fileContent, log
       );
       log('info', 'output.deposited', {
-        job_id: jobId,
-        organization_id: orgId,
-        integration_type: 'ftp',
-        filename,
+        job_id: jobId, organization_id: orgId,
+        integration_type: 'ftp', filename, format: outputFormat,
         remote_path: remotePath,
       });
+
     } else {
       log('info', 'output.integration_type_pending', {
         job_id: jobId,
@@ -296,12 +325,10 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       });
     }
   } catch (err) {
-    // Best-effort: fallo en el depósito no falla el job
     log('warn', 'output.deposit_failed', {
-      job_id: jobId,
-      organization_id: orgId,
+      job_id: jobId, organization_id: orgId,
       integration_type: outputConfig.integration_type,
-      error: err.message,
+      format: outputFormat, error: err.message,
     });
   }
 }

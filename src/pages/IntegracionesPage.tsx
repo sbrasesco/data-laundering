@@ -39,7 +39,7 @@ interface TenantIntegration {
   updated_at: string;
   output_enabled: boolean;
   output_folder_path: string | null;
-  output_format: 'csv' | 'json';
+  output_format: 'csv' | 'xlsx' | 'json';
 }
 
 interface DriveFolder { id: string; name: string; }
@@ -118,7 +118,7 @@ export function IntegracionesPage() {
   const [pollingInterval, setPollingInterval] = useState(15);
   const [outputEnabled, setOutputEnabled]     = useState(false);
   const [outputFolder, setOutputFolder]       = useState('output');
-  const [outputFormat, setOutputFormat]       = useState<'csv' | 'json'>('csv');
+  const [outputFormat, setOutputFormat]       = useState<'csv' | 'xlsx' | 'json'>('csv');
 
   // Folder picker state (por integration.id)
   const [driveFolders, setDriveFolders]           = useState<Record<string, DriveFolder[]>>({});
@@ -230,7 +230,7 @@ export function IntegracionesPage() {
     setCredentials(editCreds);
     setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes);
     setOutputEnabled(i.output_enabled ?? false); setOutputFolder(i.output_folder_path ?? 'output');
-    setOutputFormat(i.output_format ?? 'csv'); setSaveError(null); setShowForm(true);
+    setOutputFormat((i.output_format ?? 'csv') as 'csv' | 'xlsx' | 'json'); setSaveError(null); setShowForm(true);
   };
 
   // Guardar integración normal (FTP, SFTP, etc.)
@@ -406,9 +406,10 @@ export function IntegracionesPage() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-sm">Formato</Label>
-                        <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value as 'csv' | 'json')}
+                        <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value as 'csv' | 'xlsx' | 'json')}
                           className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                           <option value="csv">CSV</option>
+                          <option value="xlsx">Excel (.xlsx)</option>
                           <option value="json">JSON (próximamente)</option>
                         </select>
                       </div>
