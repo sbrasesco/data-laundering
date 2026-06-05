@@ -71,7 +71,7 @@ export function SubirZipPage() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Crear nuevo proceso</h1>
-        <p className="text-sm text-muted-foreground">Subí un archivo ZIP o PDF con comprobantes para procesar.</p>
+        <p className="text-sm text-muted-foreground">Subí un ZIP, PDF o imagen (JPG, PNG) con comprobantes para procesar.</p>
       </div>
 
       {clientsError && <ErrorMessage message={clientsError} />}
@@ -108,8 +108,8 @@ export function SubirZipPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="file">Archivo (ZIP o PDF) <span className="text-destructive">*</span></Label>
-              <input id="file" type="file" accept=".zip,.pdf" onChange={handleFileChange} disabled={loading} required
+              <Label htmlFor="file">Archivo (ZIP, PDF, JPG, PNG) <span className="text-destructive">*</span></Label>
+              <input id="file" type="file" accept=".zip,.rar,.pdf,.jpg,.jpeg,.png" onChange={handleFileChange} disabled={loading} required
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50" />
               {file && <p className="text-xs text-muted-foreground">{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</p>}
             </div>
