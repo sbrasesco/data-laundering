@@ -38,6 +38,13 @@ export function LoginPage() {
       return;
     }
 
+    const freshSession = session;
+
+    if (!freshSession?.access_token) {
+      setError('No se pudo obtener la sesión. Intentá nuevamente.');
+      return;
+    }
+
     try {
       const { data: planData, error: planError } = await supabase
         .from('billing_plans')
@@ -47,34 +54,51 @@ export function LoginPage() {
         .single();
 
       if (planError || !planData) {
-        navigate('/dashboard', { replace: true });
+        setError('Error al iniciar el pago. Intentá nuevamente.');
+        setLoading(false);
         return;
       }
 
-      const { data: { session: freshSession } } = await supabase.auth.getSession();
+      // Call Worker Gateway (MP preference creation moved to DO — Supabase Edge Function blocked by MP PolicyAgent)
+      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+      const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-preference`,
+        `${workerGatewayUrl}/api/mp/create-preference`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${freshSession?.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${workerApiKey}`,
           },
-          body: JSON.stringify({ plan_id: planData.id }),
+          body: JSON.stringify({
+            plan_id: planData.id,
+            user_id: freshSession.user.id,
+            organization_id: freshSession.user.id, // org_id se resuelve en el gateway
+          }),
         }
       );
 
       if (!response.ok) {
-        navigate('/dashboard', { replace: true });
+        const errData = await response.json().catch(() => ({}));
+        setError(`Error MP: ${errData.detail ?? errData.error ?? response.status}`);
+        setLoading(false);
         return;
       }
 
       const data = await response.json();
       const checkoutUrl = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
+
+      if (!checkoutUrl) {
+        setError('No se pudo obtener la URL de pago. Intentá nuevamente.');
+        setLoading(false);
+        return;
+      }
+
       window.location.href = checkoutUrl;
-    } catch {
-      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      console.error('handlePostAuth error:', err);
+      setError('Error inesperado al iniciar el pago. Intentá nuevamente.');
+      setLoading(false);
     }
   };
 

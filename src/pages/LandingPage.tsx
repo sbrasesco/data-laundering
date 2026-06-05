@@ -236,18 +236,23 @@ function Precios() {
         return;
       }
 
-      // Call Edge Function
+      // Call Worker Gateway (MP preference creation moved to DO — Supabase Edge Function blocked by MP PolicyAgent)
       const { data: { session: freshSession } } = await supabase.auth.getSession();
+      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+      const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-preference`,
+        `${workerGatewayUrl}/api/mp/create-preference`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${freshSession?.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${workerApiKey}`,
           },
-          body: JSON.stringify({ plan_id: plan.id }),
+          body: JSON.stringify({
+            plan_id: plan.id,
+            user_id: freshSession?.user?.id,
+            organization_id: freshSession?.user?.id, // org_id se resuelve en el gateway
+          }),
         }
       );
 
