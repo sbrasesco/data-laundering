@@ -1,10 +1,14 @@
 /**
  * integration-poller.mjs — Poller de integraciones (Google Drive)
- * Data Laundering V2.0 — TASK-39
+ * Data Laundering V2.0 — TASK-39 / TASK-70
+ *
+ * TASK-70: Migración a OAuth 2.0.
+ *   - Si credentials.oauth_refresh_token → usa OAuth (nuevo)
+ *   - Si credentials.service_account_json → usa Service Account (retrocompatibilidad)
  *
  * Flujo por integración activa:
  *   1. Obtiene integraciones "due" via admin_get_active_integrations()
- *   2. Para google_drive: usa Service Account para listar archivos nuevos
+ *   2. Para google_drive: autentica con OAuth o Service Account
  *   3. Descarga cada archivo → sube a Supabase Storage
  *   4. POST al Input Gateway para encolar el job
  *   5. Registra file_hash para deduplicación
@@ -15,10 +19,10 @@ import crypto from 'node:crypto';
 import { google } from 'googleapis';
 
 const SUPPORTED_MIME_TYPES = {
-  'application/pdf':  { ext: 'pdf',  file_type: 'pdf'  },
-  'image/jpeg':       { ext: 'jpg',  file_type: 'jpg'  },
-  'image/png':        { ext: 'png',  file_type: 'png'  },
-  'application/zip':  { ext: 'zip',  file_type: 'zip'  },
+  'application/pdf':           { ext: 'pdf', file_type: 'pdf' },
+  'image/jpeg':                { ext: 'jpg', file_type: 'jpg' },
+  'image/png':                 { ext: 'png', file_type: 'png' },
+  'application/zip':           { ext: 'zip', file_type: 'zip' },
   'application/x-zip-compressed': { ext: 'zip', file_type: 'zip' },
 };
 
@@ -43,15 +47,15 @@ async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
 
 async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer, mimeType) {
   const path = `${orgId}/integrations/${filename}`;
-  const res = await fetch(
+  const res  = await fetch(
     `${supabaseUrl}/storage/v1/object/documents/${path}`,
     {
-      method: 'POST',
+      method:  'POST',
       headers: {
-        'apikey':         supabaseKey,
-        'Authorization':  `Bearer ${supabaseKey}`,
-        'Content-Type':   mimeType,
-        'x-upsert':       'false',
+        'apikey':        supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type':  mimeType,
+        'x-upsert':      'false',
       },
       body: buffer,
     }
@@ -60,13 +64,12 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
     const text = await res.text();
     throw new Error(`Storage upload failed (${res.status}): ${text}`);
   }
-  // Retorna la URL pública del archivo
   return `${supabaseUrl}/storage/v1/object/public/documents/${path}`;
 }
 
 async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integrationId) {
-  const res = await fetch(`${gatewayUrl}`, {
-    method: 'POST',
+  const res = await fetch(gatewayUrl, {
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       organization_id:   orgId,
@@ -86,9 +89,13 @@ async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integr
   return res.json();
 }
 
-// ─── Google Drive helpers ────────────────────────────────────────────────────
+// ─── Google Drive auth ───────────────────────────────────────────────────────
 
-function buildDriveClient(serviceAccountJson) {
+/**
+ * LEGACY: Service Account (TASK-39).
+ * Mantenido para retrocompatibilidad con integraciones existentes.
+ */
+function buildDriveClientServiceAccount(serviceAccountJson) {
   const auth = new google.auth.GoogleAuth({
     credentials: serviceAccountJson,
     scopes: ['https://www.googleapis.com/auth/drive.readonly'],
@@ -96,18 +103,28 @@ function buildDriveClient(serviceAccountJson) {
   return google.drive({ version: 'v3', auth });
 }
 
+/**
+ * NUEVO: OAuth 2.0 (TASK-70).
+ * Usa refresh_token para obtener access_token fresco antes de cada poll.
+ */
+function buildDriveClientOAuth(refreshToken, clientId, clientSecret) {
+  const auth = new google.auth.OAuth2(clientId, clientSecret);
+  auth.setCredentials({ refresh_token: refreshToken });
+  return google.drive({ version: 'v3', auth });
+}
+
+// ─── Google Drive helpers ────────────────────────────────────────────────────
+
 async function listNewFiles(drive, folderId, sinceDate) {
   const query = [
     `'${folderId}' in parents`,
     `trashed = false`,
-    sinceDate
-      ? `modifiedTime > '${sinceDate.toISOString()}'`
-      : null,
+    sinceDate ? `modifiedTime > '${sinceDate.toISOString()}'` : null,
   ].filter(Boolean).join(' and ');
 
   const res = await drive.files.list({
-    q: query,
-    fields: 'files(id, name, mimeType, size, modifiedTime)',
+    q:       query,
+    fields:  'files(id, name, mimeType, size, modifiedTime)',
     orderBy: 'modifiedTime asc',
     pageSize: 100,
   });
@@ -126,7 +143,7 @@ async function downloadFile(drive, fileId) {
 // ─── Poller principal ────────────────────────────────────────────────────────
 
 export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, log }) {
-  // 1. Obtener integraciones google_drive "due" (last_polled_at + interval < now)
+  // 1. Obtener integraciones google_drive "due"
   let integrations;
   try {
     integrations = await callRpc(supabaseUrl, supabaseKey, 'admin_get_active_integrations', {
@@ -150,29 +167,53 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
     log('info', 'integration.tenant_start', { integration_id: integrationId, organization_id: orgId });
 
     try {
-      // Validar credenciales
-      if (!credentials?.service_account_json || !credentials?.folder_id) {
+      const folderId = credentials?.folder_id;
+      if (!folderId) {
+        log('warn', 'integration.missing_folder_id', { integration_id: integrationId });
+        await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
+        continue;
+      }
+
+      // 2. Construir cliente de Drive: OAuth (nuevo) o Service Account (legacy)
+      let drive;
+
+      if (credentials?.oauth_refresh_token) {
+        // ── OAuth 2.0 (TASK-70) ──────────────────────────────────────────
+        const clientId     = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+        if (!clientId || !clientSecret) {
+          log('error', 'integration.missing_google_oauth_env', { integration_id: integrationId });
+          await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
+          continue;
+        }
+
+        drive = buildDriveClientOAuth(credentials.oauth_refresh_token, clientId, clientSecret);
+        log('debug', 'integration.auth_method', { integration_id: integrationId, method: 'oauth' });
+
+      } else if (credentials?.service_account_json) {
+        // ── Service Account (TASK-39, retrocompatibilidad) ───────────────
+        const serviceAccountJson = typeof credentials.service_account_json === 'string'
+          ? JSON.parse(credentials.service_account_json)
+          : credentials.service_account_json;
+
+        drive = buildDriveClientServiceAccount(serviceAccountJson);
+        log('debug', 'integration.auth_method', { integration_id: integrationId, method: 'service_account' });
+
+      } else {
         log('warn', 'integration.missing_credentials', { integration_id: integrationId });
         await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
         continue;
       }
 
-      const serviceAccountJson = typeof credentials.service_account_json === 'string'
-        ? JSON.parse(credentials.service_account_json)
-        : credentials.service_account_json;
-      const folderId = credentials.folder_id;
-
-      // 2. Conectar a Drive
-      const drive = buildDriveClient(serviceAccountJson);
-
       // 3. Listar archivos nuevos desde last_polled_at
       const sinceDate = last_polled_at ? new Date(last_polled_at) : null;
-      const files = await listNewFiles(drive, folderId, sinceDate);
+      const files     = await listNewFiles(drive, folderId, sinceDate);
 
       log('info', 'integration.files_found', {
         integration_id: integrationId,
-        count: files.length,
-        since: sinceDate?.toISOString() ?? 'all',
+        count:  files.length,
+        since:  sinceDate?.toISOString() ?? 'all',
       });
 
       let enqueued = 0, skipped = 0, failed = 0;
@@ -205,10 +246,9 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
 
           // 7. Subir a Supabase Storage
           const uniqueName = `${Date.now()}_${file.name}`;
-          const fileUrl = await uploadToStorage(
+          const fileUrl    = await uploadToStorage(
             supabaseUrl, supabaseKey,
-            orgId, uniqueName,
-            buffer, file.mimeType
+            orgId, uniqueName, buffer, file.mimeType
           );
 
           // 8. Encolar en Input Gateway
@@ -217,7 +257,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
 
           log('info', 'integration.file_enqueued', {
             integration_id: integrationId,
-            filename: file.name,
+            filename:  file.name,
             file_type: fileType,
             file_hash: fileHash,
           });
@@ -227,10 +267,10 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
           log('error', 'integration.file_error', {
             integration_id: integrationId,
             filename: file.name,
-            error: fileErr.message,
+            error:    fileErr.message,
           });
           failed++;
-          // Continúa con el siguiente archivo — un fallo no detiene el lote
+          // Continúa con el siguiente archivo
         }
       }
 
@@ -238,7 +278,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
       await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
 
       log('info', 'integration.tenant_done', {
-        integration_id: integrationId,
+        integration_id:  integrationId,
         organization_id: orgId,
         enqueued,
         skipped,
@@ -247,11 +287,10 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
 
     } catch (tenantErr) {
       log('error', 'integration.tenant_error', {
-        integration_id: integrationId,
+        integration_id:  integrationId,
         organization_id: orgId,
         error: tenantErr.message,
       });
-      // Intentar actualizar last_polled_at igual para no quedar en loop infinito
       try {
         await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
       } catch (_) {}

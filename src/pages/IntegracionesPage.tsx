@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '../lib/supabase';
+import { useAuthContext } from '../contexts/AuthContext';
+
+// ─── Env vars (TASK-70) ───────────────────────────────────────────────────────
+const GOOGLE_CLIENT_ID    = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '';
+const GOOGLE_REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI
+  ?? 'http://localhost:3001/api/auth/google/callback';
+const GOOGLE_SCOPE        = 'https://www.googleapis.com/auth/drive';
 
 type IntegrationType = 'frontend_only' | 'google_drive' | 'ftp' | 'sftp' | 'remote_folder' | 'firebase_storage';
 
@@ -28,42 +36,105 @@ interface TenantIntegration {
 type CredentialFields = Record<string, string>;
 
 const TYPE_LABELS: Record<IntegrationType, string> = {
-  frontend_only: 'Subida manual', google_drive: 'Google Drive', ftp: 'FTP', sftp: 'SFTP', remote_folder: 'Carpeta de red (SMB)', firebase_storage: 'Firebase Storage',
+  frontend_only:    'Subida manual',
+  google_drive:     'Google Drive',
+  ftp:              'FTP',
+  sftp:             'SFTP',
+  remote_folder:    'Carpeta de red (SMB)',
+  firebase_storage: 'Firebase Storage',
 };
 const TYPE_ICONS: Record<IntegrationType, string> = {
   frontend_only: '🖥️', google_drive: '📁', ftp: '🗄️', sftp: '🔒', remote_folder: '🗂️', firebase_storage: '🔥',
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
-  frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available', remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
-};
-const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
-  frontend_only: [],
-  google_drive: [{ key: 'service_account_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true }, { key: 'folder_id', label: 'Folder ID de Google Drive', placeholder: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms', required: true }],
-  ftp:          [{ key: 'host', label: 'Host', placeholder: 'ftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '21' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
-  sftp:         [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
-  remote_folder:[{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\servidor\\compartido\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
-  firebase_storage:[{ key: 'service_account_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'mi-proyecto.appspot.com', required: true }],
-};
-const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
-  frontend_only: {}, google_drive: { service_account_json: '', folder_id: '' }, ftp: { host: '', port: '21', username: '', password: '' },
-  sftp: { host: '', port: '22', username: '', password: '', private_key: '' }, remote_folder: { server_path: '', domain: '', username: '', password: '' }, firebase_storage: { service_account_json: '', bucket_name: '' },
+  frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available',
+  remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
 };
 
+// TASK-70: Google Drive ahora solo pide folder_id — el resto viene por OAuth.
+const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
+  frontend_only: [],
+  google_drive: [
+    {
+      key: 'folder_id',
+      label: 'ID de la carpeta en Google Drive',
+      placeholder: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms',
+      required: true,
+    },
+  ],
+  ftp:  [{ key: 'host', label: 'Host', placeholder: 'ftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '21' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
+  sftp: [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
+  remote_folder: [{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\servidor\\compartido\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
+  firebase_storage: [{ key: 'service_account_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'mi-proyecto.appspot.com', required: true }],
+};
+
+const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
+  frontend_only:    {},
+  google_drive:     { folder_id: '' },
+  ftp:              { host: '', port: '21', username: '', password: '' },
+  sftp:             { host: '', port: '22', username: '', password: '', private_key: '' },
+  remote_folder:    { server_path: '', domain: '', username: '', password: '' },
+  firebase_storage: { service_account_json: '', bucket_name: '' },
+};
+
+// ─── Helpers OAuth ────────────────────────────────────────────────────────────
+
+function buildGoogleOAuthUrl(orgId: string, integrationId: string, folderId: string): string {
+  const state = btoa(JSON.stringify({ orgId, integrationId, folderId }))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''); // base64url
+
+  const params = new URLSearchParams({
+    client_id:     GOOGLE_CLIENT_ID,
+    redirect_uri:  GOOGLE_REDIRECT_URI,
+    response_type: 'code',
+    scope:         GOOGLE_SCOPE,
+    access_type:   'offline',
+    prompt:        'consent',   // siempre emitir refresh_token
+    state,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+function hasDriveOAuth(integration: TenantIntegration): boolean {
+  return !!integration.credentials?.oauth_refresh_token;
+}
+
+// ─── Componente ───────────────────────────────────────────────────────────────
+
 export function IntegracionesPage() {
+  const { organizationId } = useAuthContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [integrations, setIntegrations] = useState<TenantIntegration[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [showForm, setShowForm]   = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [saving, setSaving]     = useState(false);
+  const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [selectedType, setSelectedType] = useState<IntegrationType>('frontend_only');
-  const [credentials, setCredentials]   = useState<CredentialFields>({});
-  const [folderPath, setFolderPath]         = useState('');
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const [selectedType, setSelectedType]       = useState<IntegrationType>('frontend_only');
+  const [credentials, setCredentials]         = useState<CredentialFields>({});
+  const [folderPath, setFolderPath]           = useState('');
   const [pollingInterval, setPollingInterval] = useState(15);
-  const [outputEnabled, setOutputEnabled]   = useState(false);
-  const [outputFolder, setOutputFolder]     = useState('output');
-  const [outputFormat, setOutputFormat]     = useState<'csv' | 'json'>('csv');
+  const [outputEnabled, setOutputEnabled]     = useState(false);
+  const [outputFolder, setOutputFolder]       = useState('output');
+  const [outputFormat, setOutputFormat]       = useState<'csv' | 'json'>('csv');
+
+  // ── Detectar retorno de OAuth ──────────────────────────────────────────────
+  useEffect(() => {
+    const connected = searchParams.get('google_connected');
+    const oauthErr  = searchParams.get('google_error');
+
+    if (connected === 'true') {
+      setSuccessMsg('✅ Google Drive conectado correctamente.');
+      setSearchParams({}, { replace: true });
+    } else if (oauthErr) {
+      setError(`Error al conectar con Google Drive: ${oauthErr}`);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const loadIntegrations = useCallback(async () => {
     setLoading(true); setError(null);
@@ -71,30 +142,95 @@ export function IntegracionesPage() {
       const { data, error: rpcError } = await supabase.rpc('get_my_integrations');
       if (rpcError) throw rpcError;
       setIntegrations((data as TenantIntegration[]) ?? []);
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Error al cargar integraciones'); } finally { setLoading(false); }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error al cargar integraciones');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
 
-  const openAddForm = () => { setEditingId(null); setSelectedType('frontend_only'); setCredentials({}); setFolderPath(''); setPollingInterval(15); setOutputEnabled(false); setOutputFolder('output'); setOutputFormat('csv'); setSaveError(null); setShowForm(true); };
-  const openEditForm = (i: TenantIntegration) => { setEditingId(i.id); setSelectedType(i.integration_type); setCredentials({ ...i.credentials }); setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes); setOutputEnabled(i.output_enabled ?? false); setOutputFolder(i.output_folder_path ?? 'output'); setOutputFormat(i.output_format ?? 'csv'); setSaveError(null); setShowForm(true); };
+  const openAddForm = () => {
+    setEditingId(null); setSelectedType('frontend_only'); setCredentials({});
+    setFolderPath(''); setPollingInterval(15); setOutputEnabled(false);
+    setOutputFolder('output'); setOutputFormat('csv');
+    setSaveError(null); setSuccessMsg(null); setShowForm(true);
+  };
+
+  const openEditForm = (i: TenantIntegration) => {
+    setEditingId(i.id); setSelectedType(i.integration_type);
+    // Para google_drive con OAuth: mostrar solo folder_id (no el refresh_token)
+    const editCreds = i.integration_type === 'google_drive'
+      ? { folder_id: i.credentials?.folder_id ?? '' }
+      : { ...i.credentials };
+    setCredentials(editCreds);
+    setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes);
+    setOutputEnabled(i.output_enabled ?? false); setOutputFolder(i.output_folder_path ?? 'output');
+    setOutputFormat(i.output_format ?? 'csv');
+    setSaveError(null); setSuccessMsg(null); setShowForm(true);
+  };
 
   const handleSave = async () => {
     setSaving(true); setSaveError(null);
     try {
-      const { error: rpcError } = await supabase.rpc('upsert_tenant_integration', { p_type: selectedType, p_config: {}, p_credentials: credentials, p_folder_path: folderPath || null, p_interval: pollingInterval, p_output_enabled: outputEnabled, p_output_folder: outputEnabled ? (outputFolder || 'output') : null, p_output_format: outputFormat });
+      const { error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
+        p_type:           selectedType,
+        p_config:         {},
+        p_credentials:    credentials,
+        p_folder_path:    folderPath || null,
+        p_interval:       pollingInterval,
+        p_output_enabled: outputEnabled,
+        p_output_folder:  outputEnabled ? (outputFolder || 'output') : null,
+        p_output_format:  outputFormat,
+      });
       if (rpcError) throw rpcError;
-      setShowForm(false); await loadIntegrations();
-    } catch (e: unknown) { setSaveError(e instanceof Error ? e.message : 'Error al guardar'); } finally { setSaving(false); }
+      setShowForm(false);
+      await loadIntegrations();
+      if (selectedType === 'google_drive') {
+        setSuccessMsg('Integración guardada. Ahora conectá con Google Drive desde la tarjeta.');
+      }
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleToggle = async (id: string, current: boolean) => {
-    try { const { error: rpcError } = await supabase.rpc('toggle_tenant_integration', { p_integration_id: id, p_active: !current }); if (rpcError) throw rpcError; await loadIntegrations(); } catch (e: unknown) { console.error(e); }
+    try {
+      const { error: rpcError } = await supabase.rpc('toggle_tenant_integration', {
+        p_integration_id: id, p_active: !current,
+      });
+      if (rpcError) throw rpcError;
+      await loadIntegrations();
+    } catch (e: unknown) { console.error(e); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar esta integración?')) return;
-    try { const { error: rpcError } = await supabase.rpc('delete_tenant_integration', { p_integration_id: id }); if (rpcError) throw rpcError; await loadIntegrations(); } catch (e: unknown) { console.error(e); }
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_tenant_integration', {
+        p_integration_id: id,
+      });
+      if (rpcError) throw rpcError;
+      await loadIntegrations();
+    } catch (e: unknown) { console.error(e); }
+  };
+
+  // ── TASK-70: iniciar flujo OAuth para Google Drive ─────────────────────────
+  const handleGoogleConnect = (integration: TenantIntegration) => {
+    if (!organizationId) {
+      setError('No se pudo obtener el ID de organización. Recargá la página.');
+      return;
+    }
+    if (!GOOGLE_CLIENT_ID) {
+      setError('VITE_GOOGLE_CLIENT_ID no está configurado.');
+      return;
+    }
+    const folderId = integration.credentials?.folder_id ?? '';
+    const url = buildGoogleOAuthUrl(organizationId, integration.id, folderId);
+    window.location.href = url;
   };
 
   if (loading) return <LoadingSpinner />;
@@ -111,7 +247,8 @@ export function IntegracionesPage() {
           {!showForm && <Button onClick={openAddForm}>+ Nueva integración</Button>}
         </div>
 
-        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        {error   && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        {successMsg && <Alert><AlertDescription>{successMsg}</AlertDescription></Alert>}
 
         {showForm && (
           <Card>
@@ -121,7 +258,8 @@ export function IntegracionesPage() {
                 <Label className="mb-2 block">Tipo de fuente</Label>
                 <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}>
                   {(Object.keys(TYPE_LABELS) as IntegrationType[]).map((type) => (
-                    <button key={type} type="button" onClick={() => { setSelectedType(type); setCredentials({ ...EMPTY_CREDS[type] }); }}
+                    <button key={type} type="button"
+                      onClick={() => { setSelectedType(type); setCredentials({ ...EMPTY_CREDS[type] }); }}
                       className={`rounded-lg border-2 p-3 text-left cursor-pointer transition-colors ${selectedType === type ? 'border-foreground bg-muted' : 'border-border bg-background hover:bg-muted/50'}`}>
                       <div className="text-xl mb-1">{TYPE_ICONS[type]}</div>
                       <div className="text-xs font-semibold leading-tight">{TYPE_LABELS[type]}</div>
@@ -131,15 +269,29 @@ export function IntegracionesPage() {
                 </div>
               </div>
 
+              {/* Campos de credenciales */}
               {CRED_FIELDS[selectedType].length > 0 && (
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Credenciales</Label>
+                  {selectedType === 'google_drive' && (
+                    <p className="text-xs text-muted-foreground">
+                      Ingresá el ID de la carpeta de Drive que querés monitorear. Después de guardar, conectá tu cuenta de Google desde la tarjeta.
+                    </p>
+                  )}
                   {CRED_FIELDS[selectedType].map((field) => (
                     <div key={field.key} className="space-y-1.5">
-                      <Label htmlFor={`cred-${field.key}`} className="text-sm">{field.label}{field.required && <span className="text-destructive ml-1">*</span>}</Label>
+                      <Label htmlFor={`cred-${field.key}`} className="text-sm">
+                        {field.label}{field.required && <span className="text-destructive ml-1">*</span>}
+                      </Label>
                       {field.type === 'textarea'
-                        ? <textarea id={`cred-${field.key}`} value={credentials[field.key] ?? ''} onChange={(e) => setCredentials((c) => ({ ...c, [field.key]: e.target.value }))} placeholder={field.placeholder} rows={4} className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y" />
-                        : <Input id={`cred-${field.key}`} type={field.type ?? 'text'} value={credentials[field.key] ?? ''} onChange={(e) => setCredentials((c) => ({ ...c, [field.key]: e.target.value }))} placeholder={field.placeholder} />
+                        ? <textarea id={`cred-${field.key}`} value={credentials[field.key] ?? ''}
+                            onChange={(e) => setCredentials((c) => ({ ...c, [field.key]: e.target.value }))}
+                            placeholder={field.placeholder} rows={4}
+                            className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y" />
+                        : <Input id={`cred-${field.key}`} type={field.type ?? 'text'}
+                            value={credentials[field.key] ?? ''}
+                            onChange={(e) => setCredentials((c) => ({ ...c, [field.key]: e.target.value }))}
+                            placeholder={field.placeholder} />
                       }
                     </div>
                   ))}
@@ -150,11 +302,15 @@ export function IntegracionesPage() {
                 <div className="grid grid-cols-[2fr_1fr] gap-3">
                   <div className="space-y-1.5">
                     <Label>Carpeta a monitorear</Label>
-                    <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
+                    <Input type="text" value={folderPath}
+                      onChange={(e) => setFolderPath(e.target.value)}
+                      placeholder="/facturas/entrantes" />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Intervalo (min)</Label>
-                    <Input type="number" value={pollingInterval} onChange={(e) => setPollingInterval(Number(e.target.value))} min={5} max={1440} />
+                    <Input type="number" value={pollingInterval}
+                      onChange={(e) => setPollingInterval(Number(e.target.value))}
+                      min={5} max={1440} />
                   </div>
                 </div>
               )}
@@ -166,11 +322,8 @@ export function IntegracionesPage() {
                       <Label className="text-sm font-medium">Salida automática</Label>
                       <p className="text-xs text-muted-foreground mt-0.5">Depositar el CSV de resultados automáticamente al terminar el procesamiento.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setOutputEnabled((v) => !v)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}
-                    >
+                    <button type="button" onClick={() => setOutputEnabled((v) => !v)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
                       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
                     </button>
                   </div>
@@ -222,17 +375,54 @@ export function IntegracionesPage() {
                       <span className="text-2xl">{TYPE_ICONS[integration.integration_type]}</span>
                       <div>
                         <div className="font-medium text-sm">{TYPE_LABELS[integration.integration_type]}</div>
-                        {integration.folder_path && <div className="text-xs text-muted-foreground font-mono mt-0.5">{integration.folder_path}</div>}
+                        {integration.folder_path && (
+                          <div className="text-xs text-muted-foreground font-mono mt-0.5">{integration.folder_path}</div>
+                        )}
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          <Badge variant={integration.is_active ? 'success' : 'secondary'}>{integration.is_active ? '● Activa' : '○ Inactiva'}</Badge>
-                          <Badge variant={WORKER_STATUS[integration.integration_type] === 'available' ? 'default' : 'secondary'}>{WORKER_STATUS[integration.integration_type] === 'available' ? '🟢 Disponible' : '🔜 Próximamente'}</Badge>
-                          {integration.integration_type !== 'frontend_only' && <span className="text-xs text-muted-foreground self-center">Cada {integration.polling_interval_minutes} min</span>}
+                          <Badge variant={integration.is_active ? 'success' : 'secondary'}>
+                            {integration.is_active ? '● Activa' : '○ Inactiva'}
+                          </Badge>
+                          <Badge variant={WORKER_STATUS[integration.integration_type] === 'available' ? 'default' : 'secondary'}>
+                            {WORKER_STATUS[integration.integration_type] === 'available' ? '🟢 Disponible' : '🔜 Próximamente'}
+                          </Badge>
+                          {integration.integration_type !== 'frontend_only' && (
+                            <span className="text-xs text-muted-foreground self-center">Cada {integration.polling_interval_minutes} min</span>
+                          )}
                           {integration.output_enabled && <Badge variant="secondary">📤 Salida automática</Badge>}
+
+                          {/* TASK-70: estado OAuth para Google Drive */}
+                          {integration.integration_type === 'google_drive' && (
+                            hasDriveOAuth(integration)
+                              ? <Badge variant="success">🔑 OAuth conectado</Badge>
+                              : <Badge variant="outline" className="text-orange-600 border-orange-300">⚠️ Sin conectar</Badge>
+                          )}
                         </div>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleToggle(integration.id, integration.is_active)}>{integration.is_active ? 'Desactivar' : 'Activar'}</Button>
+
+                    <div className="flex flex-wrap gap-2">
+                      {/* TASK-70: botón Conectar con Google Drive */}
+                      {integration.integration_type === 'google_drive' && !hasDriveOAuth(integration) && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleGoogleConnect(integration)}
+                        >
+                          🔗 Conectar con Google Drive
+                        </Button>
+                      )}
+                      {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleGoogleConnect(integration)}
+                        >
+                          🔄 Reconectar Google Drive
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => handleToggle(integration.id, integration.is_active)}>
+                        {integration.is_active ? 'Desactivar' : 'Activar'}
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => openEditForm(integration)}>Editar</Button>
                       <Button variant="destructive" size="sm" onClick={() => handleDelete(integration.id)}>Eliminar</Button>
                     </div>
