@@ -216,7 +216,10 @@ async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filen
 // ─── Función principal ────────────────────────────────────────────────────────
 
 export async function depositOutputIfConfigured(jobId, orgId, log) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    log('warn', 'output.no_env', { job_id: jobId, note: 'SUPABASE_URL o SUPABASE_KEY no configurados' });
+    return;
+  }
 
   // 1. Verificar si el org tiene output habilitado
   let outputConfig;
@@ -225,9 +228,16 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       method: 'POST',
       body: JSON.stringify({ p_organization_id: orgId }),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const errText = await res.text();
+      log('warn', 'output.config_rpc_error', { job_id: jobId, http_status: res.status, error: errText });
+      return;
+    }
     const data = await res.json();
-    if (!data || data.length === 0) return;
+    if (!data || data.length === 0) {
+      log('info', 'output.no_output_config', { job_id: jobId, organization_id: orgId, note: 'Sin integración de salida activa' });
+      return;
+    }
     outputConfig = Array.isArray(data) ? data[0] : data;
   } catch (err) {
     log('warn', 'output.config_fetch_failed', { job_id: jobId, error: err.message });
