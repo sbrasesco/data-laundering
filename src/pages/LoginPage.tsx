@@ -191,7 +191,7 @@ export function LoginPage() {
               </p>
             </>
           ) : (
-            <CardTitle className="text-2xl font-semibold tracking-tight">Data Laundering</CardTitle>
+            <CardTitle className="text-2xl font-semibold tracking-tight">DataLand</CardTitle>
           )}
         </CardHeader>
         <CardContent>

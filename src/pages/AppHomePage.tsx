@@ -10,7 +10,7 @@ export function AppHomePage() {
   return (
     <div className="p-6 lg:p-8 max-w-2xl mx-auto space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Panel Data Laundering</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Panel DataLand</h1>
         {session?.user?.email && (
           <p className="text-sm text-muted-foreground">
             Sesión iniciada como: {session.user.email}

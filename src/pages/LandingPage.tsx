@@ -109,8 +109,7 @@ function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b-2" style={{ borderBottomColor: C.verde }}>
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-0.5 font-black text-xl tracking-tight">
-          <span style={{ color: C.negro }}>Data</span>
-          <span style={{ color: C.verde }}>Laundering</span>
+          <span style={{ color: C.negro }}>Data</span><span style={{ color: C.verde }}>Land</span>
         </div>
         <div className="flex items-center gap-6">
           <a href="#features" className="text-sm font-semibold hidden sm:block" style={{ color: C.grisTexto }}>Características</a>
@@ -134,7 +133,7 @@ function Hero() {
           con IA
         </h1>
         <p className="text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-medium" style={{ color: C.grisTexto }}>
-          Data Laundering utiliza inteligencia artificial avanzada para extraer, validar y analizar
+          DataLand utiliza inteligencia artificial avanzada para extraer, validar y analizar
           facturas automáticamente. Ahorrá tiempo, eliminá errores y tomá decisiones informadas.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
@@ -389,7 +388,7 @@ function Footer() {
       <div className="max-w-6xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
           <div>
-            <div className="font-black text-lg mb-2"><span style={{ color: C.negro }}>Data</span><span style={{ color: C.verde }}>Laundering</span></div>
+            <div className="font-black text-lg mb-2"><span style={{ color: C.negro }}>Data</span><span style={{ color: C.verde }}>Land</span></div>
             <p className="text-sm leading-relaxed" style={{ color: C.grisTexto }}>Automatización inteligente de facturas con tecnología de IA avanzada.</p>
             <p className="text-xs mt-2" style={{ color: C.gris }}>by Aignition</p>
           </div>

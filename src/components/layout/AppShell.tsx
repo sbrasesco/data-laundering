@@ -94,7 +94,7 @@ export function AppShell({ children }: AppShellProps) {
             </svg>
           </div>
           <span className="text-sm font-semibold text-foreground">
-            Data Laundering
+            DataLand
           </span>
         </div>
 

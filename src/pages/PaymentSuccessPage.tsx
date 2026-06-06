@@ -28,7 +28,7 @@ export function PaymentSuccessPage() {
       {/* Logo */}
       <div className="mb-8">
         <Link to="/" className="text-2xl font-black text-[#22C365]">
-          Data Laundering
+          DataLand
         </Link>
       </div>
 
