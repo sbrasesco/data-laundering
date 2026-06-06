@@ -360,6 +360,23 @@ async function handleEnqueue(body, queue, log) {
     metadata: { source: input_source, worker_version: process.env.WORKER_VERSION ?? 'unknown' },
   };
 
+  // Crear pdf_jobs si no existe (integration sources). Para frontend_upload el frontend
+  // ya lo crea antes de llamar al gateway — on_conflict=ignore-duplicates evita pisarlo.
+  if (SUPABASE_URL && SUPABASE_KEY && input_source !== 'frontend_upload') {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/pdf_jobs?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          'apikey':        SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type':  'application/json',
+          'Prefer':        'return=minimal,resolution=ignore-duplicates',
+        },
+        body: JSON.stringify({ id: job_id, organization_id, status: 'processing' }),
+      });
+    } catch (_) {}
+  }
+
   await queue.add('process-pdf', payload, { jobId: job_id, priority: 5 });
   log('info', 'gateway.enqueued', { job_id, organization_id, file_type, input_source });
   return { status: 200, body: { job_id, queued: true } };
