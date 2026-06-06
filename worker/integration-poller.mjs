@@ -42,13 +42,15 @@ async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
     const text = await res.text();
     throw new Error(`RPC ${rpcName} failed (${res.status}): ${text}`);
   }
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer, mimeType) {
   const path = `${orgId}/integrations/${filename}`;
   const res  = await fetch(
-    `${supabaseUrl}/storage/v1/object/documents/${path}`,
+    `${supabaseUrl}/storage/v1/object/facturas/${path}`,
     {
       method:  'POST',
       headers: {
@@ -64,7 +66,7 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
     const text = await res.text();
     throw new Error(`Storage upload failed (${res.status}): ${text}`);
   }
-  return `${supabaseUrl}/storage/v1/object/public/documents/${path}`;
+  return `${supabaseUrl}/storage/v1/object/public/facturas/${path}`;
 }
 
 async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integrationId) {
