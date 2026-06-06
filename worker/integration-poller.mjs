@@ -74,7 +74,7 @@ function sanitizeStorageKey(filename) {
   return filename
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
-    .replace(/\s+/g, '_');
+    .replace(/[\s$&+,/:;=?@"<>{}|\\^~[\]`]/g, '_');
 }
 
 async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId) {
