@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     environment:
-      - NODE_ENV=staging
+      - NODE_ENV=production
       - WORKER_CONCURRENCY=3
     logging:
       driver: json-file

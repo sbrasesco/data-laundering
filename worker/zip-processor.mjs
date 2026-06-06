@@ -158,6 +158,84 @@ async function buildOcMap(adjDir, log) {
   return ocMap;
 }
 
+// ─── Extracción de adjuntos para documento individual (TASK-73) ──────────────
+
+/**
+ * Extrae adjuntos embebidos de un PDF individual usando las 3 herramientas
+ * (pdfdetach + mutool + PyMuPDF) y retorna los oc_entries correspondientes.
+ *
+ * @param {string} pdfPath  — ruta absoluta al PDF en disco
+ * @param {string} pdfBase  — nombre base sin extensión (ej: "factura-001")
+ * @param {string} jobDir   — directorio temporal de trabajo (se crea si no existe)
+ * @param {string} adjDir   — directorio donde depositar los adjuntos extraídos
+ * @param {function} log
+ * @returns {Array<{numero_oc, nombre_adjunto, codigo_obra}>}
+ */
+export async function extractAttachmentsFromPdf(pdfPath, pdfBase, jobDir, adjDir, log) {
+  await mkdir(adjDir, { recursive: true });
+
+  const tmpAdj       = join(jobDir, `adj_tmp_${pdfBase}`);
+  const tmpPdfdetach = join(jobDir, `adj_pdfdetach_${pdfBase}`);
+  const tmpMutool    = join(jobDir, `adj_mutool_${pdfBase}`);
+  const tmpPymupdf   = join(jobDir, `adj_pymupdf_${pdfBase}`);
+  for (const d of [tmpAdj, tmpPdfdetach, tmpMutool, tmpPymupdf]) {
+    await mkdir(d, { recursive: true });
+  }
+
+  await runCmd(`pdfdetach -saveall -o "${tmpPdfdetach}/" "${pdfPath}" 2>/dev/null || true`);
+  await runCmd(`cd "${tmpMutool}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
+  await runCmd(`python3 /app/extract_attachments.py "${pdfPath}" "${tmpPymupdf}" 2>/dev/null || echo '{"files":[]}'`);
+
+  const fromPdfdetach = (await readdir(tmpPdfdetach)).filter(f => f.toLowerCase().endsWith('.pdf'));
+  const fromMutool    = (await readdir(tmpMutool)).filter(f => f.toLowerCase().endsWith('.pdf'));
+  const fromPymupdf   = (await readdir(tmpPymupdf)).filter(f => f.toLowerCase().endsWith('.pdf'));
+
+  log?.('info', 'single.adj_extracted', {
+    pdf: pdfBase,
+    pdfdetach: fromPdfdetach.length,
+    mutool:    fromMutool.length,
+    pymupdf:   fromPymupdf.length,
+  });
+
+  const seen = new Set();
+  for (const [src, files] of [
+    [tmpPdfdetach, fromPdfdetach],
+    [tmpMutool,    fromMutool],
+    [tmpPymupdf,   fromPymupdf],
+  ]) {
+    for (const f of files) {
+      const key = f.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        await runCmd(`mv "${join(src, f)}" "${tmpAdj}/${f}" 2>/dev/null || true`);
+      }
+    }
+  }
+  for (const d of [tmpPdfdetach, tmpMutool, tmpPymupdf]) {
+    await rm(d, { recursive: true, force: true }).catch(() => {});
+  }
+
+  const adjFiles = (await readdir(tmpAdj)).filter(f => f.toLowerCase().endsWith('.pdf'));
+  for (const af of adjFiles) {
+    if (/remito/i.test(af)) continue;
+    const adjBase = af.replace(/\.pdf$/i, '').replace(/\.PDF$/i, '');
+    const dest = join(adjDir, `__adj__${pdfBase}__${adjBase}.pdf`);
+    await runCmd(`mv "${join(tmpAdj, af)}" "${dest}" 2>/dev/null || true`);
+
+    const { stdout: obraText } = await runCmd(`pdftotext "${dest}" - 2>/dev/null || true`);
+    const obraMatch = obraText.match(/para la obra[^0-9]*(\d+)/i);
+    if (obraMatch) {
+      const { writeFile } = await import('fs/promises');
+      await writeFile(dest.replace(/\.pdf$/i, '.obra'), obraMatch[1], 'utf8');
+    }
+  }
+  await rm(tmpAdj, { recursive: true, force: true }).catch(() => {});
+
+  const ocMap = await buildOcMap(adjDir, log);
+  const parentKey = pdfBase + '.pdf';
+  return ocMap[parentKey] ?? [];
+}
+
 // ─── Procesamiento principal ──────────────────────────────────────────────────
 
 /**

@@ -121,6 +121,7 @@ export function IntegracionesPage() {
   const [outputFolderLocked, setOutputFolderLocked] = useState(true);
   const [outputFolderOptions, setOutputFolderOptions] = useState<DriveFolder[]>([]);
   const [loadingOutputFolders, setLoadingOutputFolders] = useState(false);
+  const [outputFolderError, setOutputFolderError] = useState<string | null>(null);
   const [outputFormat, setOutputFormat]           = useState<'csv' | 'xlsx' | 'json'>('csv');
 
   // Folder picker state (por integration.id)
@@ -290,15 +291,20 @@ export function IntegracionesPage() {
     if (!organizationId) return;
     setLoadingOutputFolders(true);
     setOutputFolderOptions([]);
+    setOutputFolderError(null);
     try {
       const res = await fetch(
         `${GATEWAY_BASE_URL}/api/drive/folders?integration_id=${integrationId}&org_id=${organizationId}`,
         { headers: { Authorization: `Bearer ${GATEWAY_API_KEY}` } }
       );
       const data = await res.json();
-      if (res.ok) setOutputFolderOptions(data.folders ?? []);
-    } catch {}
-    finally { setLoadingOutputFolders(false); }
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+      setOutputFolderOptions(data.folders ?? []);
+    } catch (e: unknown) {
+      setOutputFolderError(e instanceof Error ? e.message : 'Error cargando carpetas');
+    } finally {
+      setLoadingOutputFolders(false);
+    }
   };
 
   const handleToggle = async (id: string, current: boolean) => {
@@ -430,7 +436,12 @@ export function IntegracionesPage() {
                             </div>
                           ) : selectedType === 'google_drive' && editingId ? (
                             loadingOutputFolders ? (
-                              <div className="flex flex-1 items-center h-9 px-3 text-sm text-muted-foreground">Cargando carpetas...</div>
+                              <div className="flex flex-1 items-center h-9 px-3 text-sm text-muted-foreground">⏳ Cargando carpetas...</div>
+                            ) : outputFolderError ? (
+                              <div className="flex flex-1 items-center gap-2 h-9 px-3 text-sm text-destructive">
+                                <span>⚠️ {outputFolderError}</span>
+                                <button type="button" onClick={() => fetchOutputFolderOptions(editingId)} className="underline text-xs">Reintentar</button>
+                              </div>
                             ) : (
                               <select
                                 className="flex flex-1 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -498,7 +509,7 @@ export function IntegracionesPage() {
 
               {/* Botones */}
               <div className="flex gap-3">
-                {selectedType === 'google_drive' ? (
+                {selectedType === 'google_drive' && !editingId ? (
                   <Button onClick={handleConnectGoogleDrive} disabled={saving}>
                     {saving ? 'Conectando...' : '🔗 Conectar con Google Drive'}
                   </Button>
