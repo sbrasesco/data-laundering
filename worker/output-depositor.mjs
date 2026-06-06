@@ -86,10 +86,10 @@ function createDriveClient(refreshToken) {
 }
 
 /**
- * Busca o crea la carpeta /procesados/ dentro del folder configurado.
+ * Busca o crea la subcarpeta de salida dentro del folder configurado.
+ * Por defecto usa "procesados".
  */
-async function ensureProcesadosFolder(drive, parentFolderId, log) {
-  const folderName = 'procesados';
+async function ensureOutputFolder(drive, parentFolderId, folderName = 'procesados', log) {
   const searchRes = await drive.files.list({
     q: `name='${folderName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
@@ -109,13 +109,13 @@ async function ensureProcesadosFolder(drive, parentFolderId, log) {
     },
     fields: 'id',
   });
-  log('info', 'output.drive_procesados_created', { parent: parentFolderId, id: createRes.data.id });
+  log('info', 'output.drive_folder_created', { parent: parentFolderId, folder: folderName, id: createRes.data.id });
   return createRes.data.id;
 }
 
 // ─── Depositores por tipo ─────────────────────────────────────────────────────
 
-async function depositToDrive(credentials, filename, fileContent, mimeType, log) {
+async function depositToDrive(credentials, outputFolderName, filename, fileContent, mimeType, log) {
   const refreshToken = credentials.oauth_refresh_token;
   if (!refreshToken) throw new Error('Google Drive: oauth_refresh_token no configurado');
 
@@ -124,8 +124,8 @@ async function depositToDrive(credentials, filename, fileContent, mimeType, log)
 
   const drive = createDriveClient(refreshToken);
 
-  // Depositar en /procesados/ dentro de la carpeta configurada
-  const procesadosFolderId = await ensureProcesadosFolder(drive, folderId, log);
+  // Depositar en la subcarpeta configurada (default: procesados)
+  const targetFolderId = await ensureOutputFolder(drive, folderId, outputFolderName || 'procesados', log);
 
   const { Readable } = await import('node:stream');
   const body = Buffer.isBuffer(fileContent)
@@ -135,7 +135,7 @@ async function depositToDrive(credentials, filename, fileContent, mimeType, log)
   const uploadRes = await drive.files.create({
     requestBody: {
       name:    filename,
-      parents: [procesadosFolderId],
+      parents: [targetFolderId],
       mimeType,
     },
     media: { mimeType, body },
@@ -280,6 +280,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     if (outputConfig.integration_type === 'google_drive') {
       const fileId = await depositToDrive(
         outputConfig.credentials,
+        outputConfig.output_folder_path || 'procesados',
         filename,
         fileContent,
         mimeType,

@@ -116,9 +116,12 @@ export function IntegracionesPage() {
   const [credentials, setCredentials]         = useState<CredentialFields>({});
   const [folderPath, setFolderPath]           = useState('');
   const [pollingInterval, setPollingInterval] = useState(15);
-  const [outputEnabled, setOutputEnabled]     = useState(false);
-  const [outputFolder, setOutputFolder]       = useState('output');
-  const [outputFormat, setOutputFormat]       = useState<'csv' | 'xlsx' | 'json'>('csv');
+  const [outputEnabled, setOutputEnabled]         = useState(false);
+  const [outputFolder, setOutputFolder]           = useState('procesados');
+  const [outputFolderLocked, setOutputFolderLocked] = useState(true);
+  const [outputFolderOptions, setOutputFolderOptions] = useState<DriveFolder[]>([]);
+  const [loadingOutputFolders, setLoadingOutputFolders] = useState(false);
+  const [outputFormat, setOutputFormat]           = useState<'csv' | 'xlsx' | 'json'>('csv');
 
   // Folder picker state (por integration.id)
   const [driveFolders, setDriveFolders]           = useState<Record<string, DriveFolder[]>>({});
@@ -219,7 +222,7 @@ export function IntegracionesPage() {
   const resetForm = () => {
     setEditingId(null); setSelectedType('google_drive'); setCredentials({});
     setFolderPath(''); setPollingInterval(15); setOutputEnabled(false);
-    setOutputFolder('output'); setOutputFormat('csv'); setSaveError(null);
+    setOutputFolder('procesados'); setOutputFolderLocked(true); setOutputFormat('csv'); setSaveError(null);
   };
 
   const openAddForm = () => { resetForm(); setSuccessMsg(null); setShowForm(true); };
@@ -229,7 +232,10 @@ export function IntegracionesPage() {
     const editCreds = i.integration_type === 'google_drive' ? {} : { ...i.credentials };
     setCredentials(editCreds);
     setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes);
-    setOutputEnabled(i.output_enabled ?? false); setOutputFolder(i.output_folder_path ?? 'output');
+    setOutputEnabled(i.output_enabled ?? false);
+    const savedFolder = i.output_folder_path ?? 'procesados';
+    setOutputFolder(savedFolder);
+    setOutputFolderLocked(savedFolder === 'procesados');
     setOutputFormat((i.output_format ?? 'csv') as 'csv' | 'xlsx' | 'json'); setSaveError(null); setShowForm(true);
   };
 
@@ -278,6 +284,21 @@ export function IntegracionesPage() {
   const handleReconnectGoogle = (integration: TenantIntegration) => {
     if (!organizationId || !GOOGLE_CLIENT_ID) return;
     window.location.href = buildGoogleOAuthUrl(organizationId, integration.id);
+  };
+
+  const fetchOutputFolderOptions = async (integrationId: string) => {
+    if (!organizationId) return;
+    setLoadingOutputFolders(true);
+    setOutputFolderOptions([]);
+    try {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/drive/folders?integration_id=${integrationId}&org_id=${organizationId}`,
+        { headers: { Authorization: `Bearer ${GATEWAY_API_KEY}` } }
+      );
+      const data = await res.json();
+      if (res.ok) setOutputFolderOptions(data.folders ?? []);
+    } catch {}
+    finally { setLoadingOutputFolders(false); }
   };
 
   const handleToggle = async (id: string, current: boolean) => {
@@ -394,7 +415,7 @@ export function IntegracionesPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">Depositar el CSV al terminar el procesamiento.</p>
                     </div>
                     <button type="button" onClick={() => setOutputEnabled(v => !v)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-slate-300'}`}>
                       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
                     </button>
                   </div>
@@ -402,7 +423,62 @@ export function IntegracionesPage() {
                     <div className="grid grid-cols-[2fr_1fr] gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-sm">Carpeta de salida</Label>
-                        <Input value={outputFolder} onChange={(e) => setOutputFolder(e.target.value)} placeholder="output" />
+                        <div className="flex gap-1.5 items-center">
+                          {outputFolderLocked ? (
+                            <div className="flex flex-1 items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted text-sm text-muted-foreground">
+                              <span className="font-mono flex-1">📁 {outputFolder}</span>
+                            </div>
+                          ) : selectedType === 'google_drive' && editingId ? (
+                            loadingOutputFolders ? (
+                              <div className="flex flex-1 items-center h-9 px-3 text-sm text-muted-foreground">Cargando carpetas...</div>
+                            ) : (
+                              <select
+                                className="flex flex-1 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                value={outputFolder}
+                                onChange={(e) => setOutputFolder(e.target.value)}
+                              >
+                                <option value="procesados">📁 procesados (default)</option>
+                                {outputFolderOptions
+                                  .filter(f => f.name !== 'procesados')
+                                  .map(f => (
+                                    <option key={f.id} value={f.name}>📁 {f.name}</option>
+                                  ))
+                                }
+                              </select>
+                            )
+                          ) : (
+                            <Input
+                              className="flex-1"
+                              value={outputFolder}
+                              onChange={(e) => setOutputFolder(e.target.value)}
+                              placeholder="procesados"
+                              autoFocus
+                            />
+                          )}
+                          <button
+                            type="button"
+                            title={outputFolderLocked ? 'Cambiar carpeta de salida' : 'Volver al default (procesados)'}
+                            onClick={() => {
+                              if (outputFolderLocked) {
+                                setOutputFolderLocked(false);
+                                if (selectedType === 'google_drive' && editingId) {
+                                  fetchOutputFolderOptions(editingId);
+                                }
+                              } else {
+                                setOutputFolder('procesados');
+                                setOutputFolderLocked(true);
+                              }
+                            }}
+                            className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-base"
+                          >
+                            {outputFolderLocked ? '🔒' : '🔓'}
+                          </button>
+                        </div>
+                        {!outputFolderLocked && (
+                          <p className="text-xs text-muted-foreground">
+                            {selectedType === 'google_drive' ? 'Seleccioná la carpeta destino en tu Drive.' : 'Ingresá el nombre de la carpeta de salida.'}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-sm">Formato</Label>
