@@ -9,13 +9,14 @@
  * Flujo por integración activa:
  *   1. Obtiene integraciones "due" via admin_get_active_integrations()
  *   2. Para google_drive: autentica con OAuth o Service Account
- *   3. Descarga cada archivo → sube a Supabase Storage
- *   4. POST al Input Gateway para encolar el job
- *   5. Registra file_hash para deduplicación
- *   6. Actualiza last_polled_at
+ *   3. Lista TODOS los archivos de la carpeta (sin filtro modifiedTime)
+ *   4. Deduplica por drive_file_id en integration_processed_files
+ *   5. Descarga, sube a Supabase Storage y encola en Input Gateway
+ *   6. Registra drive_file_id en integration_processed_files
+ *   7. Borra el archivo de Drive (best-effort — Drive es solo inbox)
+ *   8. Actualiza last_polled_at
  */
 
-import crypto from 'node:crypto';
 import { google } from 'googleapis';
 
 const SUPPORTED_MIME_TYPES = {
@@ -69,15 +70,26 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
   return `${supabaseUrl}/storage/v1/object/public/facturas/${path}`;
 }
 
-async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integrationId) {
+function sanitizeStorageKey(filename) {
+  return filename
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, '_');
+}
+
+async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId) {
   const res = await fetch(gatewayUrl, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
     body: JSON.stringify({
       organization_id:   orgId,
       file_url:          fileUrl,
       file_type:         fileType,
       original_filename: filename,
+      input_source:      'integration_drive',
       metadata: {
         source:         'integration_drive',
         integration_id: integrationId,
@@ -115,22 +127,45 @@ function buildDriveClientOAuth(refreshToken, clientId, clientSecret) {
   return google.drive({ version: 'v3', auth });
 }
 
+// ─── integration_processed_files helpers ─────────────────────────────────────
+
+async function isDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, driveFileId) {
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/integration_processed_files?integration_id=eq.${integrationId}&drive_file_id=eq.${encodeURIComponent(driveFileId)}&select=id&limit=1`,
+    { headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` } }
+  );
+  if (!res.ok) return false;
+  const rows = await res.json();
+  return rows.length > 0;
+}
+
+async function registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, driveFileId, filename) {
+  await fetch(`${supabaseUrl}/rest/v1/integration_processed_files`, {
+    method: 'POST',
+    headers: {
+      'apikey':          supabaseKey,
+      'Authorization':  `Bearer ${supabaseKey}`,
+      'Content-Type':   'application/json',
+      'Prefer':         'return=minimal',
+    },
+    body: JSON.stringify({
+      integration_id:    integrationId,
+      organization_id:   orgId,
+      drive_file_id:     driveFileId,
+      original_filename: filename,
+    }),
+  });
+}
+
 // ─── Google Drive helpers ────────────────────────────────────────────────────
 
-async function listNewFiles(drive, folderId, sinceDate) {
-  const query = [
-    `'${folderId}' in parents`,
-    `trashed = false`,
-    sinceDate ? `modifiedTime > '${sinceDate.toISOString()}'` : null,
-  ].filter(Boolean).join(' and ');
-
+async function listAllFiles(drive, folderId) {
   const res = await drive.files.list({
-    q:       query,
-    fields:  'files(id, name, mimeType, size, modifiedTime)',
-    orderBy: 'modifiedTime asc',
+    q:        `'${folderId}' in parents and trashed = false`,
+    fields:   'files(id, name, mimeType, size)',
+    orderBy:  'name asc',
     pageSize: 100,
   });
-
   return (res.data.files || []).filter(f => SUPPORTED_MIME_TYPES[f.mimeType]);
 }
 
@@ -144,7 +179,7 @@ async function downloadFile(drive, fileId) {
 
 // ─── Poller principal ────────────────────────────────────────────────────────
 
-export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, log }) {
+export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
   // 1. Obtener integraciones google_drive "due"
   let integrations;
   try {
@@ -164,7 +199,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
   log('info', 'integration.poll_start', { type: 'google_drive', count: integrations.length });
 
   for (const integration of integrations) {
-    const { id: integrationId, organization_id: orgId, credentials, last_polled_at } = integration;
+    const { id: integrationId, organization_id: orgId, credentials } = integration;
 
     log('info', 'integration.tenant_start', { integration_id: integrationId, organization_id: orgId });
 
@@ -208,62 +243,71 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
         continue;
       }
 
-      // 3. Listar archivos nuevos desde last_polled_at
-      const sinceDate = last_polled_at ? new Date(last_polled_at) : null;
-      const files     = await listNewFiles(drive, folderId, sinceDate);
+      // 3. Listar todos los archivos de la carpeta (sin filtro de fecha)
+      const files = await listAllFiles(drive, folderId);
 
       log('info', 'integration.files_found', {
         integration_id: integrationId,
-        count:  files.length,
-        since:  sinceDate?.toISOString() ?? 'all',
+        count: files.length,
       });
 
       let enqueued = 0, skipped = 0, failed = 0;
 
       for (const file of files) {
         try {
-          // 4. Descargar archivo
-          const buffer = await downloadFile(drive, file.id);
-
-          // 5. Calcular hash para deduplicación
-          const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-
-          // 6. Verificar si ya fue procesado
-          const isNew = await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
-            p_integration_id:  integrationId,
-            p_organization_id: orgId,
-            p_file_hash:       fileHash,
-            p_filename:        file.name,
-          });
-
-          if (!isNew) {
+          // 4. Verificar si ya fue procesado por drive_file_id
+          const alreadyProcessed = await isDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, file.id);
+          if (alreadyProcessed) {
             log('debug', 'integration.file_skipped_duplicate', {
               integration_id: integrationId,
-              filename: file.name,
-              file_hash: fileHash,
+              filename:  file.name,
+              drive_file_id: file.id,
             });
             skipped++;
             continue;
           }
 
-          // 7. Subir a Supabase Storage
-          const uniqueName = `${Date.now()}_${file.name}`;
+          // 5. Descargar archivo
+          const buffer = await downloadFile(drive, file.id);
+
+          // 6. Subir a Supabase Storage
+          const uniqueName = `${Date.now()}_${sanitizeStorageKey(file.name)}`;
           const fileUrl    = await uploadToStorage(
             supabaseUrl, supabaseKey,
             orgId, uniqueName, buffer, file.mimeType
           );
 
-          // 8. Encolar en Input Gateway
+          // 7. Encolar en Input Gateway
           const fileType = SUPPORTED_MIME_TYPES[file.mimeType].file_type;
-          await enqueueJob(gatewayUrl, orgId, fileUrl, fileType, file.name, integrationId);
+          await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId);
+
+          // 8. Registrar drive_file_id como procesado
+          await registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, file.id, file.name);
 
           log('info', 'integration.file_enqueued', {
             integration_id: integrationId,
-            filename:  file.name,
-            file_type: fileType,
-            file_hash: fileHash,
+            filename:      file.name,
+            file_type:     fileType,
+            drive_file_id: file.id,
           });
           enqueued++;
+
+          // 9. Borrar de Drive (best-effort — Drive es solo inbox)
+          try {
+            await drive.files.delete({ fileId: file.id });
+            log('info', 'integration.file_deleted_from_drive', {
+              integration_id: integrationId,
+              filename:      file.name,
+              drive_file_id: file.id,
+            });
+          } catch (delErr) {
+            log('warn', 'integration.file_delete_failed', {
+              integration_id: integrationId,
+              filename:      file.name,
+              drive_file_id: file.id,
+              error:         delErr.message,
+            });
+          }
 
         } catch (fileErr) {
           log('error', 'integration.file_error', {
@@ -272,7 +316,6 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
             error:    fileErr.message,
           });
           failed++;
-          // Continúa con el siguiente archivo
         }
       }
 

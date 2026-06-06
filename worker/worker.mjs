@@ -15,7 +15,9 @@ import { insertQueueJob, syncJobState } from './persistence.mjs';
 import { startMetricsServer } from './metrics.mjs';
 import { startGateway } from './gateway.mjs';
 import { startBullBoard } from './bull-board.mjs';
-import { processZip } from './zip-processor.mjs';
+import { processZip, extractAttachmentsFromPdf } from './zip-processor.mjs';
+import { mkdir, rm } from 'fs/promises';
+import { basename } from 'path';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 import { processDocument } from './document-processor.mjs';
 import { pollGoogleDriveIntegrations } from './integration-poller.mjs';
@@ -26,6 +28,7 @@ import { pollFtpSftpIntegrations }     from './ftp-sftp-poller.mjs';
 const WORKER_VERSION           = process.env.WORKER_VERSION     ?? '0.8.0';
 const INTEGRATION_POLL_INTERVAL_MS = 60 * 1000; // 1 min — el poller filtra qué tenants están "due"
 const GATEWAY_URL              = process.env.GATEWAY_URL ?? 'https://automation.aignition.net/worker/api/enqueue';
+const GATEWAY_API_KEY          = process.env.GATEWAY_API_KEY ?? '';
 const QUEUE_NAME      = 'pdf-processing';
 const CONCURRENCY     = Number(process.env.WORKER_CONCURRENCY ?? 3);
 const DLQ_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
@@ -178,6 +181,26 @@ const worker = new Worker(
           throw new TerminalError(msg, { code: 'INSUFFICIENT_CREDITS' });
         }
 
+        // Extraer adjuntos embebidos (OCs) si el archivo es un PDF
+        let ocEntries = job.data.oc_entries ?? [];
+        const tmpDir = `/tmp/worker-single/${jobId}`;
+        if (fileType === 'pdf') {
+          try {
+            await mkdir(tmpDir, { recursive: true });
+            const tmpPdf = `${tmpDir}/input.pdf`;
+            const adjDir = `${tmpDir}/adj`;
+            const { exec } = await import('child_process');
+            const { promisify } = await import('util');
+            const execAsync = promisify(exec);
+            await execAsync(`wget -qO "${tmpPdf}" "${job.data.file_url}"`);
+            const pdfBase = basename(job.data.original_filename, '.pdf');
+            ocEntries = await extractAttachmentsFromPdf(tmpPdf, pdfBase, tmpDir, adjDir, log);
+            log('info', 'job.single_oc_extracted', { job_id: jobId, oc_count: ocEntries.length });
+          } catch (err) {
+            log('warn', 'job.single_oc_error', { job_id: jobId, error: err.message, note: 'Continuando sin OCs' });
+          }
+        }
+
         const singlePayload = {
           job_id:            jobId,
           organization_id:   job.data.organization_id,
@@ -186,11 +209,23 @@ const worker = new Worker(
           original_filename: job.data.original_filename,
           client_cuit:       job.data.client_cuit  ?? null,
           client_name:       job.data.client_name  ?? null,
-          oc_entries:        job.data.oc_entries   ?? [],
+          oc_entries:        ocEntries,
           input_source:      job.data.metadata?.source ?? 'frontend_upload',
         };
 
         const data = await processDocument(singlePayload, log);
+
+        await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+
+        if (data.success) {
+          await processDocumentResult(data, jobId, job.data.organization_id, log);
+        }
+        await finalizeJob(jobId, job.data.organization_id, {
+          total:         1,
+          successful:    data.success ? 1 : 0,
+          failed:        data.success ? 0 : 1,
+          lowConfidence: (data.confidence_score ?? 1) < 0.8 ? 1 : 0,
+        }, log);
 
         const result = { ...data, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
@@ -283,7 +318,7 @@ const dlqInterval = setInterval(runDLQCron, DLQ_INTERVAL_MS);
 
 // ─── Cron de integraciones (cada 1 min) ──────────────────────────────────────
 async function runIntegrationPoller() {
-  const ctx = { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, gatewayUrl: GATEWAY_URL, log };
+  const ctx = { supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, gatewayUrl: GATEWAY_URL, gatewayApiKey: GATEWAY_API_KEY, log };
   try {
     await pollGoogleDriveIntegrations(ctx);
   } catch (err) {
