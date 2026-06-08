@@ -182,6 +182,44 @@ async function depositToSftp(credentials, baseFolderPath, outputFolderPath, file
   }
 }
 
+async function depositToFirebaseStorage(credentials, outputFolderName, filename, fileContent, log) {
+  const { initializeApp, deleteApp, cert } = await import('firebase-admin/app');
+  const { getStorage } = await import('firebase-admin/storage');
+
+  const serviceAccount = typeof credentials.service_account_json === 'string'
+    ? JSON.parse(credentials.service_account_json)
+    : credentials.service_account_json;
+
+  const bucketName   = credentials.bucket_name;
+  const folderPath   = credentials.folder_path || '';
+  const outputFolder = outputFolderName || 'procesados';
+
+  if (!serviceAccount || !bucketName) {
+    throw new Error('Firebase Storage: service_account_json y bucket_name son requeridos');
+  }
+
+  const appName = `dl_output_${Date.now()}`;
+  const app = initializeApp({
+    credential: cert(serviceAccount),
+    storageBucket: bucketName,
+  }, appName);
+
+  try {
+    const bucket = getStorage(app).bucket();
+
+    const prefix   = folderPath ? (folderPath.endsWith('/') ? folderPath : `${folderPath}/`) : '';
+    const destPath = `${prefix}${outputFolder}/${filename}`;
+
+    const buf = Buffer.isBuffer(fileContent) ? fileContent : Buffer.from(fileContent, 'utf-8');
+    await bucket.file(destPath).save(buf, { resumable: false });
+
+    log('info', 'output.firebase_upload_done', { bucket: bucketName, path: destPath });
+    return destPath;
+  } finally {
+    await deleteApp(app);
+  }
+}
+
 async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filename, fileContent, log) {
   const { ftp: ftpLib } = await import('basic-ftp');
   const { Readable }    = await import('node:stream');
@@ -326,6 +364,20 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
         job_id: jobId, organization_id: orgId,
         integration_type: 'ftp', filename, format: outputFormat,
         remote_path: remotePath,
+      });
+
+    } else if (outputConfig.integration_type === 'firebase_storage') {
+      const destPath = await depositToFirebaseStorage(
+        outputConfig.credentials,
+        outputConfig.output_folder_path || 'procesados',
+        filename,
+        fileContent,
+        log
+      );
+      log('info', 'output.deposited', {
+        job_id: jobId, organization_id: orgId,
+        integration_type: 'firebase_storage', filename, format: outputFormat,
+        dest_path: destPath,
       });
 
     } else {

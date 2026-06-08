@@ -20,8 +20,9 @@ import { mkdir, rm } from 'fs/promises';
 import { basename } from 'path';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 import { processDocument } from './document-processor.mjs';
-import { pollGoogleDriveIntegrations } from './integration-poller.mjs';
-import { pollFtpSftpIntegrations }     from './ftp-sftp-poller.mjs';
+import { pollGoogleDriveIntegrations }      from './integration-poller.mjs';
+import { pollFtpSftpIntegrations }          from './ftp-sftp-poller.mjs';
+import { pollFirebaseStorageIntegrations }  from './firebase-storage-poller.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
@@ -328,6 +329,11 @@ async function runIntegrationPoller() {
     await pollFtpSftpIntegrations(ctx);
   } catch (err) {
     log('error', 'integration.cron_error', { protocol: 'ftp_sftp', error: err.message });
+  }
+  try {
+    await pollFirebaseStorageIntegrations(ctx);
+  } catch (err) {
+    log('error', 'integration.cron_error', { protocol: 'firebase_storage', error: err.message });
   }
 }
 
