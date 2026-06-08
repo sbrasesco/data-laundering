@@ -68,10 +68,13 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
   return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
 }
 
-async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integrationId) {
+async function enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, filename, integrationId) {
   const res = await fetch(gatewayUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${gatewayApiKey}`,
+    },
     body: JSON.stringify({
       organization_id:   orgId,
       file_url:          fileUrl,
@@ -94,7 +97,7 @@ async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integr
 
 // ─── Firebase Storage poller ─────────────────────────────────────────────────
 
-async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, log }) {
+async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
   const { id: integrationId, organization_id: orgId, credentials } = integration;
 
   // Parsear credenciales
@@ -178,7 +181,7 @@ async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gate
         const fileUrl    = await uploadToStorage(supabaseUrl, supabaseKey, orgId, uniqueName, buffer, mime);
 
         // Encolar en Input Gateway
-        await enqueueJob(gatewayUrl, orgId, fileUrl, file_type, filename, integrationId);
+        await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, filename, integrationId);
 
         log('info', 'integration.file_enqueued', {
           integration_id: integrationId,
@@ -216,7 +219,7 @@ async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gate
 
 // ─── Orquestador ─────────────────────────────────────────────────────────────
 
-export async function pollFirebaseStorageIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, log }) {
+export async function pollFirebaseStorageIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
   let integrations;
   try {
     integrations = await callRpc(supabaseUrl, supabaseKey, 'admin_get_active_integrations', {
@@ -237,7 +240,7 @@ export async function pollFirebaseStorageIntegrations({ supabaseUrl, supabaseKey
   for (const integration of integrations) {
     const { id: integrationId, organization_id: orgId } = integration;
     try {
-      await pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, log });
+      await pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
       await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', {
         p_integration_id: integrationId,
       });
