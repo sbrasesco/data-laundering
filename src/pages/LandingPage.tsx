@@ -66,8 +66,8 @@ const FEATURES = [
   { color: C.verde,    iconKey: 'ai',     titulo: 'Extracción de datos',       desc: 'Procesá facturas en PDF, JPG o PNG con 98% de precisión. La IA identifica todos los campos fiscales en segundos.' },
   { color: C.amarillo, iconKey: 'check',  titulo: 'Validación automática',    desc: 'Verificá totales, IVA y percepciones. Detecta errores al instante antes de que lleguen a tu contador.' },
   { color: C.lila,     iconKey: 'folder', titulo: 'Integración de carpetas',  desc: 'Conectá Google Drive, FTP o SFTP. El sistema monitorea y procesa automáticamente, 24/7.' },
-  { color: C.negro,    iconKey: 'csv',    titulo: 'Exportación CSV',          desc: 'Todos los datos estructurados en un CSV listo para importar en tu sistema contable o ERP.' },
-  { color: C.verde,    iconKey: 'send',   titulo: 'Salida automática',        desc: 'Recibí el CSV de resultados directamente en tu carpeta configurada al terminar cada procesamiento.' },
+  { color: C.negro,    iconKey: 'csv',    titulo: 'Exportación CSV y Excel',  desc: 'Descargá los datos en CSV para importar en tu sistema contable o ERP, o en Excel para trabajarlos directamente.' },
+  { color: C.verde,    iconKey: 'send',   titulo: 'Resultados al instante',   desc: 'Descargá el CSV o Excel desde el dashboard ni bien termina el procesamiento. Sin pasos extra.' },
   { color: C.lila,     iconKey: 'stack',  titulo: 'Procesamiento masivo',     desc: 'Subí un ZIP con cientos de facturas y procesalas en paralelo. Sin esperas, sin timeouts.' },
 ];
 
