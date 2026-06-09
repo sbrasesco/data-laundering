@@ -146,20 +146,8 @@ async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gate
         await client.downloadTo(writable, path.posix.join(remotePath, file.name));
         const buffer = Buffer.concat(chunks);
 
-        // SHA256 + deduplicación
+        // SHA256 — solo para dedup en polls futuros
         const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-        const isNew = await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
-          p_integration_id:  integrationId,
-          p_organization_id: orgId,
-          p_file_hash:       fileHash,
-          p_filename:        file.name,
-        });
-
-        if (!isNew) {
-          log('debug', 'integration.file_skipped_duplicate', { integration_id: integrationId, filename: file.name });
-          skipped++;
-          continue;
-        }
 
         // Subir a Supabase Storage
         const ext        = path.extname(file.name).toLowerCase();
@@ -169,6 +157,14 @@ async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gate
 
         // Encolar en Input Gateway
         await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, file.name, integrationId, 'ftp');
+
+        // Registrar dedup DESPUÉS del enqueue exitoso — si el enqueue falla el hash no queda bloqueado
+        await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
+          p_integration_id:  integrationId,
+          p_organization_id: orgId,
+          p_file_hash:       fileHash,
+          p_filename:        file.name,
+        });
 
         log('info', 'integration.file_enqueued', {
           integration_id: integrationId,
@@ -255,20 +251,8 @@ async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gat
         const buffer = await sftp.get(path.posix.join(remotePath, file.name));
         const buf    = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 
-        // SHA256 + deduplicación
+        // SHA256 — solo para dedup en polls futuros
         const fileHash = crypto.createHash('sha256').update(buf).digest('hex');
-        const isNew = await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
-          p_integration_id:  integrationId,
-          p_organization_id: orgId,
-          p_file_hash:       fileHash,
-          p_filename:        file.name,
-        });
-
-        if (!isNew) {
-          log('debug', 'integration.file_skipped_duplicate', { integration_id: integrationId, filename: file.name });
-          skipped++;
-          continue;
-        }
 
         // Subir a Supabase Storage
         const ext        = path.extname(file.name).toLowerCase();
@@ -278,6 +262,14 @@ async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gat
 
         // Encolar en Input Gateway
         await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, file.name, integrationId, 'sftp');
+
+        // Registrar dedup DESPUÉS del enqueue exitoso — si el enqueue falla el hash no queda bloqueado
+        await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
+          p_integration_id:  integrationId,
+          p_organization_id: orgId,
+          p_file_hash:       fileHash,
+          p_filename:        file.name,
+        });
 
         log('info', 'integration.file_enqueued', {
           integration_id: integrationId,
