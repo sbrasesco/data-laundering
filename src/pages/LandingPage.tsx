@@ -282,8 +282,8 @@ function Precios() {
         <div className="text-center mb-6">
           <h2 className="text-3xl font-black mb-3" style={{ color: C.negro }}>Planes para cada necesidad</h2>
           <p className="font-medium mb-4" style={{ color: C.grisTexto }}>Comenzá gratis y escalá según crezcas.</p>
-          <div className="inline-flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full" style={{ background: C.lila, color: C.blanco }}>
-            Créditos acumulativos — no vencen al mes, solo tras 6 meses sin actividad
+          <div className="inline-flex items-center gap-2 text-sm font-black px-5 py-3 rounded-full" style={{ background: C.amarillo, color: C.negro }}>
+            Créditos acumulativos — no vencen al mes
           </div>
         </div>
 
@@ -368,13 +368,13 @@ function CTA() {
     <section id="contacto" className="py-24 px-6" style={{ background: C.negro }}>
       <div className="max-w-2xl mx-auto text-center">
         <h2 className="text-4xl font-black mb-4" style={{ color: C.blanco }}>
-          Listo para{" "}
-          <span style={{ color: C.amarillo }}>automatizar tus facturas</span>
+          ¿Qué esperás para hacer más{" "}
+          <span style={{ color: C.amarillo }}>eficiente tu negocio?</span>
         </h2>
-        <p className="text-lg font-medium mb-10" style={{ color: C.gris }}>Empezá gratis hoy. Sin tarjeta de crédito, sin compromisos.</p>
+        <p className="text-lg font-medium mb-10" style={{ color: C.gris }}>Tu competencia ya lo está usando.</p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <a href="/login" className="font-black px-8 py-4 rounded-xl text-base" style={{ background: C.verde, color: C.blanco }}>Comenzar ahora</a>
-          <a href="mailto:hola@aignition.net" className="font-black px-8 py-4 rounded-xl text-base border-2" style={{ borderColor: C.lila, color: C.lila }}>Hablar con ventas</a>
+          <a href="mailto:hola@aignition.net" className="font-black px-8 py-4 rounded-xl text-base border-2" style={{ borderColor: C.blanco, color: C.blanco }}>Hablar con ventas</a>
         </div>
       </div>
     </section>
