@@ -79,6 +79,7 @@ async function enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, f
       file_url:          fileUrl,
       file_type:         fileType,
       original_filename: filename,
+      input_source:      'integration_remote',
       metadata: {
         source:         'integration_remote',
         integration_id: integrationId,
