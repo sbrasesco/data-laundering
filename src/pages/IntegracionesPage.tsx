@@ -307,7 +307,25 @@ export function IntegracionesPage() {
     }
   };
 
-  const handleToggle = async (id: string, current: boolean) => {
+  const [confirmActivate, setConfirmActivate] = useState<{ id: string; newType: string; currentType: string } | null>(null);
+
+  const handleToggle = async (id: string, current: boolean, integrationType: string) => {
+    if (!current) {
+      // Activando: verificar si hay otra activa
+      const activeIntegration = integrations.find(i => i.is_active && i.id !== id);
+      if (activeIntegration) {
+        setConfirmActivate({
+          id,
+          newType: TYPE_LABELS[integrationType as IntegrationType] ?? integrationType,
+          currentType: TYPE_LABELS[activeIntegration.integration_type] ?? activeIntegration.integration_type,
+        });
+        return;
+      }
+    }
+    await doToggle(id, current);
+  };
+
+  const doToggle = async (id: string, current: boolean) => {
     try {
       const { error: rpcError } = await supabase.rpc('toggle_tenant_integration', { p_integration_id: id, p_active: !current });
       if (rpcError) throw rpcError;
@@ -575,7 +593,7 @@ export function IntegracionesPage() {
                           🔄 Reconectar
                         </Button>
                       )}
-                      <Button variant="outline" size="sm" onClick={() => handleToggle(integration.id, integration.is_active)}>
+                      <Button variant="outline" size="sm" onClick={() => handleToggle(integration.id, integration.is_active, integration.integration_type)}>
                         {integration.is_active ? 'Desactivar' : 'Activar'}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => openEditForm(integration)}>Editar</Button>
@@ -651,6 +669,30 @@ export function IntegracionesPage() {
           </div>
         )}
       </div>
+
+      {/* ── Modal: confirmar cambio de integración activa ──────────────── */}
+      {confirmActivate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-background rounded-xl shadow-lg p-6 max-w-sm w-full mx-4 space-y-4">
+            <h2 className="font-semibold text-base">Cambiar integración activa</h2>
+            <p className="text-sm text-muted-foreground">
+              Tenés <strong>{confirmActivate.currentType}</strong> activa. Si continuás, se desactivará y se activará <strong>{confirmActivate.newType}</strong>.
+            </p>
+            <p className="text-xs text-muted-foreground">Solo puede haber una integración activa a la vez.</p>
+            <div className="flex gap-3 justify-end pt-2">
+              <Button variant="outline" onClick={() => setConfirmActivate(null)}>Cancelar</Button>
+              <Button onClick={async () => {
+                const { id } = confirmActivate;
+                setConfirmActivate(null);
+                await doToggle(id, false); // false = actualmente inactiva → activar
+              }}>
+                Confirmar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
