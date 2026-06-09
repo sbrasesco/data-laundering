@@ -15,9 +15,9 @@ const C = {
 };
 
 const STATS = [
-  { valor: '98%',  label: 'Precisión en OCR' },
-  { valor: '75%',  label: 'Reducción de tiempo' },
-  { valor: '24/7', label: 'Monitoreo automático' },
+  { valor: '98%',  label: 'Precisión' },
+  { valor: '75%',  label: 'Reducción de Costos' },
+  { valor: '24/7', label: 'Siempre operativo' },
   { valor: '100%', label: 'Seguro y confiable' },
 ];
 
@@ -63,7 +63,7 @@ const FEATURE_ICONS: Record<string, JSX.Element> = {
 };
 
 const FEATURES = [
-  { color: C.verde,    iconKey: 'ai',     titulo: 'Extracción con IA',       desc: 'Procesá facturas en PDF, JPG o PNG con 98% de precisión. La IA identifica todos los campos fiscales en segundos.' },
+  { color: C.verde,    iconKey: 'ai',     titulo: 'Extracción de datos',       desc: 'Procesá facturas en PDF, JPG o PNG con 98% de precisión. La IA identifica todos los campos fiscales en segundos.' },
   { color: C.amarillo, iconKey: 'check',  titulo: 'Validación automática',    desc: 'Verificá totales, IVA y percepciones. Detecta errores al instante antes de que lleguen a tu contador.' },
   { color: C.lila,     iconKey: 'folder', titulo: 'Integración de carpetas',  desc: 'Conectá Google Drive, FTP o SFTP. El sistema monitorea y procesa automáticamente, 24/7.' },
   { color: C.negro,    iconKey: 'csv',    titulo: 'Exportación CSV',          desc: 'Todos los datos estructurados en un CSV listo para importar en tu sistema contable o ERP.' },
@@ -73,7 +73,7 @@ const FEATURES = [
 
 const PASOS = [
   { num: '1', color: C.amarillo, colorText: C.negro,  titulo: 'Subís tus comprobantes', desc: 'Arrastrá el archivo o conectá tu carpeta para procesamiento automático.' },
-  { num: '2', color: C.verde,    colorText: C.blanco, titulo: 'La IA extrae los datos',  desc: 'En segundos, todos los campos quedan extraídos y validados automáticamente.' },
+  { num: '2', color: C.verde,    colorText: C.blanco, titulo: 'El software extrae los datos',  desc: 'En segundos, todos los campos quedan extraídos y validados automáticamente.' },
   { num: '3', color: C.lila,     colorText: C.blanco, titulo: 'Revisás y confirmás',     desc: 'Verificá los datos en una interfaz clara y confirmá con un click.' },
   { num: '4', color: C.negro,    colorText: C.blanco, titulo: 'Listo para usar',         desc: 'Tu resultado queda guardado, organizado y listo para exportar o enviar.' },
 ];
