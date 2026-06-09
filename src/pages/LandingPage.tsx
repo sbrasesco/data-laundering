@@ -128,13 +128,12 @@ function Hero() {
     <section className="pt-36 pb-20 px-6 text-center bg-white">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-5xl lg:text-6xl font-black leading-tight mb-6" style={{ color: C.negro }}>
-          Automatizá el procesamiento{" "}
-          <span className="inline-block px-3 py-1 rounded-xl" style={{ background: C.amarillo, color: C.negro }}>de tus facturas</span>{" "}
-          con IA
+          Extrae datos de facturas{" "}
+          <span className="inline-block px-3 py-1 rounded-xl" style={{ background: C.amarillo, color: C.negro }}>en segundos</span>
         </h1>
         <p className="text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-medium" style={{ color: C.grisTexto }}>
           DataLand utiliza inteligencia artificial avanzada para extraer, validar y analizar
-          facturas automáticamente. Ahorrá tiempo, eliminá errores y tomá decisiones informadas.
+          facturas automáticamente. Ahorrá tiempo, costos, minimiza errores y aumenta la productividad de tu equipo.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
           <a href="/login" className="font-black px-8 py-4 rounded-xl text-base" style={{ background: C.verde, color: C.blanco }}>Probar GRATIS</a>
