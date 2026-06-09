@@ -40,7 +40,9 @@ async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
     const text = await res.text();
     throw new Error(`RPC ${rpcName} failed (${res.status}): ${text}`);
   }
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer, mimeType) {
@@ -65,10 +67,13 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
   return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
 }
 
-async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integrationId, protocol) {
+async function enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, filename, integrationId, protocol) {
   const res = await fetch(gatewayUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${gatewayApiKey}`,
+    },
     body: JSON.stringify({
       organization_id:   orgId,
       file_url:          fileUrl,
@@ -90,7 +95,7 @@ async function enqueueJob(gatewayUrl, orgId, fileUrl, fileType, filename, integr
 
 // ─── FTP (basic-ftp) ─────────────────────────────────────────────────────────
 
-async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log }) {
+async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
   const { id: integrationId, organization_id: orgId, credentials, folder_path, last_polled_at } = integration;
   const { ftp: ftpLib } = await import('basic-ftp');
   const client = new ftpLib.Client();
@@ -162,7 +167,7 @@ async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log 
         const fileUrl    = await uploadToStorage(supabaseUrl, supabaseKey, orgId, uniqueName, buffer, mime);
 
         // Encolar en Input Gateway
-        await enqueueJob(gatewayUrl, orgId, fileUrl, file_type, file.name, integrationId, 'ftp');
+        await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, file.name, integrationId, 'ftp');
 
         log('info', 'integration.file_enqueued', {
           integration_id: integrationId,
@@ -199,7 +204,7 @@ async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log 
 
 // ─── SFTP (ssh2-sftp-client) ─────────────────────────────────────────────────
 
-async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log }) {
+async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
   const { id: integrationId, organization_id: orgId, credentials, folder_path, last_polled_at } = integration;
   const { default: SftpClient } = await import('ssh2-sftp-client');
   const sftp = new SftpClient();
@@ -271,7 +276,7 @@ async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log
         const fileUrl    = await uploadToStorage(supabaseUrl, supabaseKey, orgId, uniqueName, buf, mime);
 
         // Encolar en Input Gateway
-        await enqueueJob(gatewayUrl, orgId, fileUrl, file_type, file.name, integrationId, 'sftp');
+        await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, file.name, integrationId, 'sftp');
 
         log('info', 'integration.file_enqueued', {
           integration_id: integrationId,
@@ -308,7 +313,7 @@ async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log
 
 // ─── Orquestador por tipo ────────────────────────────────────────────────────
 
-async function pollByType(type, { supabaseUrl, supabaseKey, gatewayUrl, log }) {
+async function pollByType(type, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
   let integrations;
   try {
     integrations = await callRpc(supabaseUrl, supabaseKey, 'admin_get_active_integrations', {
@@ -330,9 +335,9 @@ async function pollByType(type, { supabaseUrl, supabaseKey, gatewayUrl, log }) {
     const { id: integrationId, organization_id: orgId } = integration;
     try {
       if (type === 'ftp') {
-        await pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log });
+        await pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
       } else {
-        await pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, log });
+        await pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
       }
       // Actualizar last_polled_at tras procesar el tenant
       await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', {
@@ -359,7 +364,7 @@ async function pollByType(type, { supabaseUrl, supabaseKey, gatewayUrl, log }) {
 
 // ─── Export principal ────────────────────────────────────────────────────────
 
-export async function pollFtpSftpIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, log }) {
-  await pollByType('ftp',  { supabaseUrl, supabaseKey, gatewayUrl, log });
-  await pollByType('sftp', { supabaseUrl, supabaseKey, gatewayUrl, log });
+export async function pollFtpSftpIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
+  await pollByType('ftp',  { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
+  await pollByType('sftp', { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
 }
