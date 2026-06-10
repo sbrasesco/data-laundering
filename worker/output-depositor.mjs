@@ -328,7 +328,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     if (outputConfig.integration_type === 'google_drive') {
       const fileId = await depositToDrive(
         outputConfig.credentials,
-        outputConfig.output_folder_path || 'procesados',
+        outputConfig.output_folder_path || 'extracciones',
         filename,
         fileContent,
         mimeType,
@@ -369,7 +369,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     } else if (outputConfig.integration_type === 'firebase_storage') {
       const destPath = await depositToFirebaseStorage(
         outputConfig.credentials,
-        outputConfig.output_folder_path || 'procesados',
+        outputConfig.output_folder_path || 'extracciones',
         filename,
         fileContent,
         log
