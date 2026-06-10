@@ -141,6 +141,90 @@ async function ensureOutputFolder(drive, parentFolderId, folderName = 'extraccio
 
 // ─── Depositores por tipo ─────────────────────────────────────────────────────
 
+/**
+ * Busca "resultados.xlsx" en targetFolderId.
+ * Si existe: descarga, agrega filas nuevas al final, re-sube (update).
+ * Si no existe: crea el archivo desde cero con headers + filas.
+ */
+async function appendOrCreateXLSXInDrive(drive, targetFolderId, newRows, log) {
+  const ACCUM_FILE = 'resultados.xlsx';
+  const mimeType   = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  const searchRes = await drive.files.list({
+    q:      `name='${ACCUM_FILE}' and '${targetFolderId}' in parents and trashed=false`,
+    fields: 'files(id)',
+    spaces: 'drive',
+  });
+  const existing = searchRes.data.files?.[0];
+
+  let existingRows = [];
+  if (existing) {
+    const dlRes = await drive.files.get(
+      { fileId: existing.id, alt: 'media' },
+      { responseType: 'arraybuffer' }
+    );
+    const wb = XLSX.read(Buffer.from(dlRes.data), { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    existingRows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  }
+
+  const newMapped = newRows.map(row => {
+    const obj = {};
+    COLUMNS.forEach(col => { obj[col] = row[col] ?? ''; });
+    return obj;
+  });
+  const allRows = [...existingRows, ...newMapped];
+
+  const ws = XLSX.utils.json_to_sheet(allRows, { header: COLUMNS });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  const { Readable } = await import('node:stream');
+
+  if (existing) {
+    await drive.files.update({
+      fileId: existing.id,
+      media:  { mimeType, body: Readable.from(buffer) },
+    });
+    log('info', 'output.drive_xlsx_appended', {
+      file_id:    existing.id,
+      new_rows:   newMapped.length,
+      total_rows: allRows.length,
+    });
+    return existing.id;
+  } else {
+    const createRes = await drive.files.create({
+      requestBody: { name: ACCUM_FILE, parents: [targetFolderId], mimeType },
+      media:       { mimeType, body: Readable.from(buffer) },
+      fields:      'id',
+    });
+    log('info', 'output.drive_xlsx_created', { file_id: createRes.data.id, rows: allRows.length });
+    return createRes.data.id;
+  }
+}
+
+/**
+ * Drive + xlsx acumulativo por cliente.
+ * Resuelve la carpeta {cliente}/extracciones/ y delega en appendOrCreateXLSXInDrive.
+ */
+async function depositToDriveAccumulative(credentials, outputFolderName, rows, log, clientFolderName) {
+  const refreshToken = credentials.oauth_refresh_token;
+  if (!refreshToken) throw new Error('Google Drive: oauth_refresh_token no configurado');
+  const folderId = credentials.folder_id;
+  if (!folderId) throw new Error('Google Drive: folder_id no configurado');
+
+  const drive = createDriveClient(refreshToken);
+
+  let parentFolderId = folderId;
+  if (clientFolderName) {
+    parentFolderId = await ensureOutputFolder(drive, folderId, clientFolderName, log);
+  }
+  const targetFolderId = await ensureOutputFolder(drive, parentFolderId, outputFolderName || 'extracciones', log);
+
+  return await appendOrCreateXLSXInDrive(drive, targetFolderId, rows, log);
+}
+
 async function depositToDrive(credentials, outputFolderName, filename, fileContent, mimeType, log, clientFolderName = null) {
   const refreshToken = credentials.oauth_refresh_token;
   if (!refreshToken) throw new Error('Google Drive: oauth_refresh_token no configurado');
@@ -361,36 +445,58 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
   }
 
   // 5. Generar archivo según formato
+  // Drive + xlsx + cliente usa modo acumulativo: no genera archivo aquí, lo hace depositToDriveAccumulative
+  const isDriveXLSXAccum = outputConfig.integration_type === 'google_drive'
+    && outputFormat === 'xlsx'
+    && clientFolderName !== null;
+
   const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
   let fileContent, filename, mimeType;
 
-  if (outputFormat === 'xlsx') {
-    fileContent = rowsToXLSX(rows);
-    filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.xlsx`;
-    mimeType    = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  } else {
-    fileContent = rowsToCSV(rows);
-    filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.csv`;
-    mimeType    = 'text/csv';
+  if (!isDriveXLSXAccum) {
+    if (outputFormat === 'xlsx') {
+      fileContent = rowsToXLSX(rows);
+      filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.xlsx`;
+      mimeType    = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    } else {
+      fileContent = rowsToCSV(rows);
+      filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.csv`;
+      mimeType    = 'text/csv';
+    }
   }
 
   // 6. Depositar según tipo de integración
   try {
     if (outputConfig.integration_type === 'google_drive') {
-      const fileId = await depositToDrive(
-        outputConfig.credentials,
-        outputConfig.output_folder_path || 'extracciones',
-        filename,
-        fileContent,
-        mimeType,
-        log,
-        clientFolderName   // null si no hay cliente → comportamiento legacy
-      );
-      log('info', 'output.deposited', {
-        job_id: jobId, organization_id: orgId,
-        integration_type: 'google_drive', filename, format: outputFormat,
-        drive_file_id: fileId,
-      });
+      if (isDriveXLSXAccum) {
+        const fileId = await depositToDriveAccumulative(
+          outputConfig.credentials,
+          outputConfig.output_folder_path || 'extracciones',
+          rows,
+          log,
+          clientFolderName
+        );
+        log('info', 'output.deposited', {
+          job_id: jobId, organization_id: orgId,
+          integration_type: 'google_drive', filename: 'resultados.xlsx', format: 'xlsx_accum',
+          drive_file_id: fileId,
+        });
+      } else {
+        const fileId = await depositToDrive(
+          outputConfig.credentials,
+          outputConfig.output_folder_path || 'extracciones',
+          filename,
+          fileContent,
+          mimeType,
+          log,
+          clientFolderName
+        );
+        log('info', 'output.deposited', {
+          job_id: jobId, organization_id: orgId,
+          integration_type: 'google_drive', filename, format: outputFormat,
+          drive_file_id: fileId,
+        });
+      }
 
     } else if (outputConfig.integration_type === 'sftp') {
       const remotePath = await depositToSftp(
