@@ -133,16 +133,21 @@ export function IntegracionesPage() {
 
   // ── Detectar retorno de OAuth ────────────────────────────────────────────────
   useEffect(() => {
-    const connected = searchParams.get('google_connected');
-    const oauthErr  = searchParams.get('google_error');
+    const connected      = searchParams.get('google_connected');
+    const integrationId  = searchParams.get('integration_id');
+    const oauthErr       = searchParams.get('google_error');
     if (connected === 'true') {
-      setSuccessMsg('✅ Google Drive conectado. Ahora seleccioná la carpeta a monitorear.');
       setSearchParams({}, { replace: true });
+      if (integrationId) {
+        supabase.rpc('toggle_tenant_integration', { p_integration_id: integrationId, p_active: true })
+          .then(() => loadIntegrations());
+      }
+      setSuccessMsg('✅ Google Drive conectado. Ahora seleccioná la carpeta a monitorear.');
     } else if (oauthErr) {
       setError(`Error al conectar con Google Drive: ${oauthErr}`);
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, loadIntegrations]);
 
   const loadIntegrations = useCallback(async () => {
     setLoading(true); setError(null);

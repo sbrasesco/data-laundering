@@ -226,7 +226,7 @@ async function handleGoogleOAuthCallback(req, log) {
   }
 
   log('info', 'google_oauth.connected', { integrationId, orgId });
-  return `${FRONTEND_URL}/integrations?google_connected=true`;
+  return `${FRONTEND_URL}/integrations?google_connected=true&integration_id=${integrationId}`;
 }
 
 // ─── Handler: listar carpetas de Drive ───────────────────────────────────────
