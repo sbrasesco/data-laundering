@@ -1,6 +1,6 @@
 /**
  * integration-poller.mjs — Poller de integraciones (Google Drive)
- * Data Laundering V2.0 — TASK-39 / TASK-70
+ * Data Laundering V2.0 — TASK-39 / TASK-70 / TASK-78
  *
  * TASK-70: Migración a OAuth 2.0.
  *   - Si credentials.oauth_refresh_token → usa OAuth (nuevo)
@@ -70,6 +70,21 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
   return `${supabaseUrl}/storage/v1/object/public/facturas/${path}`;
 }
 
+function sanitizeFolderName(name) {
+  return name.replace(/[/\\:*?"<>|]/g, '_').trim();
+}
+
+/** Mapa folderName → client a partir de la lista de clientes activos */
+function buildClientFolderMap(clients) {
+  const map = {};
+  for (const client of clients) {
+    if (!client.tax_id) continue;
+    const folderName = sanitizeFolderName(`${client.name} — ${client.tax_id}`);
+    map[folderName] = client;
+  }
+  return map;
+}
+
 function sanitizeStorageKey(filename) {
   return filename
     .normalize('NFD')
@@ -77,7 +92,7 @@ function sanitizeStorageKey(filename) {
     .replace(/[\s$&+,/:;=?@"<>{}|\\^~[\]`]/g, '_');
 }
 
-async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId) {
+async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId, clientId = null) {
   const res = await fetch(gatewayUrl, {
     method:  'POST',
     headers: {
@@ -90,6 +105,7 @@ async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename
       file_type:         fileType,
       original_filename: filename,
       input_source:      'integration_drive',
+      client_id:         clientId,
       metadata: {
         source:         'integration_drive',
         integration_id: integrationId,
@@ -201,6 +217,35 @@ async function moveFileToProcesados(drive, fileId, parentFolderId, filename, int
   }
 }
 
+async function listSubfolders(drive, folderId) {
+  const res = await drive.files.list({
+    q:        `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields:   'files(id, name)',
+    orderBy:  'name asc',
+    pageSize: 200,
+  });
+  return res.data.files || [];
+}
+
+/** Crea carpetas de clientes faltantes (idempotente via getOrCreateFolder) */
+async function syncClientFolders(drive, rootFolderId, clients, integrationId, log) {
+  for (const client of clients) {
+    if (!client.tax_id) continue;
+    try {
+      const folderName     = sanitizeFolderName(`${client.name} — ${client.tax_id}`);
+      const clientFolderId = await getOrCreateFolder(drive, rootFolderId, folderName);
+      await getOrCreateFolder(drive, clientFolderId, 'procesados');
+      await getOrCreateFolder(drive, clientFolderId, 'extracciones');
+    } catch (err) {
+      log('warn', 'integration.sync_client_folder_failed', {
+        integration_id: integrationId,
+        client_id:      client.id,
+        error:          err.message,
+      });
+    }
+  }
+}
+
 async function listAllFiles(drive, folderId) {
   const res = await drive.files.list({
     q:        `'${folderId}' in parents and trashed = false`,
@@ -285,69 +330,113 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
         continue;
       }
 
-      // 3. Listar todos los archivos de la carpeta (sin filtro de fecha)
-      const files = await listAllFiles(drive, folderId);
+      // 3. Obtener clientes activos del org
+      let clients = [];
+      try {
+        clients = await callRpc(supabaseUrl, supabaseKey, 'admin_get_org_clients', { p_organization_id: orgId }) ?? [];
+      } catch (err) {
+        log('warn', 'integration.fetch_clients_failed', { integration_id: integrationId, error: err.message });
+      }
 
-      log('info', 'integration.files_found', {
-        integration_id: integrationId,
-        count: files.length,
-      });
+      // 4. Sync de carpetas de clientes (idempotente — crea las que falten)
+      if (clients.length > 0) {
+        await syncClientFolders(drive, folderId, clients, integrationId, log);
+      }
 
+      const clientFolderMap = buildClientFolderMap(clients);
+
+      // 5. Archivos sueltos en raíz — ignorar con warn
+      const rootFiles = await listAllFiles(drive, folderId);
+      if (rootFiles.length > 0) {
+        log('warn', 'integration.root_files_ignored', {
+          integration_id: integrationId,
+          count:          rootFiles.length,
+          files:          rootFiles.map(f => f.name),
+        });
+      }
+
+      // 6. Iterar subcarpetas de clientes
+      const subfolders = await listSubfolders(drive, folderId);
       let enqueued = 0, skipped = 0, failed = 0;
 
-      for (const file of files) {
-        try {
-          // 4. Verificar si ya fue procesado por drive_file_id
-          const alreadyProcessed = await isDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, file.id);
-          if (alreadyProcessed) {
-            log('debug', 'integration.file_skipped_duplicate', {
+      for (const subfolder of subfolders) {
+        const clientData = clientFolderMap[subfolder.name];
+        if (!clientData) {
+          // Carpetas de sistema ('procesados', 'extracciones') u otras desconocidas
+          log('debug', 'integration.subfolder_skipped', {
+            integration_id: integrationId,
+            folder_name:    subfolder.name,
+          });
+          continue;
+        }
+
+        const clientId = clientData.id;
+
+        // Listar archivos dentro de la carpeta del cliente
+        const files = await listAllFiles(drive, subfolder.id);
+        log('info', 'integration.client_folder_scan', {
+          integration_id: integrationId,
+          client_id:      clientId,
+          folder_name:    subfolder.name,
+          file_count:     files.length,
+        });
+
+        for (const file of files) {
+          try {
+            // Deduplicar por drive_file_id
+            const alreadyProcessed = await isDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, file.id);
+            if (alreadyProcessed) {
+              log('debug', 'integration.file_skipped_duplicate', {
+                integration_id: integrationId,
+                filename:       file.name,
+                drive_file_id:  file.id,
+              });
+              skipped++;
+              continue;
+            }
+
+            // Descargar archivo
+            const buffer = await downloadFile(drive, file.id);
+
+            // Subir a Supabase Storage
+            const uniqueName = `${Date.now()}_${sanitizeStorageKey(file.name)}`;
+            const fileUrl    = await uploadToStorage(
+              supabaseUrl, supabaseKey,
+              orgId, uniqueName, buffer, file.mimeType
+            );
+
+            // Encolar en Input Gateway (con client_id)
+            const fileType = SUPPORTED_MIME_TYPES[file.mimeType].file_type;
+            await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId, clientId);
+
+            // Registrar drive_file_id como procesado
+            await registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, file.id, file.name);
+
+            log('info', 'integration.file_enqueued', {
               integration_id: integrationId,
-              filename:  file.name,
-              drive_file_id: file.id,
+              filename:       file.name,
+              file_type:      fileType,
+              drive_file_id:  file.id,
+              client_id:      clientId,
             });
-            skipped++;
-            continue;
+            enqueued++;
+
+            // Mover original a {cliente}/procesados/ (best-effort)
+            await moveFileToProcesados(drive, file.id, subfolder.id, file.name, integrationId, log);
+
+          } catch (fileErr) {
+            log('error', 'integration.file_error', {
+              integration_id: integrationId,
+              filename:       file.name,
+              client_id:      clientId,
+              error:          fileErr.message,
+            });
+            failed++;
           }
-
-          // 5. Descargar archivo
-          const buffer = await downloadFile(drive, file.id);
-
-          // 6. Subir a Supabase Storage
-          const uniqueName = `${Date.now()}_${sanitizeStorageKey(file.name)}`;
-          const fileUrl    = await uploadToStorage(
-            supabaseUrl, supabaseKey,
-            orgId, uniqueName, buffer, file.mimeType
-          );
-
-          // 7. Encolar en Input Gateway
-          const fileType = SUPPORTED_MIME_TYPES[file.mimeType].file_type;
-          await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId);
-
-          // 8. Registrar drive_file_id como procesado
-          await registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, file.id, file.name);
-
-          log('info', 'integration.file_enqueued', {
-            integration_id: integrationId,
-            filename:      file.name,
-            file_type:     fileType,
-            drive_file_id: file.id,
-          });
-          enqueued++;
-
-          // 9. Mover original a procesados/ (best-effort)
-          await moveFileToProcesados(drive, file.id, folderId, file.name, integrationId, log);
-
-        } catch (fileErr) {
-          log('error', 'integration.file_error', {
-            integration_id: integrationId,
-            filename: file.name,
-            error:    fileErr.message,
-          });
-          failed++;
         }
       }
 
-      // 9. Actualizar last_polled_at
+      // 7. Actualizar last_polled_at
       await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
 
       log('info', 'integration.tenant_done', {

@@ -26,6 +26,7 @@ export function ClientsPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
@@ -35,8 +36,10 @@ export function ClientsPage() {
   const handleCreateSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) { setSubmitError('El nombre es obligatorio'); return; }
+    if (!newTaxId.trim()) { setSubmitError('El CUIT es obligatorio'); return; }
+    if (!newEmail.trim()) { setSubmitError('El email es obligatorio'); return; }
     setSubmitting(true); setSubmitError(null); setSubmitSuccess(false);
-    const { error: createError } = await createClient({ name: newName.trim(), tax_id: newTaxId.trim() || undefined, external_code: newExternalCode.trim() || undefined, email: newEmail.trim() || undefined });
+    const { error: createError } = await createClient({ name: newName.trim(), tax_id: newTaxId.trim(), external_code: newExternalCode.trim() || undefined, email: newEmail.trim() });
     if (createError) { setSubmitError(createError); } else { setSubmitSuccess(true); setNewName(''); setNewTaxId(''); setNewExternalCode(''); setNewEmail(''); setShowForm(false); setTimeout(() => setSubmitSuccess(false), 3000); }
     setSubmitting(false);
   };
@@ -48,10 +51,13 @@ export function ClientsPage() {
 
   const handleEditSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!editingClient || !editForm.name.trim()) return;
-    setEditSubmitting(true);
+    if (!editingClient) return;
+    if (!editForm.name.trim()) { setEditError('El nombre es obligatorio'); return; }
+    if (!editForm.tax_id.trim()) { setEditError('El CUIT es obligatorio'); return; }
+    if (!editForm.email.trim()) { setEditError('El email es obligatorio'); return; }
+    setEditSubmitting(true); setEditError(null);
     try {
-      await updateClient(editingClient.id, { name: editForm.name.trim(), tax_id: editForm.tax_id.trim() || null, external_code: editForm.external_code.trim() || null, email: editForm.email.trim() || null });
+      await updateClient(editingClient.id, { name: editForm.name.trim(), tax_id: editForm.tax_id.trim(), external_code: editForm.external_code.trim() || null, email: editForm.email.trim() });
       setEditingClient(null);
     } catch (err) { console.error(err); } finally { setEditSubmitting(false); }
   };
@@ -90,7 +96,7 @@ export function ClientsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="tax_id">CUIT / Tax ID</Label>
+                  <Label htmlFor="tax_id">CUIT / Tax ID <span className="text-destructive">*</span></Label>
                   <Input id="tax_id" type="text" value={newTaxId} onChange={(e) => setNewTaxId(e.target.value)} disabled={submitting} />
                 </div>
                 <div className="space-y-1.5">
@@ -99,7 +105,7 @@ export function ClientsPage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
                 <Input id="email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} disabled={submitting} />
               </div>
               {submitError && <ErrorMessage message={submitError} />}
@@ -168,7 +174,7 @@ export function ClientsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="edit-tax_id">CUIT / Tax ID</Label>
+                <Label htmlFor="edit-tax_id">CUIT / Tax ID <span className="text-destructive">*</span></Label>
                 <Input id="edit-tax_id" type="text" value={editForm.tax_id} onChange={(e) => setEditForm({ ...editForm, tax_id: e.target.value })} disabled={editSubmitting} />
               </div>
               <div className="space-y-1.5">
@@ -177,9 +183,10 @@ export function ClientsPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-email">Email</Label>
+              <Label htmlFor="edit-email">Email <span className="text-destructive">*</span></Label>
               <Input id="edit-email" type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} disabled={editSubmitting} />
             </div>
+            {editError && <ErrorMessage message={editError} />}
             <div className="flex gap-3 pt-2">
               <Button type="submit" disabled={editSubmitting}>{editSubmitting ? 'Guardando...' : 'Guardar cambios'}</Button>
               <Button type="button" variant="outline" onClick={() => setEditingClient(null)} disabled={editSubmitting}>Cancelar</Button>

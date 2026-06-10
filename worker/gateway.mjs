@@ -1,6 +1,6 @@
 /**
  * gateway.mjs — Input Gateway
- * Data Laundering V2.0 — TASK-37 / TASK-67 / TASK-70
+ * Data Laundering V2.0 — TASK-37 / TASK-67 / TASK-70 / TASK-78
  *
  * Rutas:
  *   POST /api/enqueue                       — encolar job (auth requerida)
@@ -102,6 +102,10 @@ async function getAccessToken(refreshToken) {
   return access_token;
 }
 
+function sanitizeFolderName(name) {
+  return name.replace(/[/\\:*?"<>|]/g, '_').trim();
+}
+
 async function ensureDriveFolder(accessToken, parentFolderId, folderName) {
   const q = encodeURIComponent(
     `'${parentFolderId}' in parents and name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
@@ -130,9 +134,31 @@ async function ensureDriveFolder(accessToken, parentFolderId, folderName) {
   return null;
 }
 
-async function createIntegrationFolders(accessToken, parentFolderId) {
+async function createIntegrationFolders(accessToken, parentFolderId, orgId) {
+  // Carpetas raíz (compatibilidad con archivos legados)
   await ensureDriveFolder(accessToken, parentFolderId, 'procesados');
   await ensureDriveFolder(accessToken, parentFolderId, 'extracciones');
+
+  // Carpetas por cliente — requiere orgId
+  if (!orgId) return;
+  let clients;
+  try {
+    clients = await callSupabaseRpc('admin_get_org_clients', { p_organization_id: orgId });
+  } catch (err) {
+    // best-effort: no bloquear si falla
+    return;
+  }
+  if (!Array.isArray(clients)) return;
+
+  for (const client of clients) {
+    if (!client.tax_id) continue; // clientes sin CUIT no tienen carpeta
+    const folderName = sanitizeFolderName(`${client.name} — ${client.tax_id}`);
+    const clientFolderId = await ensureDriveFolder(accessToken, parentFolderId, folderName);
+    if (clientFolderId) {
+      await ensureDriveFolder(accessToken, clientFolderId, 'procesados');
+      await ensureDriveFolder(accessToken, clientFolderId, 'extracciones');
+    }
+  }
 }
 
 // ─── Handler: OAuth callback ──────────────────────────────────────────────────
@@ -312,11 +338,11 @@ async function handleSetDriveFolder(body, log) {
     );
   }
 
-  // Crear /procesados/ y /extracciones/ (no bloqueante)
+  // Crear carpetas raíz + carpetas por cliente (no bloqueante)
   try {
     const accessToken = await getAccessToken(refreshToken);
-    await createIntegrationFolders(accessToken, folder_id);
-    log('info', 'drive_set_folder.folders_created', { integration_id, folder_id, folders: ['procesados', 'extracciones'] });
+    await createIntegrationFolders(accessToken, folder_id, org_id);
+    log('info', 'drive_set_folder.folders_created', { integration_id, org_id, folder_id });
   } catch (err) {
     log('warn', 'drive_set_folder.folders_failed', { integration_id, error: err.message });
   }
@@ -330,7 +356,7 @@ async function handleSetDriveFolder(body, log) {
 async function handleEnqueue(body, queue, log) {
   const {
     organization_id, file_url, file_type, original_filename,
-    client_cuit = null, client_name = null, input_source,
+    client_cuit = null, client_name = null, client_id = null, input_source,
     job_id: provided_job_id = null,
   } = body;
 
@@ -365,7 +391,7 @@ async function handleEnqueue(body, queue, log) {
   const payload = {
     job_id, organization_id, file_url, file_type,
     file_hash: 'pending', original_filename, file_size_bytes: 0,
-    client_cuit, client_name, oc_entries: [], priority: 5,
+    client_cuit, client_name, client_id, oc_entries: [], priority: 5,
     metadata: { source: input_source, worker_version: process.env.WORKER_VERSION ?? 'unknown' },
   };
 
@@ -381,7 +407,7 @@ async function handleEnqueue(body, queue, log) {
           'Content-Type':  'application/json',
           'Prefer':        'return=minimal,resolution=ignore-duplicates',
         },
-        body: JSON.stringify({ id: job_id, organization_id, status: 'processing' }),
+        body: JSON.stringify({ id: job_id, organization_id, status: 'processing', client_id: client_id || null }),
       });
     } catch (_) {}
   }

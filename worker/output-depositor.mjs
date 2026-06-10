@@ -1,5 +1,5 @@
 /**
- * output-depositor.mjs — TASK-73: Output depositor Google Drive + formato XLSX
+ * output-depositor.mjs — TASK-73 / TASK-78: Output depositor Google Drive + formato XLSX
  * Data Laundering V2.0
  *
  * Cambios v2 (TASK-73):
@@ -58,7 +58,33 @@ function rowsToXLSX(rows) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// ─── Helpers generales ───────────────────────────────────────────────────────
+
+function sanitizeFolderName(name) {
+  return name.replace(/[/\\:*?"<>|]/g, '_').trim();
+}
+
 // ─── Helpers Supabase ─────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el nombre de carpeta Drive del cliente (`{name} — {tax_id}` sanitizado),
+ * o null si no se puede resolver (cliente sin tax_id, error, etc.).
+ */
+async function fetchClientFolderName(orgId, clientId, log) {
+  try {
+    const res = await supabaseFetch(
+      `/rest/v1/clients?id=eq.${encodeURIComponent(clientId)}&organization_id=eq.${encodeURIComponent(orgId)}&select=name,tax_id&limit=1`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const client = data?.[0];
+    if (!client?.name || !client?.tax_id) return null;
+    return sanitizeFolderName(`${client.name} — ${client.tax_id}`);
+  } catch (err) {
+    log('warn', 'output.fetch_client_folder_name_failed', { client_id: clientId, error: err.message });
+    return null;
+  }
+}
 
 async function supabaseFetch(path, options = {}) {
   const res = await fetch(`${SUPABASE_URL}${path}`, {
@@ -115,7 +141,7 @@ async function ensureOutputFolder(drive, parentFolderId, folderName = 'extraccio
 
 // ─── Depositores por tipo ─────────────────────────────────────────────────────
 
-async function depositToDrive(credentials, outputFolderName, filename, fileContent, mimeType, log) {
+async function depositToDrive(credentials, outputFolderName, filename, fileContent, mimeType, log, clientFolderName = null) {
   const refreshToken = credentials.oauth_refresh_token;
   if (!refreshToken) throw new Error('Google Drive: oauth_refresh_token no configurado');
 
@@ -124,8 +150,13 @@ async function depositToDrive(credentials, outputFolderName, filename, fileConte
 
   const drive = createDriveClient(refreshToken);
 
-  // Depositar en la subcarpeta configurada (default: procesados)
-  const targetFolderId = await ensureOutputFolder(drive, folderId, outputFolderName || 'extracciones', log);
+  // Si hay cliente: depositar dentro de {cliente}/extracciones/
+  // Si no: depositar en raíz/{outputFolderName} (retrocompatibilidad)
+  let parentFolderId = folderId;
+  if (clientFolderName) {
+    parentFolderId = await ensureOutputFolder(drive, folderId, clientFolderName, log);
+  }
+  const targetFolderId = await ensureOutputFolder(drive, parentFolderId, outputFolderName || 'extracciones', log);
 
   const { Readable } = await import('node:stream');
   const body = Buffer.isBuffer(fileContent)
@@ -284,14 +315,34 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
 
   const outputFormat = outputConfig.output_format ?? 'csv';
 
+  // 2. Resolver carpeta de cliente para Drive (best-effort, no bloqueante)
+  let clientFolderName = null;
+  if (outputConfig.integration_type === 'google_drive') {
+    try {
+      const jobRes = await supabaseFetch(
+        `/rest/v1/pdf_jobs?id=eq.${encodeURIComponent(jobId)}&select=client_id&limit=1`
+      );
+      if (jobRes.ok) {
+        const jobData = await jobRes.json();
+        const clientId = jobData?.[0]?.client_id;
+        if (clientId) {
+          clientFolderName = await fetchClientFolderName(orgId, clientId, log);
+        }
+      }
+    } catch (err) {
+      log('warn', 'output.client_resolve_failed', { job_id: jobId, error: err.message });
+    }
+  }
+
   log('info', 'output.deposit_start', {
     job_id:           jobId,
     organization_id:  orgId,
     integration_type: outputConfig.integration_type,
     format:           outputFormat,
+    client_folder:    clientFolderName ?? 'none',
   });
 
-  // 2. Obtener filas del job
+  // 4. Obtener filas del job
   let rows;
   try {
     const res = await supabaseFetch(
@@ -309,7 +360,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     return;
   }
 
-  // 3. Generar archivo según formato
+  // 5. Generar archivo según formato
   const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
   let fileContent, filename, mimeType;
 
@@ -323,7 +374,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     mimeType    = 'text/csv';
   }
 
-  // 4. Depositar según tipo de integración
+  // 6. Depositar según tipo de integración
   try {
     if (outputConfig.integration_type === 'google_drive') {
       const fileId = await depositToDrive(
@@ -332,7 +383,8 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
         filename,
         fileContent,
         mimeType,
-        log
+        log,
+        clientFolderName   // null si no hay cliente → comportamiento legacy
       );
       log('info', 'output.deposited', {
         job_id: jobId, organization_id: orgId,
