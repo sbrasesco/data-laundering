@@ -174,6 +174,21 @@ async function pollFtp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gate
         });
         enqueued++;
 
+        // Mover original a procesados/ (best-effort)
+        try {
+          const procesadosDir = path.posix.join(remotePath, 'procesados');
+          await client.ensureDir(procesadosDir);
+          await client.cd(remotePath);
+          await client.rename(file.name, path.posix.join('procesados', file.name));
+          log('info', 'integration.file_moved_to_procesados', {
+            integration_id: integrationId, filename: file.name, protocol: 'ftp',
+          });
+        } catch (moveErr) {
+          log('warn', 'integration.file_move_failed', {
+            integration_id: integrationId, filename: file.name, protocol: 'ftp', error: moveErr.message,
+          });
+        }
+
       } catch (fileErr) {
         log('error', 'integration.file_error', {
           integration_id: integrationId,
@@ -278,6 +293,24 @@ async function pollSftp(integration, { supabaseUrl, supabaseKey, gatewayUrl, gat
           protocol: 'sftp',
         });
         enqueued++;
+
+        // Mover original a procesados/ (best-effort)
+        try {
+          const procesadosDir = path.posix.join(remotePath, 'procesados');
+          const dirExists = await sftp.exists(procesadosDir);
+          if (!dirExists) await sftp.mkdir(procesadosDir, true);
+          await sftp.rename(
+            path.posix.join(remotePath, file.name),
+            path.posix.join(procesadosDir, file.name)
+          );
+          log('info', 'integration.file_moved_to_procesados', {
+            integration_id: integrationId, filename: file.name, protocol: 'sftp',
+          });
+        } catch (moveErr) {
+          log('warn', 'integration.file_move_failed', {
+            integration_id: integrationId, filename: file.name, protocol: 'sftp', error: moveErr.message,
+          });
+        }
 
       } catch (fileErr) {
         log('error', 'integration.file_error', {

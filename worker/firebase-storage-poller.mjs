@@ -137,7 +137,8 @@ async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gate
     // Filtrar: solo archivos con extensión soportada, excluir /procesados/
     const candidates = files.filter(f => {
       if (f.name.endsWith('/')) return false;                    // directorio placeholder
-      if (f.name.includes('/procesados/')) return false;         // carpeta de salida
+      if (f.name.includes('/procesados/')) return false;         // archivos originales procesados
+      if (f.name.includes('/extracciones/')) return false;      // resultados extraídos
       const ext = path.extname(f.name).toLowerCase();
       return !!SUPPORTED_EXTENSIONS[ext];
     });
@@ -190,6 +191,20 @@ async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gate
           protocol: 'firebase_storage',
         });
         enqueued++;
+
+        // Mover original a procesados/ (best-effort — copy + delete)
+        try {
+          const destPath = `${prefix}procesados/${filename}`;
+          await file.copy(bucket.file(destPath));
+          await file.delete();
+          log('info', 'integration.file_moved_to_procesados', {
+            integration_id: integrationId, filename, protocol: 'firebase_storage', dest: destPath,
+          });
+        } catch (moveErr) {
+          log('warn', 'integration.file_move_failed', {
+            integration_id: integrationId, filename, protocol: 'firebase_storage', error: moveErr.message,
+          });
+        }
 
       } catch (fileErr) {
         log('error', 'integration.file_error', {

@@ -159,6 +159,48 @@ async function registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationI
 
 // ─── Google Drive helpers ────────────────────────────────────────────────────
 
+async function getOrCreateFolder(drive, parentFolderId, folderName) {
+  const searchRes = await drive.files.list({
+    q: `name='${folderName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id)',
+    spaces: 'drive',
+  });
+  if (searchRes.data.files?.length > 0) return searchRes.data.files[0].id;
+  const createRes = await drive.files.create({
+    requestBody: {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    },
+    fields: 'id',
+  });
+  return createRes.data.id;
+}
+
+async function moveFileToProcesados(drive, fileId, parentFolderId, filename, integrationId, log) {
+  try {
+    const procesadosId = await getOrCreateFolder(drive, parentFolderId, 'procesados');
+    await drive.files.update({
+      fileId,
+      addParents:    procesadosId,
+      removeParents: parentFolderId,
+      fields:        'id, parents',
+    });
+    log('info', 'integration.file_moved_to_procesados', {
+      integration_id: integrationId,
+      filename,
+      drive_file_id:  fileId,
+    });
+  } catch (moveErr) {
+    log('warn', 'integration.file_move_failed', {
+      integration_id: integrationId,
+      filename,
+      drive_file_id:  fileId,
+      error:          moveErr.message,
+    });
+  }
+}
+
 async function listAllFiles(drive, folderId) {
   const res = await drive.files.list({
     q:        `'${folderId}' in parents and trashed = false`,
@@ -292,22 +334,8 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
           });
           enqueued++;
 
-          // 9. Borrar de Drive (best-effort — Drive es solo inbox)
-          try {
-            await drive.files.delete({ fileId: file.id });
-            log('info', 'integration.file_deleted_from_drive', {
-              integration_id: integrationId,
-              filename:      file.name,
-              drive_file_id: file.id,
-            });
-          } catch (delErr) {
-            log('warn', 'integration.file_delete_failed', {
-              integration_id: integrationId,
-              filename:      file.name,
-              drive_file_id: file.id,
-              error:         delErr.message,
-            });
-          }
+          // 9. Mover original a procesados/ (best-effort)
+          await moveFileToProcesados(drive, file.id, folderId, file.name, integrationId, log);
 
         } catch (fileErr) {
           log('error', 'integration.file_error', {

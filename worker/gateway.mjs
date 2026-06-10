@@ -102,10 +102,9 @@ async function getAccessToken(refreshToken) {
   return access_token;
 }
 
-async function createProcessadosFolder(accessToken, parentFolderId) {
-  // Verificar si ya existe
+async function ensureDriveFolder(accessToken, parentFolderId, folderName) {
   const q = encodeURIComponent(
-    `'${parentFolderId}' in parents and name = 'procesados' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+    `'${parentFolderId}' in parents and name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
   );
   const searchRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
@@ -113,17 +112,27 @@ async function createProcessadosFolder(accessToken, parentFolderId) {
   );
   if (searchRes.ok) {
     const { files } = await searchRes.json();
-    if (files && files.length > 0) return; // ya existe
+    if (files && files.length > 0) return files[0].id;
   }
-  await fetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
     method:  'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name:     'procesados',
+      name:     folderName,
       mimeType: 'application/vnd.google-apps.folder',
       parents:  [parentFolderId],
     }),
   });
+  if (createRes.ok) {
+    const data = await createRes.json();
+    return data.id;
+  }
+  return null;
+}
+
+async function createIntegrationFolders(accessToken, parentFolderId) {
+  await ensureDriveFolder(accessToken, parentFolderId, 'procesados');
+  await ensureDriveFolder(accessToken, parentFolderId, 'extracciones');
 }
 
 // ─── Handler: OAuth callback ──────────────────────────────────────────────────
@@ -303,13 +312,13 @@ async function handleSetDriveFolder(body, log) {
     );
   }
 
-  // Crear /procesados/ (no bloqueante)
+  // Crear /procesados/ y /extracciones/ (no bloqueante)
   try {
     const accessToken = await getAccessToken(refreshToken);
-    await createProcessadosFolder(accessToken, folder_id);
-    log('info', 'drive_set_folder.procesados_created', { integration_id, folder_id });
+    await createIntegrationFolders(accessToken, folder_id);
+    log('info', 'drive_set_folder.folders_created', { integration_id, folder_id, folders: ['procesados', 'extracciones'] });
   } catch (err) {
-    log('warn', 'drive_set_folder.procesados_failed', { integration_id, error: err.message });
+    log('warn', 'drive_set_folder.folders_failed', { integration_id, error: err.message });
   }
 
   log('info', 'drive_set_folder.done', { integration_id, org_id, folder_id, folder_name });

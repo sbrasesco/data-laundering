@@ -117,7 +117,7 @@ export function IntegracionesPage() {
   const [folderPath, setFolderPath]           = useState('');
   const [pollingInterval, setPollingInterval] = useState(15);
   const [outputEnabled, setOutputEnabled]         = useState(false);
-  const [outputFolder, setOutputFolder]           = useState('procesados');
+  const [outputFolder, setOutputFolder]           = useState('extracciones');
   const [outputFolderLocked, setOutputFolderLocked] = useState(true);
   const [outputFolderOptions, setOutputFolderOptions] = useState<DriveFolder[]>([]);
   const [loadingOutputFolders, setLoadingOutputFolders] = useState(false);
@@ -223,7 +223,7 @@ export function IntegracionesPage() {
   const resetForm = () => {
     setEditingId(null); setSelectedType('google_drive'); setCredentials({});
     setFolderPath(''); setPollingInterval(15); setOutputEnabled(false);
-    setOutputFolder('procesados'); setOutputFolderLocked(true); setOutputFormat('csv'); setSaveError(null);
+    setOutputFolder('extracciones'); setOutputFolderLocked(true); setOutputFormat('csv'); setSaveError(null);
   };
 
   const openAddForm = () => { resetForm(); setSuccessMsg(null); setShowForm(true); };
@@ -234,9 +234,9 @@ export function IntegracionesPage() {
     setCredentials(editCreds);
     setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes);
     setOutputEnabled(i.output_enabled ?? false);
-    const savedFolder = i.output_folder_path ?? 'procesados';
+    const savedFolder = i.output_folder_path ?? 'extracciones';
     setOutputFolder(savedFolder);
-    setOutputFolderLocked(savedFolder === 'procesados');
+    setOutputFolderLocked(savedFolder === 'extracciones');
     setOutputFormat((i.output_format ?? 'csv') as 'csv' | 'xlsx' | 'json'); setSaveError(null); setShowForm(true);
   };
 
@@ -466,9 +466,9 @@ export function IntegracionesPage() {
                                 value={outputFolder}
                                 onChange={(e) => setOutputFolder(e.target.value)}
                               >
-                                <option value="procesados">📁 procesados (default)</option>
+                                <option value="extracciones">📁 extracciones (default)</option>
                                 {outputFolderOptions
-                                  .filter(f => f.name !== 'procesados')
+                                  .filter(f => f.name !== 'extracciones')
                                   .map(f => (
                                     <option key={f.id} value={f.name}>📁 {f.name}</option>
                                   ))
@@ -480,13 +480,13 @@ export function IntegracionesPage() {
                               className="flex-1"
                               value={outputFolder}
                               onChange={(e) => setOutputFolder(e.target.value)}
-                              placeholder="procesados"
+                              placeholder="extracciones"
                               autoFocus
                             />
                           )}
                           <button
                             type="button"
-                            title={outputFolderLocked ? 'Cambiar carpeta de salida' : 'Volver al default (procesados)'}
+                            title={outputFolderLocked ? 'Cambiar carpeta de salida' : 'Volver al default (extracciones)'}
                             onClick={() => {
                               if (outputFolderLocked) {
                                 setOutputFolderLocked(false);
@@ -494,7 +494,7 @@ export function IntegracionesPage() {
                                   fetchOutputFolderOptions(editingId);
                                 }
                               } else {
-                                setOutputFolder('procesados');
+                                setOutputFolder('extracciones');
                                 setOutputFolderLocked(true);
                               }
                             }}

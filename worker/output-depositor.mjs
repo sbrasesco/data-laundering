@@ -89,7 +89,7 @@ function createDriveClient(refreshToken) {
  * Busca o crea la subcarpeta de salida dentro del folder configurado.
  * Por defecto usa "procesados".
  */
-async function ensureOutputFolder(drive, parentFolderId, folderName = 'procesados', log) {
+async function ensureOutputFolder(drive, parentFolderId, folderName = 'extracciones', log) {
   const searchRes = await drive.files.list({
     q: `name='${folderName}' and '${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
@@ -125,7 +125,7 @@ async function depositToDrive(credentials, outputFolderName, filename, fileConte
   const drive = createDriveClient(refreshToken);
 
   // Depositar en la subcarpeta configurada (default: procesados)
-  const targetFolderId = await ensureOutputFolder(drive, folderId, outputFolderName || 'procesados', log);
+  const targetFolderId = await ensureOutputFolder(drive, folderId, outputFolderName || 'extracciones', log);
 
   const { Readable } = await import('node:stream');
   const body = Buffer.isBuffer(fileContent)
@@ -192,7 +192,7 @@ async function depositToFirebaseStorage(credentials, outputFolderName, filename,
 
   const bucketName   = credentials.bucket_name;
   const folderPath   = credentials.folder_path || '';
-  const outputFolder = outputFolderName || 'procesados';
+  const outputFolder = outputFolderName || 'extracciones';
 
   if (!serviceAccount || !bucketName) {
     throw new Error('Firebase Storage: service_account_json y bucket_name son requeridos');
