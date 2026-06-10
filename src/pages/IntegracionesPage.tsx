@@ -131,6 +131,21 @@ export function IntegracionesPage() {
   const [selectedFolder, setSelectedFolder]       = useState<Record<string, string>>({});
   const [savingFolder, setSavingFolder]           = useState<Record<string, boolean>>({});
 
+  const loadIntegrations = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const { data, error: rpcError } = await supabase.rpc('get_my_integrations');
+      if (rpcError) throw rpcError;
+      setIntegrations((data as TenantIntegration[]) ?? []);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error al cargar integraciones');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
+
   // ── Detectar retorno de OAuth ────────────────────────────────────────────────
   useEffect(() => {
     const connected      = searchParams.get('google_connected');
@@ -148,21 +163,6 @@ export function IntegracionesPage() {
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams, loadIntegrations]);
-
-  const loadIntegrations = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      const { data, error: rpcError } = await supabase.rpc('get_my_integrations');
-      if (rpcError) throw rpcError;
-      setIntegrations((data as TenantIntegration[]) ?? []);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Error al cargar integraciones');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
 
   // Auto-cargar carpetas para integraciones con OAuth pero sin folder
   useEffect(() => {
