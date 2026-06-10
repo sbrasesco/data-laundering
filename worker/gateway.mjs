@@ -407,7 +407,7 @@ async function handleEnqueue(body, queue, log) {
           'Content-Type':  'application/json',
           'Prefer':        'return=minimal,resolution=ignore-duplicates',
         },
-        body: JSON.stringify({ id: job_id, organization_id, status: 'processing', client_id: client_id || null }),
+        body: JSON.stringify({ id: job_id, organization_id, status: 'processing', client_id: client_id || null, input_source }),
       });
     } catch (_) {}
   }

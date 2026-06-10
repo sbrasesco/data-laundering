@@ -5,6 +5,18 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
+const SOURCE_LABELS: Record<string, string> = {
+  integration_drive: 'Drive',
+  ftp:               'FTP',
+  sftp:              'SFTP',
+  firebase_storage:  'Firebase',
+};
+
+function InputSourceBadge({ source }: { source: PdfJob['input_source'] }) {
+  if (!source || source === 'frontend_upload') return <span className="text-xs text-muted-foreground">Manual</span>;
+  return <Badge variant="outline" className="text-xs">{SOURCE_LABELS[source] ?? source}</Badge>;
+}
+
 interface JobListProps {
   jobs: PdfJob[];
 }
@@ -41,6 +53,7 @@ export function JobList({ jobs }: JobListProps) {
           <TableRow>
             <TableHead>Fecha</TableHead>
             <TableHead>Cliente</TableHead>
+            <TableHead>Origen</TableHead>
             <TableHead>Período</TableHead>
             <TableHead>Estado</TableHead>
             <TableHead>Documentos</TableHead>
@@ -62,6 +75,7 @@ export function JobList({ jobs }: JobListProps) {
               <TableRow key={job.id}>
                 <TableCell className="text-sm">{formatDate(job.created_at)}</TableCell>
                 <TableCell className="text-sm">{job.clients?.name || '-'}</TableCell>
+                <TableCell><InputSourceBadge source={job.input_source} /></TableCell>
                 <TableCell className="text-sm">{formatPeriod(job.period_month, job.period_year)}</TableCell>
                 <TableCell>
                   <Badge variant={displayVariant}>{displayLabel}</Badge>

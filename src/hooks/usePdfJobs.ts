@@ -14,6 +14,7 @@ export interface PdfJob {
   created_at: string;
   period_month: number | null;
   period_year: number | null;
+  input_source: 'frontend_upload' | 'integration_drive' | 'ftp' | 'sftp' | 'firebase_storage' | null;
   // Campos calculados desde pdf_job_rows (usados en vista de detalle / admin)
   rows_count?: number;
   ok_rows_count?: number;
@@ -31,6 +32,8 @@ async function fetchJobsWithRowCounts(): Promise<PdfJob[]> {
     .from('pdf_jobs')
     .select(`
       id,
+      client_id,
+      input_source,
       status,
       total_documents,
       processed_documents,

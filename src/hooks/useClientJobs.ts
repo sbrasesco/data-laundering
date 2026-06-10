@@ -20,6 +20,8 @@ export interface ClientJobsMetrics {
 
 const PDF_JOBS_SELECT = `
   id,
+  client_id,
+  input_source,
   status,
   total_documents,
   processed_documents,
