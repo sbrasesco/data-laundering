@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { supabase } from '../lib/supabase';
 import { useAuthContext } from '../contexts/AuthContext';
 
@@ -123,6 +124,7 @@ export function IntegracionesPage() {
   const [loadingOutputFolders, setLoadingOutputFolders] = useState(false);
   const [outputFolderError, setOutputFolderError] = useState<string | null>(null);
   const [outputFormat, setOutputFormat]           = useState<'csv' | 'xlsx' | 'json'>('csv');
+  const [showXlsxDisclosure, setShowXlsxDisclosure] = useState(false);
 
   // Folder picker state (por integration.id)
   const [driveFolders, setDriveFolders]           = useState<Record<string, DriveFolder[]>>({});
@@ -516,8 +518,18 @@ export function IntegracionesPage() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-sm">Formato</Label>
-                        <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value as 'csv' | 'xlsx' | 'json')}
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                        <select
+                          value={outputFormat}
+                          onChange={(e) => {
+                            const val = e.target.value as 'csv' | 'xlsx' | 'json';
+                            if (val === 'xlsx' && !localStorage.getItem('dl_xlsx_disclosure_seen')) {
+                              setShowXlsxDisclosure(true);
+                            } else {
+                              setOutputFormat(val);
+                            }
+                          }}
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
                           <option value="csv">CSV</option>
                           <option value="xlsx">Excel (.xlsx)</option>
                           <option value="json">JSON (próximamente)</option>
@@ -697,6 +709,37 @@ export function IntegracionesPage() {
           </div>
         </div>
       )}
+
+      {/* ── Disclosure: costo incremental por Excel (.xlsx) ───────────────── */}
+      <Dialog open={showXlsxDisclosure} onOpenChange={(open) => { if (!open) setShowXlsxDisclosure(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Formato Excel — costo incremental</DialogTitle>
+            <DialogDescription>
+              Exportar en formato <strong>Excel (.xlsx)</strong> tiene un costo ligeramente mayor por documento procesado.
+              El incremento exacto se aplica según la tabla de precios vigente.
+              Podés volver a CSV en cualquier momento.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowXlsxDisclosure(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                localStorage.setItem('dl_xlsx_disclosure_seen', '1');
+                setOutputFormat('xlsx');
+                setShowXlsxDisclosure(false);
+              }}
+            >
+              Entendido, usar Excel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

@@ -371,7 +371,7 @@ async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filen
 export async function depositOutputIfConfigured(jobId, orgId, log) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     log('warn', 'output.no_env', { job_id: jobId, note: 'SUPABASE_URL o SUPABASE_KEY no configurados' });
-    return;
+    return { outputFeatures: [] };
   }
 
   // 1. Verificar si el org tiene output habilitado
@@ -384,17 +384,17 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     if (!res.ok) {
       const errText = await res.text();
       log('warn', 'output.config_rpc_error', { job_id: jobId, http_status: res.status, error: errText });
-      return;
+      return { outputFeatures: [] };
     }
     const data = await res.json();
     if (!data || data.length === 0) {
       log('info', 'output.no_output_config', { job_id: jobId, organization_id: orgId, note: 'Sin integración de salida activa' });
-      return;
+      return { outputFeatures: [] };
     }
     outputConfig = Array.isArray(data) ? data[0] : data;
   } catch (err) {
     log('warn', 'output.config_fetch_failed', { job_id: jobId, error: err.message });
-    return;
+    return { outputFeatures: [] };
   }
 
   const outputFormat = outputConfig.output_format ?? 'csv';
@@ -418,12 +418,24 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     }
   }
 
+  // Detectar features de output activas para billing (TASK-75)
+  const isDriveXLSXAccum = outputConfig.integration_type === 'google_drive'
+    && outputFormat === 'xlsx'
+    && clientFolderName !== null;
+
+  const outputFeatures = isDriveXLSXAccum
+    ? ['master_file']
+    : outputFormat === 'xlsx'
+      ? ['xlsx_output']
+      : [];
+
   log('info', 'output.deposit_start', {
     job_id:           jobId,
     organization_id:  orgId,
     integration_type: outputConfig.integration_type,
     format:           outputFormat,
     client_folder:    clientFolderName ?? 'none',
+    output_features:  outputFeatures,
   });
 
   // 4. Obtener filas del job
@@ -436,20 +448,16 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     rows = await res.json();
   } catch (err) {
     log('warn', 'output.rows_fetch_failed', { job_id: jobId, error: err.message });
-    return;
+    return { outputFeatures };
   }
 
   if (!rows || rows.length === 0) {
     log('info', 'output.no_rows', { job_id: jobId });
-    return;
+    return { outputFeatures };
   }
 
   // 5. Generar archivo según formato
   // Drive + xlsx + cliente usa modo acumulativo: no genera archivo aquí, lo hace depositToDriveAccumulative
-  const isDriveXLSXAccum = outputConfig.integration_type === 'google_drive'
-    && outputFormat === 'xlsx'
-    && clientFolderName !== null;
-
   const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
   let fileContent, filename, mimeType;
 
@@ -552,4 +560,6 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       format: outputFormat, error: err.message,
     });
   }
+
+  return { outputFeatures };
 }

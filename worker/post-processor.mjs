@@ -28,6 +28,28 @@ function supabaseHeaders() {
   };
 }
 
+// Mapeo input_source → feature_key (los precios viven en feature_pricing_multipliers en DB)
+const INPUT_SOURCE_TO_FEATURE = {
+  integration_drive:  'integration_drive',
+  ftp:                'integration_ftp',
+  sftp:               'integration_sftp',
+  firebase_storage:   'integration_firebase',
+};
+
+async function fetchJobInputSource(jobId) {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/pdf_jobs?id=eq.${encodeURIComponent(jobId)}&select=input_source&limit=1`,
+      { headers: supabaseHeaders() }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.[0]?.input_source ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── 1. Evaluación de confianza y etiquetado ──────────────────────────────────
 
 function evaluateExtraction(result) {
@@ -168,7 +190,13 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
 
   // ── TASK-65: Depósito automático de CSV en integración de salida ─────────
   // Best-effort: si falla no afecta el job.
-  await depositOutputIfConfigured(jobId, orgId, log);
+  const depositResult = await depositOutputIfConfigured(jobId, orgId, log);
+  const outputFeatures = depositResult?.outputFeatures ?? [];
+
+  // ── TASK-75: Detectar features activas para multiplicador de créditos ─────
+  const inputSource = await fetchJobInputSource(jobId);
+  const inputFeature = inputSource ? (INPUT_SOURCE_TO_FEATURE[inputSource] ?? null) : null;
+  const activeFeatures = [...new Set([inputFeature, ...outputFeatures].filter(Boolean))];
 
   // ── TASK-18: Descuento de créditos post-procesamiento ─────────────────────
   // Orden: procesar → finalizar job → descontar crédito. Nunca al revés.
@@ -184,6 +212,7 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
           p_job_id: jobId,
           p_amount: docsToCharge,
           p_description: `Job procesado: ${successful} facturas + ${ocRelations} OCs`,
+          p_features: activeFeatures,
         }),
       });
       const charged = await chargeRes.json();
