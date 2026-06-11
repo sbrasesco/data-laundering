@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string): Promise<void> => {
+  const fetchProfile = async (userId: string): Promise<Profile | null> => {
     try {
       const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
         setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 5000);
@@ -41,37 +41,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await Promise.race([profilePromise, timeoutPromise]);
 
       if ('error' in result && result.error) {
-        if (result.error.message === 'Timeout') {
-          console.warn('Profile fetch timeout after 5 seconds - continuing without profile');
-        } else if ('code' in result.error && result.error.code === 'PGRST116') {
-          console.log('Profile not found for user - this is OK');
-        } else {
-          console.warn('Error fetching profile (non-blocking):', result.error.message);
-        }
         setProfile(null);
-        return;
+        return null;
       }
 
       const { data, error } = result as { data: Profile | null; error: any };
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          console.log('Profile not found for user - this is OK');
-        } else {
-          console.warn('Error fetching profile (non-blocking):', error.message);
-        }
         setProfile(null);
-        return;
+        return null;
       }
 
-      if (data) {
-        setProfile(data);
-      } else {
-        setProfile(null);
-      }
+      setProfile(data ?? null);
+      return data ?? null;
     } catch (err: any) {
       console.warn('Exception fetching profile (non-blocking):', err);
       setProfile(null);
+      return null;
+    }
+  };
+
+  // Crea org + profile cuando el usuario confirma el email y vuelve al app
+  const createOrgPostConfirmation = async (userId: string): Promise<void> => {
+    const pendingOrgName = localStorage.getItem('dl_pending_org');
+    if (!pendingOrgName) return;
+    try {
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .insert({ name: pendingOrgName })
+        .select()
+        .single();
+      if (orgError || !org) return;
+      await supabase.from('profiles').insert({ id: userId, organization_id: org.id });
+      localStorage.removeItem('dl_pending_org');
+      await fetchProfile(userId);
+    } catch (err) {
+      console.warn('Error creando org post-confirmación:', err);
     }
   };
 
@@ -119,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) {
         clearTimeout(timeoutId);
         return;
@@ -131,7 +136,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        fetchProfile(session.user.id).catch(() => {});
+        const existingProfile = await fetchProfile(session.user.id);
+        // Si el usuario confirmó el email y no tiene org todavía, crearla ahora
+        if (!existingProfile && event === 'SIGNED_IN') {
+          await createOrgPostConfirmation(session.user.id);
+        }
       } else {
         setProfile(null);
       }

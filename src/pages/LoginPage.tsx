@@ -149,6 +149,8 @@ export function LoginPage() {
       if (signInError) {
         const msg = signInError.message?.toLowerCase() || '';
         if (msg.includes('email not confirmed') || msg.includes('email_not_confirmed') || msg.includes('confirm') || signInError.status === 400) {
+          // Guardar nombre de org para crearlo post-confirmación de email
+          localStorage.setItem('dl_pending_org', organizationName.trim());
           const confirmMsg = planSlug
             ? `Se ha enviado un correo a ${signupEmail.trim()}. Confirmá tu registro y volvé a la landing para completar tu compra.`
             : `Se ha enviado un correo a ${signupEmail.trim()}. Por favor, confirmá tu registro.`;
