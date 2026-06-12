@@ -91,7 +91,12 @@ export function AppShell({ children }: AppShellProps) {
       <aside className="flex flex-col w-[220px] flex-shrink-0 border-r border-border bg-card overflow-y-auto">
 
         {/* Logo */}
-        <div className="flex items-center px-4 py-5 border-b border-border">
+        <div className="flex items-center gap-2.5 px-4 py-5 border-b border-border">
+          <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: '#22C365' }}>
+            <svg className="w-3.5 h-3.5" style={{ color: '#ffffff' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
+            </svg>
+          </div>
           <span className="font-black text-xl tracking-tight leading-none">
             <span style={{ color: '#000000' }}>Data</span><span style={{ color: '#22C365' }}>Land</span>
           </span>
