@@ -1,7 +1,8 @@
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenantCredits } from '@/hooks/useTenantCredits';
+import { InsufficientCreditsModal } from '@/components/ui/InsufficientCreditsModal';
 import { cn } from '@/lib/utils';
 import { applyTheme, getStoredTheme } from '@/lib/themes';
 
@@ -59,8 +60,11 @@ function SidebarNavItem({ item, active }: { item: NavItem; active: boolean }) {
 export function AppShell({ children }: AppShellProps) {
   const { signOut, user } = useAuth();
   const { balance, loading: creditsLoading } = useTenantCredits();
+  const [showRecharge, setShowRecharge] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const noCredits = !creditsLoading && balance === 0;
 
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
@@ -119,14 +123,29 @@ export function AppShell({ children }: AppShellProps) {
         <div className="px-2 pb-3 pt-3 border-t border-border space-y-1">
 
           {/* Créditos */}
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted">
-            <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-xs text-muted-foreground">
-              {creditsLoading ? '—' : (balance ?? 0).toLocaleString()} créditos
-            </span>
-          </div>
+          {noCredits ? (
+            <button
+              onClick={() => setShowRecharge(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 hover:bg-destructive/15 transition-colors text-left"
+            >
+              <svg className="w-3.5 h-3.5 text-destructive flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-destructive leading-none">Sin créditos</p>
+                <p className="text-xs text-destructive/70 mt-0.5">Recargar créditos →</p>
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted">
+              <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-xs text-muted-foreground">
+                {creditsLoading ? '—' : (balance ?? 0).toLocaleString()} créditos
+              </span>
+            </div>
+          )}
 
           {/* Configuración */}
           <Link
@@ -178,6 +197,7 @@ export function AppShell({ children }: AppShellProps) {
         </main>
       </div>
 
+      <InsufficientCreditsModal isOpen={showRecharge} onClose={() => setShowRecharge(false)} />
     </div>
   );
 }

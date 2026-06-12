@@ -1,8 +1,10 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useActiveClients } from '../hooks/useActiveClients';
+import { useTenantCredits } from '../hooks/useTenantCredits';
 import { createPdfJob, uploadFileToWorker, failPdfJob } from '../lib/pdfJobHelpers';
+import { InsufficientCreditsModal } from '../components/ui/InsufficientCreditsModal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Button } from '@/components/ui/button';
@@ -16,9 +18,17 @@ export function SubirZipPage() {
   const [periodYear, setPeriodYear] = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
   const { user, organizationId } = useAuth();
   const { clients, loading: clientsLoading, error: clientsError } = useActiveClients();
+  const { balance, loading: creditsLoading } = useTenantCredits();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!creditsLoading && balance === 0) {
+      setShowCreditsModal(true);
+    }
+  }, [balance, creditsLoading]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) { setFile(e.target.files[0]); setError(null); }
@@ -26,6 +36,7 @@ export function SubirZipPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (balance === 0) { setShowCreditsModal(true); return; }
     if (!file) { setError('Por favor seleccioná un archivo'); return; }
     if (!clientId) { setError('Por favor seleccioná un cliente'); return; }
     if (!user) { setError('No hay sesión activa. Por favor iniciá sesión nuevamente.'); return; }
@@ -117,17 +128,28 @@ export function SubirZipPage() {
             {error && <ErrorMessage message={error} />}
 
             <div className="flex gap-3 pt-2">
-              <Button type="submit" disabled={loading || !file || !clientId || clientsLoading}>
+              <Button type="submit" disabled={loading || !file || !clientId || clientsLoading || balance === 0}>
                 {loading ? 'Creando proceso…' : 'Crear proceso'}
               </Button>
               <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} disabled={loading}>
                 Cancelar
               </Button>
+              {!creditsLoading && balance === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowCreditsModal(true)}
+                  className="text-xs text-destructive hover:underline self-center ml-1"
+                >
+                  Sin créditos — Recargar
+                </button>
+              )}
             </div>
           </form>
           {loading && <div className="mt-4"><LoadingSpinner /></div>}
         </CardContent>
       </Card>
+
+      <InsufficientCreditsModal isOpen={showCreditsModal} onClose={() => setShowCreditsModal(false)} />
     </div>
   );
 }
