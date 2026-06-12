@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 export function usePdfJobRows(jobId: string) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     async function fetchRows() {
@@ -38,7 +39,9 @@ export function usePdfJobRows(jobId: string) {
     }
 
     fetchRows();
-  }, [jobId]);
+  }, [jobId, tick]);
 
-  return { rows, loading, error };
+  const refetch = useCallback(() => setTick(t => t + 1), []);
+
+  return { rows, loading, error, refetch };
 }

@@ -438,11 +438,11 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     output_features:  outputFeatures,
   });
 
-  // 4. Obtener filas del job
+  // 4. Obtener filas del job (solo doc_status=ok — failed/warning/pending_approval se excluyen)
   let rows;
   try {
     const res = await supabaseFetch(
-      `/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=${COLUMNS.join(',')}&order=id.asc`
+      `/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&doc_status=eq.ok&select=${COLUMNS.join(',')}&order=id.asc`
     );
     if (!res.ok) throw new Error(`pdf_job_rows fetch failed: ${res.status}`);
     rows = await res.json();
@@ -562,4 +562,117 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
   }
 
   return { outputFeatures };
+}
+
+// ─── Depósito de una sola fila aprobada (TASK-80) ─────────────────────────────
+
+export async function depositSingleApprovedRow(rowId, jobId, orgId, log) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+
+  let outputConfig;
+  try {
+    const res = await supabaseFetch('/rest/v1/rpc/admin_get_output_integration', {
+      method: 'POST',
+      body: JSON.stringify({ p_organization_id: orgId }),
+    });
+    if (!res.ok) { log('warn', 'output.single_row.config_error', { row_id: rowId }); return; }
+    const data = await res.json();
+    if (!data || data.length === 0) { log('info', 'output.single_row.no_config', { row_id: rowId }); return; }
+    outputConfig = Array.isArray(data) ? data[0] : data;
+  } catch (err) {
+    log('warn', 'output.single_row.config_failed', { row_id: rowId, error: err.message });
+    return;
+  }
+
+  let rows;
+  try {
+    const res = await supabaseFetch(
+      `/rest/v1/pdf_job_rows?id=eq.${encodeURIComponent(rowId)}&select=${COLUMNS.join(',')}`
+    );
+    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+    rows = await res.json();
+  } catch (err) {
+    log('warn', 'output.single_row.fetch_failed', { row_id: rowId, error: err.message });
+    return;
+  }
+
+  if (!rows || rows.length === 0) {
+    log('warn', 'output.single_row.not_found', { row_id: rowId });
+    return;
+  }
+
+  const outputFormat = outputConfig.output_format ?? 'csv';
+
+  let clientFolderName = null;
+  if (outputConfig.integration_type === 'google_drive') {
+    try {
+      const jobRes = await supabaseFetch(
+        `/rest/v1/pdf_jobs?id=eq.${encodeURIComponent(jobId)}&select=client_id&limit=1`
+      );
+      if (jobRes.ok) {
+        const jobData = await jobRes.json();
+        const clientId = jobData?.[0]?.client_id;
+        if (clientId) clientFolderName = await fetchClientFolderName(orgId, clientId, log);
+      }
+    } catch { /* best-effort */ }
+  }
+
+  const isDriveXLSXAccum = outputConfig.integration_type === 'google_drive'
+    && outputFormat === 'xlsx'
+    && clientFolderName !== null;
+
+  const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
+
+  try {
+    if (outputConfig.integration_type === 'google_drive') {
+      if (isDriveXLSXAccum) {
+        // Acumulativo: agrega solo esta fila nueva al resultados.xlsx (sin duplicar las anteriores)
+        await depositToDriveAccumulative(
+          outputConfig.credentials,
+          outputConfig.output_folder_path || 'extracciones',
+          rows, log, clientFolderName
+        );
+      } else {
+        const ext = outputFormat === 'xlsx' ? 'xlsx' : 'csv';
+        const filename = `aprobado_${String(rowId)}_${timestamp}.${ext}`;
+        const fileContent = outputFormat === 'xlsx' ? rowsToXLSX(rows) : rowsToCSV(rows);
+        const mimeType = outputFormat === 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv';
+        await depositToDrive(
+          outputConfig.credentials, outputConfig.output_folder_path || 'extracciones',
+          filename, fileContent, mimeType, log, clientFolderName
+        );
+      }
+    } else if (outputConfig.integration_type === 'sftp') {
+      const ext = outputFormat === 'xlsx' ? 'xlsx' : 'csv';
+      const filename = `aprobado_${String(rowId)}_${timestamp}.${ext}`;
+      const fileContent = outputFormat === 'xlsx' ? rowsToXLSX(rows) : rowsToCSV(rows);
+      await depositToSftp(
+        outputConfig.credentials, outputConfig.folder_path ?? '/',
+        outputConfig.output_folder_path, filename, fileContent, log
+      );
+    } else if (outputConfig.integration_type === 'ftp') {
+      const ext = outputFormat === 'xlsx' ? 'xlsx' : 'csv';
+      const filename = `aprobado_${String(rowId)}_${timestamp}.${ext}`;
+      const fileContent = outputFormat === 'xlsx' ? rowsToXLSX(rows) : rowsToCSV(rows);
+      await depositToFtp(
+        outputConfig.credentials, outputConfig.folder_path ?? '/',
+        outputConfig.output_folder_path, filename, fileContent, log
+      );
+    } else if (outputConfig.integration_type === 'firebase_storage') {
+      const ext = outputFormat === 'xlsx' ? 'xlsx' : 'csv';
+      const filename = `aprobado_${String(rowId)}_${timestamp}.${ext}`;
+      const fileContent = outputFormat === 'xlsx' ? rowsToXLSX(rows) : rowsToCSV(rows);
+      await depositToFirebaseStorage(
+        outputConfig.credentials, outputConfig.output_folder_path || 'extracciones',
+        filename, fileContent, log
+      );
+    }
+    log('info', 'output.single_row.deposited', {
+      row_id: rowId, job_id: jobId, integration_type: outputConfig.integration_type,
+    });
+  } catch (err) {
+    log('warn', 'output.single_row.deposit_failed', { row_id: rowId, error: err.message });
+  }
 }

@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { Button } from '@/components/ui/button';
+import { EditRowModal } from './EditRowModal';
 
 interface JobRowsTableProps {
   rows: any[];
+  jobId: string;
+  orgId: string;
+  onRowUpdated: () => void;
 }
 
 type ColType = 'text' | 'currency' | 'date' | 'percent' | 'oc_list' | 'obra_list';
@@ -60,9 +66,15 @@ function HeaderLabel({ text }: { text: string }) {
   return <>{words.map((w, i) => <span key={i}>{i > 0 && <br />}{w}</span>)}</>;
 }
 
-export function JobRowsTable({ rows }: JobRowsTableProps) {
+const WORKER_GATEWAY_URL = (import.meta as any).env?.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+const WORKER_API_KEY     = (import.meta as any).env?.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
+
+export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableProps) {
   const [sortCol, setSortCol] = useState<number>(-1);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [editRow, setEditRow] = useState<any | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [approvingId, setApprovingId] = useState<number | null>(null);
 
   const fmtCurrency = (v: any) => {
     if (v == null) return '-';
@@ -138,6 +150,51 @@ export function JobRowsTable({ rows }: JobRowsTableProps) {
     return <span style={{ marginLeft: 3 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
   };
 
+  const handleSaveEdit = async (rowId: number, updates: Record<string, any>) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('pdf_job_rows')
+        .update({ ...updates, doc_status: 'pending_approval' })
+        .eq('id', rowId);
+      if (error) throw error;
+      setEditRow(null);
+      onRowUpdated();
+    } catch (err) {
+      console.error('Error guardando fila:', err);
+      alert('Error al guardar. Intentá nuevamente.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApprove = async (row: any) => {
+    setApprovingId(row.id);
+    try {
+      const { data, error } = await supabase.rpc('approve_document_row', { p_row_id: row.id });
+      if (error) throw error;
+
+      // Best-effort: depositar en integración de salida si está configurada
+      if (data?.job_id && data?.org_id) {
+        fetch(`${WORKER_GATEWAY_URL}/api/deposit-row`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${WORKER_API_KEY}`,
+          },
+          body: JSON.stringify({ row_id: row.id, job_id: data.job_id, org_id: data.org_id }),
+        }).catch(() => {/* best-effort */});
+      }
+
+      onRowUpdated();
+    } catch (err) {
+      console.error('Error aprobando fila:', err);
+      alert('Error al aprobar. Intentá nuevamente.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border bg-card p-8 text-center">
@@ -149,50 +206,93 @@ export function JobRowsTable({ rows }: JobRowsTableProps) {
   }
 
   return (
-    <div className="rounded-lg border bg-card overflow-x-auto max-h-[75vh] overflow-y-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
-          <tr className="border-b">
-            {COLUMNS.map((col, i) => (
+    <>
+      <div className="rounded-lg border bg-card overflow-x-auto max-h-[75vh] overflow-y-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
+            <tr className="border-b">
+              {COLUMNS.map((col, i) => (
+                <th
+                  key={col.header}
+                  onClick={() => handleSort(i)}
+                  style={TH_STYLE}
+                  className="px-3 py-2.5 text-xs font-medium text-muted-foreground"
+                >
+                  <HeaderLabel text={col.header} />{arrow(i)}
+                </th>
+              ))}
               <th
-                key={col.header}
-                onClick={() => handleSort(i)}
-                style={TH_STYLE}
+                style={{ ...TH_STYLE, cursor: 'default' }}
                 className="px-3 py-2.5 text-xs font-medium text-muted-foreground"
               >
-                <HeaderLabel text={col.header} />{arrow(i)}
+                Revisión
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row, index) => {
-            const classification: string = row.doc_status ?? 'ok';
-            const rowBaseStyle = classification === 'failed'
-              ? { backgroundColor: 'rgba(220, 53, 69, 0.08)', borderLeft: '3px solid hsl(var(--destructive))' }
-              : classification === 'warning'
-              ? { backgroundColor: 'rgba(245, 158, 11, 0.08)', borderLeft: '3px solid #f59e0b' }
-              : undefined;
-            return (
-              <tr key={index} style={rowBaseStyle} className="border-b hover:bg-muted/30 transition-colors">
-                {COLUMNS.map((col) => {
-                  const cellText = fmtCell(col, row);
-                  return (
-                    <td
-                      key={col.header}
-                      style={{ ...TD_STYLE, ...col.tdStyle }}
-                      title={cellText !== '-' ? cellText : undefined}
-                      className="px-3 py-2"
-                    >
-                      {cellText}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row, index) => {
+              const status: string = row.doc_status ?? 'ok';
+              const rowBaseStyle = status === 'failed'
+                ? { backgroundColor: 'rgba(220, 53, 69, 0.08)', borderLeft: '3px solid hsl(var(--destructive))' }
+                : status === 'warning'
+                ? { backgroundColor: 'rgba(245, 158, 11, 0.08)', borderLeft: '3px solid #f59e0b' }
+                : status === 'pending_approval'
+                ? { backgroundColor: 'rgba(59, 130, 246, 0.08)', borderLeft: '3px solid #3b82f6' }
+                : undefined;
+              const needsAction = status === 'failed' || status === 'warning' || status === 'pending_approval';
+              return (
+                <tr key={index} style={rowBaseStyle} className="border-b hover:bg-muted/30 transition-colors">
+                  {COLUMNS.map((col) => {
+                    const cellText = fmtCell(col, row);
+                    return (
+                      <td
+                        key={col.header}
+                        style={{ ...TD_STYLE, ...col.tdStyle }}
+                        title={cellText !== '-' ? cellText : undefined}
+                        className="px-3 py-2"
+                      >
+                        {cellText}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-center whitespace-nowrap">
+                    {needsAction ? (
+                      <div className="flex gap-1 justify-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => setEditRow(row)}
+                          disabled={approvingId === row.id}
+                        >
+                          Editar
+                        </Button>
+                        {status === 'pending_approval' && (
+                          <Button
+                            size="sm"
+                            className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => handleApprove(row)}
+                            disabled={approvingId === row.id}
+                          >
+                            {approvingId === row.id ? '...' : 'Aprobar'}
+                          </Button>
+                        )}
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <EditRowModal
+        row={editRow}
+        onClose={() => setEditRow(null)}
+        onSave={handleSaveEdit}
+        saving={saving}
+      />
+    </>
   );
 }

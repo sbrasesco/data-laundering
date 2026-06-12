@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePdfJob } from '../hooks/usePdfJob';
 import { usePdfJobRows } from '../hooks/usePdfJobRows';
+import { useAuthContext } from '../contexts/AuthContext';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Button } from '@/components/ui/button';
@@ -10,8 +11,9 @@ import { JobRowsTable } from '../components/pdf-jobs/JobRowsTable';
 export function ProcesoDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { organizationId } = useAuthContext();
   const { job, loading: jobLoading, error: jobError } = usePdfJob(id || '');
-  const { rows, loading: rowsLoading, error: rowsError } = usePdfJobRows(id || '');
+  const { rows, loading: rowsLoading, error: rowsError, refetch } = usePdfJobRows(id || '');
 
   if (jobLoading || rowsLoading) return <LoadingSpinner />;
 
@@ -43,7 +45,12 @@ export function ProcesoDetailPage() {
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold tracking-tight">Filas procesadas</h2>
-        <JobRowsTable rows={rows} />
+        <JobRowsTable
+          rows={rows}
+          jobId={id || ''}
+          orgId={organizationId || ''}
+          onRowUpdated={refetch}
+        />
       </div>
     </div>
   );

@@ -13,6 +13,7 @@
 
 import { createServer } from 'http';
 import { randomUUID } from 'crypto';
+import { depositSingleApprovedRow } from './output-depositor.mjs';
 
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL       = process.env.SUPABASE_URL;
@@ -351,6 +352,23 @@ async function handleSetDriveFolder(body, log) {
   return { status: 200, body: { ok: true } };
 }
 
+// ─── Handler: depositar fila aprobada (TASK-80) ──────────────────────────────
+
+async function handleDepositRow(body, log) {
+  const { row_id, job_id, org_id } = body ?? {};
+  if (!row_id || !job_id || !org_id) {
+    return { status: 400, body: { error: 'row_id, job_id, org_id requeridos' } };
+  }
+  try {
+    await depositSingleApprovedRow(row_id, job_id, org_id, log);
+    log('info', 'gateway.deposit_row.done', { row_id, job_id, org_id });
+    return { status: 200, body: { ok: true } };
+  } catch (err) {
+    log('warn', 'gateway.deposit_row.failed', { row_id, error: err.message });
+    return { status: 500, body: { error: err.message } };
+  }
+}
+
 // ─── Handler: enqueue ─────────────────────────────────────────────────────────
 
 async function handleEnqueue(body, queue, log) {
@@ -531,6 +549,18 @@ export function startGateway(queue, log) {
       }
     }
 
+    // Depositar fila aprobada
+    if (req.method === 'POST' && req.url === '/api/deposit-row') {
+      try {
+        const body = await readBody(req);
+        const result = await handleDepositRow(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'deposit_row.error', { error: err.message });
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     // Drive: listar carpetas
     if (req.method === 'GET' && req.url?.startsWith('/api/drive/folders')) {
       try {
@@ -559,6 +589,7 @@ export function startGateway(queue, log) {
       endpoints: [
         'POST /api/enqueue',
         'POST /api/mp/create-preference',
+        'POST /api/deposit-row',
         'GET  /api/auth/google/callback',
         'GET  /api/drive/folders',
         'POST /api/drive/set-folder',
@@ -571,7 +602,7 @@ export function startGateway(queue, log) {
     log('info', 'gateway.started', {
       port:      GATEWAY_PORT,
       auth:      GATEWAY_API_KEY ? 'Bearer token' : 'NONE (staging)',
-      endpoints: ['enqueue', 'mp/create-preference', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'health'],
+      endpoints: ['enqueue', 'mp/create-preference', 'deposit-row', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'health'],
     });
   });
 
