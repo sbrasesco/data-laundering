@@ -7,6 +7,20 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 
+const INTEGRATION_TO_FEATURE: Record<string, string> = {
+  google_drive:     'integration_drive',
+  ftp:              'integration_ftp',
+  sftp:             'integration_sftp',
+  firebase_storage: 'integration_firebase',
+};
+
+const FEATURE_LABELS: Record<string, string> = {
+  integration_drive:    'Drive',
+  integration_ftp:      'FTP',
+  integration_sftp:     'SFTP',
+  integration_firebase: 'Firebase',
+};
+
 const PLANES = [
   { nombre: 'Básico',      slug: 'basico',      creditos: '200 créditos',   precio: 'USD 60'  },
   { nombre: 'Profesional', slug: 'profesional', creditos: '600 créditos',   precio: 'USD 162', destacado: true },
@@ -26,26 +40,58 @@ interface Props {
   onClose: () => void;
 }
 
+interface ActiveFeature {
+  key: string;
+  multiplierPremium: number;
+}
+
 export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
-  const { user } = useAuth();
+  const { user, organizationId } = useAuth();
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
   const [customCredits, setCustomCredits] = useState(50);
   const [loadingCustom, setLoadingCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tiers, setTiers] = useState<PriceTier[]>([]);
+  const [activeFeatures, setActiveFeatures] = useState<ActiveFeature[]>([]);
 
   const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
   const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
 
   useEffect(() => {
     if (!isOpen) return;
+
     supabase
       .from('credit_price_tiers')
       .select('min_credits, max_credits, price_per_credit')
       .eq('active', true)
       .order('min_credits', { ascending: true })
       .then(({ data }) => { if (data) setTiers(data); });
-  }, [isOpen]);
+
+    if (!organizationId) return;
+    supabase
+      .from('tenant_integrations')
+      .select('integration_type')
+      .eq('organization_id', organizationId)
+      .eq('is_active', true)
+      .then(async ({ data: integrations }) => {
+        if (!integrations?.length) return;
+        const featureKeys = integrations
+          .map(i => INTEGRATION_TO_FEATURE[i.integration_type])
+          .filter(Boolean);
+        if (!featureKeys.length) return;
+        const { data: multipliers } = await supabase
+          .from('feature_pricing_multipliers')
+          .select('feature_key, multiplier')
+          .eq('active', true)
+          .in('feature_key', featureKeys);
+        if (multipliers) {
+          setActiveFeatures(multipliers.map(m => ({
+            key: m.feature_key,
+            multiplierPremium: Number(m.multiplier) - 1.0,
+          })));
+        }
+      });
+  }, [isOpen, organizationId]);
 
   const getActiveTier = (credits: number): PriceTier | null =>
     tiers.find(t => t.min_credits <= credits && (t.max_credits === null || t.max_credits >= credits)) ?? null;
@@ -105,6 +151,12 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
   }, [customCredits, pricePerCredit, user, workerGatewayUrl, workerApiKey]);
 
   const isAnyLoading = loadingSlug !== null || loadingCustom;
+
+  const effectiveMultiplier = 1.0 + activeFeatures.reduce((sum, f) => sum + f.multiplierPremium, 0);
+  const effectiveDocs = effectiveMultiplier > 1.0 ? Math.floor(customCredits / effectiveMultiplier) : null;
+  const effectiveCostPerDoc = pricePerCredit !== null && effectiveMultiplier > 1.0
+    ? (pricePerCredit * effectiveMultiplier).toFixed(2)
+    : null;
 
   const formatTierRange = (t: PriceTier) => {
     const max = t.max_credits !== null ? t.max_credits.toLocaleString('es') : '∞';
@@ -198,9 +250,28 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
             </Button>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Mínimo {CUSTOM_MIN} créditos · 1 crédito = 1 documento
-          </p>
+          {/* Informativo con integraciones activas */}
+          {effectiveDocs !== null && effectiveCostPerDoc !== null ? (
+            <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-amber-800 dark:text-amber-300">Integraciones activas:</span>
+                {activeFeatures.map(f => (
+                  <span key={f.key} className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-800/40 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    {FEATURE_LABELS[f.key] ?? f.key} +{(f.multiplierPremium * 100).toFixed(0)}%
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {customCredits} créditos → <span className="font-semibold">~{effectiveDocs} documentos</span>
+                {' '}· <span className="font-semibold">USD {effectiveCostPerDoc}/doc</span>
+                {' '}(×{effectiveMultiplier.toFixed(2)} por integraciones)
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Mínimo {CUSTOM_MIN} créditos · 1 crédito = 1 documento
+            </p>
+          )}
         </div>
 
         {error && <p className="text-sm text-destructive mt-1">{error}</p>}
