@@ -43,7 +43,7 @@ function SidebarNavItem({ item, active }: { item: NavItem; active: boolean }) {
         'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
         active
           ? 'bg-accent text-accent-foreground font-medium'
-          : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+          : 'text-muted-foreground hover:text-accent-foreground hover:bg-accent'
       )}
     >
       <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -154,7 +154,7 @@ export function AppShell({ children }: AppShellProps) {
               'flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors',
               isActive('/settings')
                 ? 'bg-accent text-accent-foreground font-medium'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                : 'text-muted-foreground hover:text-accent-foreground hover:bg-accent'
             )}
           >
             <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
