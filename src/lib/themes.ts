@@ -8,8 +8,35 @@ export interface ThemePalette {
 
 export const THEMES: ThemePalette[] = [
   {
+    name: 'color',
+    label: 'Color',
+    previewPrimary: '#22C365',
+    previewBg: '#ffffff',
+    vars: {
+      '--background':            'oklch(1 0 0)',
+      '--foreground':            'oklch(0.145 0 0)',
+      '--card':                  'oklch(0.98 0.004 150)',
+      '--card-foreground':       'oklch(0.145 0 0)',
+      '--popover':               'oklch(1 0 0)',
+      '--popover-foreground':    'oklch(0.145 0 0)',
+      '--primary':               'oklch(0.145 0 0)',
+      '--primary-foreground':    'oklch(0.985 0 0)',
+      '--secondary':             'oklch(0.95 0.012 150)',
+      '--secondary-foreground':  'oklch(0.205 0 0)',
+      '--muted':                 'oklch(0.97 0.008 150)',
+      '--muted-foreground':      'oklch(0.5 0 0)',
+      '--accent':                'oklch(0.93 0.018 150)',
+      '--accent-foreground':     'oklch(0.145 0 0)',
+      '--destructive':           'oklch(0.577 0.245 27.325)',
+      '--border':                'oklch(0.91 0.015 150)',
+      '--input':                 'oklch(0.91 0.015 150)',
+      '--ring':                  'oklch(0.723 0.21 150)',
+      '--radius':                '0.625rem',
+    },
+  },
+  {
     name: 'default',
-    label: 'Default',
+    label: 'Monocromo',
     previewPrimary: '#18181b',
     previewBg: '#ffffff',
     vars: {
@@ -198,7 +225,7 @@ export const THEMES: ThemePalette[] = [
   },
 ];
 
-export const DEFAULT_THEME = 'default';
+export const DEFAULT_THEME = 'color';
 
 export function applyTheme(themeName: string) {
   const theme = THEMES.find(t => t.name === themeName);
