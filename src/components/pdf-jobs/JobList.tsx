@@ -90,7 +90,7 @@ export function JobList({ jobs }: JobListProps) {
                 <TableCell className="text-sm tabular-nums">
                   {total > 0 ? `${processed} / ${total}` : '-'}
                   {(job.corrected_documents ?? 0) > 0 && (
-                    <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-900/20 dark:text-blue-400">
+                    <span className="ml-1.5 inline-flex items-center rounded-full bg-[#A347D1]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#6b21a8] ring-1 ring-inset ring-[#A347D1]/30">
                       {job.corrected_documents} corr.
                     </span>
                   )}
