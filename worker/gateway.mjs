@@ -437,8 +437,15 @@ async function handleEnqueue(body, queue, log) {
 
 // ─── Handler: MercadoPago ─────────────────────────────────────────────────────
 
-const CUSTOM_CREDIT_RATE_USD = 0.30;
 const CUSTOM_CREDIT_MIN = 20;
+
+async function getCreditTierPrice(creditsNum) {
+  const url = `${SUPABASE_URL}/rest/v1/credit_price_tiers?active=eq.true&min_credits=lte.${creditsNum}&or=(max_credits.gte.${creditsNum},max_credits.is.null)&order=min_credits.desc&limit=1`;
+  const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) return null;
+  const tiers = await res.json();
+  return tiers.length ? Number(tiers[0].price_per_credit) : null;
+}
 
 async function handleCreateCustomMpPreference(body, log) {
   const { credits, user_id } = body ?? {};
@@ -459,7 +466,9 @@ async function handleCreateCustomMpPreference(body, log) {
   if (!profiles.length || !profiles[0].organization_id) return { status: 404, body: { error: 'Perfil sin organización' } };
   const organization_id = profiles[0].organization_id;
 
-  const totalPrice = creditsNum * CUSTOM_CREDIT_RATE_USD;
+  const pricePerCredit = await getCreditTierPrice(creditsNum);
+  if (pricePerCredit === null) return { status: 500, body: { error: 'No se pudo determinar el precio del crédito' } };
+  const totalPrice = creditsNum * pricePerCredit;
 
   const mpRes = await fetch('https://api.mercadopago.com/checkout/preferences', {
     method:  'POST',
@@ -502,7 +511,7 @@ async function handleCreateCustomMpPreference(body, log) {
     return { status: 502, body: { error: 'Error insertando payment', detail: payErr } };
   }
   const [payment] = await payRes.json();
-  log('info', 'mp.custom_preference_created', { payment_id: payment.id, preference_id: mpData.id, organization_id, credits: creditsNum });
+  log('info', 'mp.custom_preference_created', { payment_id: payment.id, preference_id: mpData.id, organization_id, credits: creditsNum, price_per_credit: pricePerCredit });
   return { status: 200, body: { payment_id: payment.id, preference_id: mpData.id, init_point: mpData.init_point, sandbox_init_point: mpData.sandbox_init_point } };
 }
 

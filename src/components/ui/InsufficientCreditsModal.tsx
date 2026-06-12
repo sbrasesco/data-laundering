@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogDescription,
@@ -13,8 +13,13 @@ const PLANES = [
   { nombre: 'Business',    slug: 'business',    creditos: '1.000 créditos', precio: 'USD 220' },
 ];
 
-const CUSTOM_RATE_USD = 0.30;
 const CUSTOM_MIN = 20;
+
+interface PriceTier {
+  min_credits: number;
+  max_credits: number | null;
+  price_per_credit: number;
+}
 
 interface Props {
   isOpen: boolean;
@@ -27,13 +32,30 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
   const [customCredits, setCustomCredits] = useState(50);
   const [loadingCustom, setLoadingCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tiers, setTiers] = useState<PriceTier[]>([]);
 
   const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
   const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
 
+  useEffect(() => {
+    if (!isOpen) return;
+    supabase
+      .from('credit_price_tiers')
+      .select('min_credits, max_credits, price_per_credit')
+      .eq('active', true)
+      .order('min_credits', { ascending: true })
+      .then(({ data }) => { if (data) setTiers(data); });
+  }, [isOpen]);
+
+  const getActiveTier = (credits: number): PriceTier | null =>
+    tiers.find(t => t.min_credits <= credits && (t.max_credits === null || t.max_credits >= credits)) ?? null;
+
+  const activeTier = getActiveTier(customCredits);
+  const pricePerCredit = activeTier ? Number(activeTier.price_per_credit) : null;
+  const totalPrice = pricePerCredit !== null ? (customCredits * pricePerCredit).toFixed(2) : '—';
+
   const redirectToCheckout = (data: { init_point: string; sandbox_init_point: string }) => {
-    const checkoutUrl = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
-    window.location.href = checkoutUrl;
+    window.location.href = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
   };
 
   const handleBuy = useCallback(async (slug: string) => {
@@ -41,25 +63,18 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
     setLoadingSlug(slug);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-
       const { data: plan, error: planError } = await supabase
         .from('billing_plans')
         .select('id')
         .eq('name', slug)
         .eq('active', true)
         .single();
-
-      if (planError || !plan) {
-        setError('Plan no encontrado. Intentá nuevamente.');
-        return;
-      }
-
+      if (planError || !plan) { setError('Plan no encontrado. Intentá nuevamente.'); return; }
       const response = await fetch(`${workerGatewayUrl}/api/mp/create-preference`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${workerApiKey}` },
         body: JSON.stringify({ plan_id: plan.id, user_id: session?.user?.id ?? user?.id }),
       });
-
       if (!response.ok) { setError('Error al iniciar el pago. Intentá nuevamente.'); return; }
       redirectToCheckout(await response.json());
     } catch {
@@ -70,18 +85,16 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
   }, [user, workerGatewayUrl, workerApiKey]);
 
   const handleBuyCustom = useCallback(async () => {
-    if (customCredits < CUSTOM_MIN) return;
+    if (customCredits < CUSTOM_MIN || pricePerCredit === null) return;
     setError(null);
     setLoadingCustom(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-
       const response = await fetch(`${workerGatewayUrl}/api/mp/create-custom-preference`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${workerApiKey}` },
         body: JSON.stringify({ credits: customCredits, user_id: session?.user?.id ?? user?.id }),
       });
-
       if (!response.ok) { setError('Error al iniciar el pago. Intentá nuevamente.'); return; }
       redirectToCheckout(await response.json());
     } catch {
@@ -89,10 +102,14 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
     } finally {
       setLoadingCustom(false);
     }
-  }, [customCredits, user, workerGatewayUrl, workerApiKey]);
+  }, [customCredits, pricePerCredit, user, workerGatewayUrl, workerApiKey]);
 
   const isAnyLoading = loadingSlug !== null || loadingCustom;
-  const customPrice = (customCredits * CUSTOM_RATE_USD).toFixed(2);
+
+  const formatTierRange = (t: PriceTier) => {
+    const max = t.max_credits !== null ? t.max_credits.toLocaleString('es') : '∞';
+    return `${t.min_credits.toLocaleString('es')} – ${max}`;
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -100,10 +117,11 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Sin créditos disponibles</DialogTitle>
           <DialogDescription>
-            Necesitás créditos para procesar documentos. Elegí el plan que mejor se adapte a tus necesidades.
+            Necesitás créditos para procesar documentos. Elegí el plan o comprá la cantidad que necesitás.
           </DialogDescription>
         </DialogHeader>
 
+        {/* Planes */}
         <div className="space-y-2 mt-1">
           {PLANES.map((plan) => (
             <div
@@ -128,11 +146,33 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
           ))}
         </div>
 
-        {/* Sección créditos personalizados */}
-        <div className="border-t border-border pt-3 space-y-2">
+        {/* Créditos sueltos */}
+        <div className="border-t border-border pt-3 space-y-3">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             O comprá la cantidad que necesitás
           </p>
+
+          {/* Tabla de precios por tramo */}
+          {tiers.length > 0 && (
+            <div className="rounded-md border border-border overflow-hidden">
+              {tiers.map((t) => {
+                const isActive = activeTier?.min_credits === t.min_credits;
+                return (
+                  <div
+                    key={t.min_credits}
+                    className={`flex justify-between items-center px-3 py-1.5 text-xs border-b border-border last:border-0 transition-colors ${
+                      isActive ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
+                    <span>{formatTierRange(t)} créditos</span>
+                    <span>USD {Number(t.price_per_credit).toFixed(2)}/cr.</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Input + precio en tiempo real */}
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -143,28 +183,27 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
               className="flex h-9 w-24 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
             <span className="text-sm text-muted-foreground flex-1">
-              créditos = <span className="font-medium text-foreground">USD {customPrice}</span>
+              créditos = <span className="font-semibold text-foreground">USD {totalPrice}</span>
+              {pricePerCredit !== null && (
+                <span className="ml-1 text-xs">({pricePerCredit.toFixed(2)}/cr.)</span>
+              )}
             </span>
             <Button
               size="sm"
               variant="outline"
               onClick={handleBuyCustom}
-              disabled={isAnyLoading || customCredits < CUSTOM_MIN}
+              disabled={isAnyLoading || customCredits < CUSTOM_MIN || pricePerCredit === null}
             >
               {loadingCustom ? 'Procesando…' : 'Comprar'}
             </Button>
           </div>
-          {customCredits >= 200 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              Tip: el plan Básico incluye 200 créditos por USD 60 — mejor precio por crédito.
-            </p>
-          )}
+
           <p className="text-xs text-muted-foreground">
-            Mínimo {CUSTOM_MIN} créditos · USD {CUSTOM_RATE_USD.toFixed(2)}/crédito
+            Mínimo {CUSTOM_MIN} créditos · 1 crédito = 1 documento
           </p>
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-sm text-destructive mt-1">{error}</p>}
       </DialogContent>
     </Dialog>
   );
