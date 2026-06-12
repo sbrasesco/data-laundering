@@ -242,7 +242,7 @@ async function insertJobRow(jobId, orgId, extracted, meta) {
     llm_model:                 llmModel                          ?? null,
     processed_at:              new Date().toISOString(),
     raw_ocr_text:              rawOcrText                        ?? null,
-    doc_status:                'processed',
+    doc_status:                'ok',
     incompleto:                !extracted.total && !extracted.numero_comprobante,
     ia_extra:                  { input_source: inputSource ?? 'worker', worker_version: WORKER_VERSION },
   };
