@@ -437,6 +437,75 @@ async function handleEnqueue(body, queue, log) {
 
 // ─── Handler: MercadoPago ─────────────────────────────────────────────────────
 
+const CUSTOM_CREDIT_RATE_USD = 0.30;
+const CUSTOM_CREDIT_MIN = 20;
+
+async function handleCreateCustomMpPreference(body, log) {
+  const { credits, user_id } = body ?? {};
+  if (!user_id || credits === undefined) return { status: 400, body: { error: 'Campos requeridos: credits, user_id' } };
+  if (!isUUID(user_id)) return { status: 400, body: { error: 'user_id debe ser un UUID válido' } };
+  const creditsNum = parseInt(credits, 10);
+  if (!Number.isInteger(creditsNum) || creditsNum < CUSTOM_CREDIT_MIN) {
+    return { status: 400, body: { error: `El mínimo de créditos es ${CUSTOM_CREDIT_MIN}` } };
+  }
+  if (!MP_ACCESS_TOKEN) return { status: 500, body: { error: 'MP_ACCESS_TOKEN no configurado' } };
+
+  const profileRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(user_id)}&select=organization_id&limit=1`,
+    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!profileRes.ok) return { status: 502, body: { error: 'Error consultando profiles' } };
+  const profiles = await profileRes.json();
+  if (!profiles.length || !profiles[0].organization_id) return { status: 404, body: { error: 'Perfil sin organización' } };
+  const organization_id = profiles[0].organization_id;
+
+  const totalPrice = creditsNum * CUSTOM_CREDIT_RATE_USD;
+
+  const mpRes = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    method:  'POST',
+    headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: [{ title: `${creditsNum} créditos DataLand`, quantity: 1, unit_price: totalPrice, currency_id: 'USD' }],
+      back_urls: {
+        success: `${FRONTEND_URL}/payment/success`,
+        failure: `${FRONTEND_URL}/payment/failure`,
+        pending: `${FRONTEND_URL}/payment/pending`,
+      },
+      ...(FRONTEND_URL.startsWith('https://') ? { auto_return: 'approved' } : {}),
+      external_reference: organization_id,
+    }),
+  });
+  if (!mpRes.ok) {
+    const mpErr = await mpRes.text();
+    log('error', 'mp.custom_preference_error', { credits: creditsNum, status: mpRes.status, error: mpErr });
+    return { status: 502, body: { error: 'Error creando preferencia MP', detail: mpErr } };
+  }
+  const mpData = await mpRes.json();
+
+  const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
+    method:  'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify({
+      organization_id,
+      plan_id: null,
+      amount: totalPrice,
+      currency: 'USD',
+      gateway: 'mercadopago',
+      gateway_preference_id: mpData.id,
+      status: 'pending',
+      metadata: { custom_credits: creditsNum },
+    }),
+  });
+  if (!payRes.ok) {
+    const payErr = await payRes.text();
+    log('error', 'mp.custom_payment_insert_error', { organization_id, error: payErr });
+    return { status: 502, body: { error: 'Error insertando payment', detail: payErr } };
+  }
+  const [payment] = await payRes.json();
+  log('info', 'mp.custom_preference_created', { payment_id: payment.id, preference_id: mpData.id, organization_id, credits: creditsNum });
+  return { status: 200, body: { payment_id: payment.id, preference_id: mpData.id, init_point: mpData.init_point, sandbox_init_point: mpData.sandbox_init_point } };
+}
+
 async function handleCreateMpPreference(body, log) {
   const { plan_id, user_id } = body ?? {};
   if (!plan_id || !user_id) return { status: 400, body: { error: 'Campos requeridos: plan_id, user_id' } };
@@ -545,6 +614,17 @@ export function startGateway(queue, log) {
         return json(res, result.status, result.body);
       } catch (err) {
         log('error', 'mp.request_error', { error: err.message });
+        return json(res, 500, { error: err.message });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/api/mp/create-custom-preference') {
+      try {
+        const body = await readBody(req);
+        const result = await handleCreateCustomMpPreference(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'mp.custom_request_error', { error: err.message });
         return json(res, 500, { error: err.message });
       }
     }

@@ -67,12 +67,19 @@ export function JobList({ jobs }: JobListProps) {
             const failed    = job.failed_documents ?? 0;
 
             const isProcessing = job.status === 'pending' || job.status === 'processing' || total === 0 || processed + failed < total;
-            const computedStatus = isProcessing ? 'pending' : (job.status === 'done_with_warnings' ? 'done' : job.status);
-            const displayLabel   = isProcessing ? 'Procesando' : getJobStatusLabel(computedStatus);
-            const displayVariant = getJobStatusVariant(computedStatus);
+            const hasIssues    = !isProcessing && job.status !== 'error' && (job.status === 'done_with_warnings' || job.has_warnings || failed > 0);
+
+            let displayLabel: string;
+            let displayVariant: 'secondary' | 'success' | 'destructive' | 'warning' | 'outline';
+            if (isProcessing)            { displayLabel = 'Procesando';      displayVariant = 'secondary'; }
+            else if (job.status === 'error') { displayLabel = 'Error';       displayVariant = 'destructive'; }
+            else if (hasIssues)          { displayLabel = 'Con advertencia'; displayVariant = 'warning'; }
+            else                         { displayLabel = getJobStatusLabel(job.status); displayVariant = getJobStatusVariant(job.status); }
+
+            const rowBg = hasIssues ? 'bg-yellow-50/70 dark:bg-yellow-950/10' : '';
 
             return (
-              <TableRow key={job.id}>
+              <TableRow key={job.id} className={rowBg}>
                 <TableCell className="text-sm">{formatDate(job.created_at)}</TableCell>
                 <TableCell className="text-sm">{job.clients?.name || '-'}</TableCell>
                 <TableCell><InputSourceBadge source={job.input_source} /></TableCell>
@@ -82,6 +89,11 @@ export function JobList({ jobs }: JobListProps) {
                 </TableCell>
                 <TableCell className="text-sm tabular-nums">
                   {total > 0 ? `${processed} / ${total}` : '-'}
+                  {(job.corrected_documents ?? 0) > 0 && (
+                    <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-900/20 dark:text-blue-400">
+                      {job.corrected_documents} corr.
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Button size="sm" onClick={() => navigate(`/jobs/${job.id}`)}>

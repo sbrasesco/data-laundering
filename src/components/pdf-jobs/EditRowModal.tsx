@@ -10,6 +10,7 @@ interface EditRowModalProps {
   row: any | null;
   onClose: () => void;
   onSave: (rowId: number, updates: Record<string, any>) => Promise<void>;
+  onSaveAndProcess?: (rowId: number, updates: Record<string, any>) => Promise<void>;
   saving: boolean;
 }
 
@@ -32,7 +33,7 @@ const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' }[]
   { key: 'fecha_vto_cae',        label: 'Vto. CAE',          type: 'date' },
 ];
 
-export function EditRowModal({ row, onClose, onSave, saving }: EditRowModalProps) {
+export function EditRowModal({ row, onClose, onSave, onSaveAndProcess, saving }: EditRowModalProps) {
   const [values, setValues] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -48,7 +49,7 @@ export function EditRowModal({ row, onClose, onSave, saving }: EditRowModalProps
     setValues(prev => ({ ...prev, [key]: val }));
   };
 
-  const handleSave = async () => {
+  const buildUpdates = () => {
     const updates: Record<string, any> = {};
     FIELDS.forEach(f => {
       const v = values[f.key];
@@ -59,7 +60,15 @@ export function EditRowModal({ row, onClose, onSave, saving }: EditRowModalProps
         updates[f.key] = v === '' ? null : v;
       }
     });
-    await onSave(row.id, updates);
+    return updates;
+  };
+
+  const handleSave = async () => {
+    await onSave(row.id, buildUpdates());
+  };
+
+  const handleSaveAndProcess = async () => {
+    if (onSaveAndProcess) await onSaveAndProcess(row.id, buildUpdates());
   };
 
   return (
@@ -88,9 +97,14 @@ export function EditRowModal({ row, onClose, onSave, saving }: EditRowModalProps
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Guardando...' : 'Guardar como Pendiente'}
+          <Button variant="outline" onClick={handleSave} disabled={saving}>
+            {saving ? 'Guardando...' : 'Guardar'}
           </Button>
+          {onSaveAndProcess && (
+            <Button onClick={handleSaveAndProcess} disabled={saving}>
+              {saving ? 'Procesando...' : 'Guardar y Procesar'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -71,6 +71,16 @@ export function ClientDashboardPage() {
     return `${processed} / ${total}`;
   };
 
+  const correctedBadge = (job: PdfJob) => {
+    const n = job.corrected_documents ?? 0;
+    if (n === 0) return null;
+    return (
+      <span className="ml-1.5 inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-900/20 dark:text-blue-400">
+        {n} corr.
+      </span>
+    );
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
 
@@ -135,6 +145,7 @@ export function ClientDashboardPage() {
             <MetricCard value={metrics.processedDocuments}    label="Documentos correctos" />
             <MetricCard value={metrics.failedDocuments}       label="Documentos fallidos" />
             <MetricCard value={metrics.documentsWithWarnings} label="Con advertencias" />
+            <MetricCard value={metrics.correctedDocuments}    label="Corregidos manualmente" />
             <MetricCard value={metrics.jobsWithError}         label="Procesos con error" />
           </div>
 
@@ -180,7 +191,9 @@ export function ClientDashboardPage() {
                             has_warnings={job.has_warnings}
                           />
                         </TableCell>
-                        <TableCell className="text-sm tabular-nums">{formatDocuments(job)}</TableCell>
+                        <TableCell className="text-sm tabular-nums">
+                          {formatDocuments(job)}{correctedBadge(job)}
+                        </TableCell>
                         <TableCell>
                           <Button size="sm" onClick={() => navigate(`/jobs/${job.id}`)}>
                             Ver detalles

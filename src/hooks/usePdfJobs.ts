@@ -10,6 +10,7 @@ export interface PdfJob {
   failed_documents: number | null;
   has_warnings: boolean | null;
   low_confidence_documents: number | null;
+  corrected_documents: number | null;
   error_message: string | null;
   created_at: string;
   period_month: number | null;

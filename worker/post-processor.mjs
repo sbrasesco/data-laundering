@@ -131,18 +131,21 @@ export async function processDocumentResult(result, jobId, orgId, log) {
 export async function finalizeJob(jobId, orgId, { total, successful, failed, lowConfidence }, log) {
   if (!SUPABASE_URL || !SUPABASE_KEY) return;
 
-  const hasWarnings = failed > 0 || lowConfidence > 0;
-  const status = hasWarnings ? 'done_with_warnings' : 'done';
-
-  // Fix 2: COUNT(*) FROM pdf_job_row_oc WHERE row_id IN (SELECT id FROM pdf_job_rows WHERE job_id = ?)
-  let ocRelations = 0;
+  // Los contadores in-memory (failed, successful) solo reflejan errores de API.
+  // Los triggers de DB (classify_pdf_job_row + sync_job_document_counts) son la
+  // fuente de verdad sobre calidad de datos. Leer desde la DB para no pisarlos.
+  let okRows = 0, warnRows = 0, failedRows = failed, ocRelations = 0;
   try {
     const rowsRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=id`,
+      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=id,doc_status`,
       { headers: supabaseHeaders() }
     );
     if (rowsRes.ok) {
       const rows = await rowsRes.json();
+      okRows     = rows.filter(r => r.doc_status === 'ok' || r.doc_status === 'pending_approval').length;
+      warnRows   = rows.filter(r => r.doc_status === 'warning').length;
+      failedRows = rows.filter(r => r.doc_status === 'failed').length;
+
       if (rows.length > 0) {
         const rowIds = rows.map(r => r.id).join(',');
         const ocRes = await fetch(
@@ -156,10 +159,13 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
         }
       }
     }
-    log('info', 'post.oc_count', { job_id: jobId, oc_relations: ocRelations });
+    log('info', 'post.row_counts', { job_id: jobId, ok: okRows, warn: warnRows, failed: failedRows, oc: ocRelations });
   } catch (err) {
-    log('warn', 'post.oc_count_failed', { job_id: jobId, error: err.message });
+    log('warn', 'post.row_counts_failed', { job_id: jobId, error: err.message, note: 'Usando contadores in-memory como fallback' });
   }
+
+  const hasWarnings = failedRows > 0 || warnRows > 0 || lowConfidence > 0;
+  const status = hasWarnings ? 'done_with_warnings' : 'done';
 
   try {
     const res = await fetch(
@@ -169,17 +175,17 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
         headers: supabaseHeaders(),
         body: JSON.stringify({
           status,
-          total_documents: successful + ocRelations + failed,
-          processed_documents: successful + ocRelations,
-          failed_documents: failed,
-          oc_relations: ocRelations,     // Fix 2: relaciones OC de pdf_job_row_oc
-          finished_at: new Date().toISOString(),
+          total_documents:     okRows + warnRows + failedRows + ocRelations,
+          processed_documents: okRows + warnRows + ocRelations,
+          failed_documents:    failedRows,
+          oc_relations:        ocRelations,
+          finished_at:         new Date().toISOString(),
         }),
       }
     );
 
     if (res.ok) {
-      log('info', 'post.job_finalized', { job_id: jobId, status, total, successful, failed, lowConfidence, oc_relations: ocRelations });
+      log('info', 'post.job_finalized', { job_id: jobId, status, ok: okRows, warn: warnRows, failed: failedRows, lowConfidence, oc_relations: ocRelations });
     } else {
       const errText = await res.text();
       log('warn', 'post.job_finalize_failed', { job_id: jobId, http_status: res.status, error: errText });
@@ -201,7 +207,7 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
   // ── TASK-18: Descuento de créditos post-procesamiento ─────────────────────
   // Orden: procesar → finalizar job → descontar crédito. Nunca al revés.
   // Si falla el descuento, NO revertir el procesamiento (el cliente ya tiene el resultado).
-  const docsToCharge = successful + ocRelations;
+  const docsToCharge = okRows + warnRows + ocRelations;
   if (orgId && docsToCharge > 0) {
     try {
       const chargeRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/charge_credit`, {

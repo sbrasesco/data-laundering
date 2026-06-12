@@ -46,6 +46,10 @@ const COLUMNS: ColDef[] = [
   { header: 'Codigo Obra',     getValue: (r) => r.pdf_job_row_oc,             type: 'obra_list' },
 ];
 
+const REQUIRED_HEADERS = new Set([
+  'Emisor', 'CUIT Emisor', 'Tipo', 'Cod. AFIP', 'Nro. Comprobante', 'Fecha Emision', 'Total',
+]);
+
 const TH_STYLE: React.CSSProperties = {
   cursor: 'pointer',
   userSelect: 'none',
@@ -66,8 +70,8 @@ function HeaderLabel({ text }: { text: string }) {
   return <>{words.map((w, i) => <span key={i}>{i > 0 && <br />}{w}</span>)}</>;
 }
 
-const WORKER_GATEWAY_URL = (import.meta as any).env?.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
-const WORKER_API_KEY     = (import.meta as any).env?.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
+const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+const WORKER_API_KEY     = import.meta.env.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
 
 export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableProps) {
   const [sortCol, setSortCol] = useState<number>(-1);
@@ -168,6 +172,39 @@ export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableP
     }
   };
 
+  const handleSaveAndProcess = async (rowId: number, updates: Record<string, any>) => {
+    setSaving(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('pdf_job_rows')
+        .update({ ...updates, doc_status: 'pending_approval' })
+        .eq('id', rowId);
+      if (updateError) throw updateError;
+
+      const { data, error: approveError } = await supabase.rpc('approve_document_row', { p_row_id: rowId });
+      if (approveError) throw approveError;
+
+      if (data?.job_id && data?.org_id) {
+        fetch(`${WORKER_GATEWAY_URL}/api/deposit-row`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${WORKER_API_KEY}`,
+          },
+          body: JSON.stringify({ row_id: rowId, job_id: data.job_id, org_id: data.org_id }),
+        }).catch(() => {});
+      }
+
+      setEditRow(null);
+      onRowUpdated();
+    } catch (err) {
+      console.error('Error guardando y procesando:', err);
+      alert('Error al guardar y procesar. Intentá nuevamente.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleApprove = async (row: any) => {
     setApprovingId(row.id);
     try {
@@ -244,14 +281,20 @@ export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableP
                 <tr key={index} style={rowBaseStyle} className="border-b hover:bg-muted/30 transition-colors">
                   {COLUMNS.map((col) => {
                     const cellText = fmtCell(col, row);
+                    const missingRequired = needsAction && REQUIRED_HEADERS.has(col.header) && (cellText === '-' || cellText === '');
+                    const cellStyle: React.CSSProperties = {
+                      ...TD_STYLE,
+                      ...col.tdStyle,
+                      ...(missingRequired ? { backgroundColor: 'rgba(220, 53, 69, 0.15)', color: 'hsl(var(--destructive))', fontWeight: 600 } : {}),
+                    };
                     return (
                       <td
                         key={col.header}
-                        style={{ ...TD_STYLE, ...col.tdStyle }}
-                        title={cellText !== '-' ? cellText : undefined}
+                        style={cellStyle}
+                        title={missingRequired ? 'Campo faltante' : (cellText !== '-' ? cellText : undefined)}
                         className="px-3 py-2"
                       >
-                        {cellText}
+                        {missingRequired ? '⚠ —' : cellText}
                       </td>
                     );
                   })}
@@ -291,6 +334,7 @@ export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableP
         row={editRow}
         onClose={() => setEditRow(null)}
         onSave={handleSaveEdit}
+        onSaveAndProcess={handleSaveAndProcess}
         saving={saving}
       />
     </>

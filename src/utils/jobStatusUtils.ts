@@ -5,6 +5,7 @@ export type UiStatus =
   | 'PROCESANDO'
   | 'COMPLETADO'
   | 'COMPLETADO_CON_ADVERTENCIAS'
+  | 'FALLIDO'
   | 'ERROR';
 
 export interface JobForStatus {
@@ -34,12 +35,15 @@ export function getUiStatus(job: JobForStatus): UiStatus {
     return 'PROCESANDO';
   }
   
-  // done y done_with_warnings ambos muestran "Completado" en el Dashboard
-  if (job.status === 'done' || job.status === 'done_with_warnings') {
-    return 'COMPLETADO';
+  if (job.status === 'done_with_warnings') {
+    return 'COMPLETADO_CON_ADVERTENCIAS';
   }
 
-  // Fallback defensivo
+  if (job.status === 'done') {
+    const hasIssues = job.has_warnings || (job.failed_documents != null && job.failed_documents > 0);
+    return hasIssues ? 'COMPLETADO_CON_ADVERTENCIAS' : 'COMPLETADO';
+  }
+
   return 'PROCESANDO';
 }
 

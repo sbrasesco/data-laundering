@@ -15,6 +15,7 @@ export interface ClientJobsMetrics {
   processedDocuments: number;    // total_documents (facturas + OCs)
   failedDocuments: number;       // docs con campos insuficientes (doc_status = 'failed')
   documentsWithWarnings: number; // docs con datos incompletos (doc_status = 'warning')
+  correctedDocuments: number;    // docs corregidos manualmente (aprobados tras error/advertencia)
   jobsWithError: number;
 }
 
@@ -27,6 +28,7 @@ const PDF_JOBS_SELECT = `
   processed_documents,
   failed_documents,
   low_confidence_documents,
+  corrected_documents,
   has_warnings,
   error_message,
   created_at,
@@ -75,6 +77,10 @@ export function useClientJobs(filters?: DashboardFilters) {
       (sum, job) => sum + (job.low_confidence_documents ?? 0),
       0
     );
+    const correctedDocuments = jobsData.reduce(
+      (sum, job) => sum + (job.corrected_documents ?? 0),
+      0
+    );
     const jobsWithError = jobsData.filter((job) => job.status === 'error').length;
 
     return {
@@ -83,6 +89,7 @@ export function useClientJobs(filters?: DashboardFilters) {
       processedDocuments,
       failedDocuments,
       documentsWithWarnings,
+      correctedDocuments,
       jobsWithError,
     };
   };
@@ -254,14 +261,17 @@ export function useClientJobs(filters?: DashboardFilters) {
   }, [organizationId, filters?.clientId, filters?.fechaDesde, filters?.fechaHasta]);
 
   // ─── Polling de respaldo ─────────────────────────────────────────────────
-  // Cuando hay jobs en 'pending' o 'processing', consulta la DB cada 8 segundos.
-  // Esto garantiza actualizaciones aunque Realtime falle o el trigger de n8n
-  // tarde en ejecutarse.
+  // Activo mientras haya jobs recientes (últimos 5 min) O en pending/processing.
+  // Garantiza actualizaciones aunque Realtime falle o llegue tarde.
   useEffect(() => {
-    const hasActive = jobs.some(
-      (j) => j.status === 'pending' || j.status === 'processing'
-    );
-    if (!hasActive || !organizationId) return;
+    const FIVE_MIN = 5 * 60 * 1000;
+    const now = Date.now();
+    const hasRelevant = jobs.some((j) => {
+      const isActive = j.status === 'pending' || j.status === 'processing';
+      const isRecent = now - new Date(j.created_at).getTime() < FIVE_MIN;
+      return isActive || isRecent;
+    });
+    if (!hasRelevant || !organizationId) return;
 
     async function pollJobs() {
       try {
@@ -278,10 +288,15 @@ export function useClientJobs(filters?: DashboardFilters) {
         const { data, error: pollError } = await query;
         if (!pollError && data) {
           const jobsData = data as unknown as PdfJob[];
-          // Solo actualizar si algo cambió (evitar re-renders innecesarios)
+          // Actualizar si cambió status, has_warnings o failed_documents
           const hasChange = jobsData.some((fresh) => {
             const current = jobs.find((j) => j.id === fresh.id);
-            return current && current.status !== fresh.status;
+            if (!current) return true;
+            return (
+              current.status          !== fresh.status          ||
+              current.has_warnings    !== fresh.has_warnings    ||
+              current.failed_documents !== fresh.failed_documents
+            );
           });
           if (hasChange) {
             setJobs(jobsData);

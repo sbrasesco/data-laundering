@@ -1,6 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { ProtectedRoute, ProtectedLayout } from './components/auth/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { LandingPage } from './pages/LandingPage';
 import { ClientsPage } from './pages/ClientsPage';
@@ -19,84 +19,25 @@ function App() {
   return (
     <AuthProvider>
       <Routes>
+        {/* Rutas públicas */}
         <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/clients"
-          element={
-            <ProtectedRoute>
-              <ClientsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <ClientDashboardPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/jobs/new"
-          element={
-            <ProtectedRoute>
-              <SubirZipPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/jobs/:id"
-          element={
-            <ProtectedRoute>
-              <ProcesoDetailPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/documents"
-          element={
-            <ProtectedRoute>
-              <DocumentsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/monitoring"
-          element={
-            <ProtectedRoute>
-              <MonitoringPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/integrations"
-          element={
-            <ProtectedRoute>
-              <IntegracionesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <SettingsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/mis-procesos"
-          element={
-            <ProtectedRoute>
-              <MisProcesosPage />
-            </ProtectedRoute>
-          }
-        />
         <Route path="/" element={<LandingPage />} />
-        {/* Payment pages — public, MercadoPago redirects here after checkout */}
         <Route path="/payment/success" element={<PaymentSuccessPage />} />
         <Route path="/payment/failure" element={<PaymentFailurePage />} />
         <Route path="/payment/pending" element={<PaymentFailurePage />} />
+
+        {/* Rutas protegidas — AppShell se monta UNA sola vez */}
+        <Route element={<ProtectedLayout />}>
+          <Route path="/dashboard"    element={<ClientDashboardPage />} />
+          <Route path="/jobs/new"     element={<SubirZipPage />} />
+          <Route path="/jobs/:id"     element={<ProcesoDetailPage />} />
+          <Route path="/documents"    element={<DocumentsPage />} />
+          <Route path="/monitoring"   element={<MonitoringPage />} />
+          <Route path="/integrations" element={<IntegracionesPage />} />
+          <Route path="/settings"     element={<SettingsPage />} />
+          <Route path="/mis-procesos" element={<MisProcesosPage />} />
+          <Route path="/clients"      element={<ClientsPage />} />
+        </Route>
       </Routes>
     </AuthProvider>
   );

@@ -13,6 +13,9 @@ const PLANES = [
   { nombre: 'Business',    slug: 'business',    creditos: '1.000 créditos', precio: 'USD 220' },
 ];
 
+const CUSTOM_RATE_USD = 0.30;
+const CUSTOM_MIN = 20;
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -21,7 +24,17 @@ interface Props {
 export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
   const { user } = useAuth();
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
+  const [customCredits, setCustomCredits] = useState(50);
+  const [loadingCustom, setLoadingCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+  const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
+
+  const redirectToCheckout = (data: { init_point: string; sandbox_init_point: string }) => {
+    const checkoutUrl = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
+    window.location.href = checkoutUrl;
+  };
 
   const handleBuy = useCallback(async (slug: string) => {
     setError(null);
@@ -41,35 +54,45 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
         return;
       }
 
-      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
-      const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
-
       const response = await fetch(`${workerGatewayUrl}/api/mp/create-preference`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${workerApiKey}`,
-        },
-        body: JSON.stringify({
-          plan_id: plan.id,
-          user_id: session?.user?.id ?? user?.id,
-        }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${workerApiKey}` },
+        body: JSON.stringify({ plan_id: plan.id, user_id: session?.user?.id ?? user?.id }),
       });
 
-      if (!response.ok) {
-        setError('Error al iniciar el pago. Intentá nuevamente.');
-        return;
-      }
-
-      const data = await response.json();
-      const checkoutUrl = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
-      window.location.href = checkoutUrl;
+      if (!response.ok) { setError('Error al iniciar el pago. Intentá nuevamente.'); return; }
+      redirectToCheckout(await response.json());
     } catch {
       setError('Error inesperado. Intentá nuevamente.');
     } finally {
       setLoadingSlug(null);
     }
-  }, [user]);
+  }, [user, workerGatewayUrl, workerApiKey]);
+
+  const handleBuyCustom = useCallback(async () => {
+    if (customCredits < CUSTOM_MIN) return;
+    setError(null);
+    setLoadingCustom(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${workerGatewayUrl}/api/mp/create-custom-preference`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${workerApiKey}` },
+        body: JSON.stringify({ credits: customCredits, user_id: session?.user?.id ?? user?.id }),
+      });
+
+      if (!response.ok) { setError('Error al iniciar el pago. Intentá nuevamente.'); return; }
+      redirectToCheckout(await response.json());
+    } catch {
+      setError('Error inesperado. Intentá nuevamente.');
+    } finally {
+      setLoadingCustom(false);
+    }
+  }, [customCredits, user, workerGatewayUrl, workerApiKey]);
+
+  const isAnyLoading = loadingSlug !== null || loadingCustom;
+  const customPrice = (customCredits * CUSTOM_RATE_USD).toFixed(2);
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -97,12 +120,48 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
                 size="sm"
                 variant={plan.destacado ? 'default' : 'outline'}
                 onClick={() => handleBuy(plan.slug)}
-                disabled={loadingSlug !== null}
+                disabled={isAnyLoading}
               >
                 {loadingSlug === plan.slug ? 'Procesando…' : 'Contratar'}
               </Button>
             </div>
           ))}
+        </div>
+
+        {/* Sección créditos personalizados */}
+        <div className="border-t border-border pt-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            O comprá la cantidad que necesitás
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={CUSTOM_MIN}
+              step={1}
+              value={customCredits}
+              onChange={(e) => setCustomCredits(Math.max(CUSTOM_MIN, parseInt(e.target.value, 10) || CUSTOM_MIN))}
+              className="flex h-9 w-24 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+            <span className="text-sm text-muted-foreground flex-1">
+              créditos = <span className="font-medium text-foreground">USD {customPrice}</span>
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleBuyCustom}
+              disabled={isAnyLoading || customCredits < CUSTOM_MIN}
+            >
+              {loadingCustom ? 'Procesando…' : 'Comprar'}
+            </Button>
+          </div>
+          {customCredits >= 200 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Tip: el plan Básico incluye 200 créditos por USD 60 — mejor precio por crédito.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Mínimo {CUSTOM_MIN} créditos · USD {CUSTOM_RATE_USD.toFixed(2)}/crédito
+          </p>
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
