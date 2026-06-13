@@ -12,8 +12,10 @@ interface RecentError   { id: string; organization_name: string | null; error_ty
 interface TenantBalance { name: string; balance: number; }
 interface DocsStats     { total_processed: number; processed_24h: number; }
 interface AdminUser     { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
+interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
+interface WorkerHealth  { status: 'ok' | 'error' | 'timeout' | 'checking'; worker_version?: string; google_oauth?: boolean; latency_ms?: number; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(iso: string) {
@@ -58,6 +60,8 @@ const IconDocs    = () => <svg width={18} height={18} fill="none" stroke="curren
 const IconErrors  = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>;
 const IconTenants = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
 const IconUsers   = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
+const IconWorker  = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="currentColor" stroke="none"/></svg>;
+const IconStuck   = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline strokeLinecap="round" strokeLinejoin="round" points="12 6 12 12 16 14"/></svg>;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export function MonitoringPage() {
@@ -67,10 +71,15 @@ export function MonitoringPage() {
   const [docsStats,      setDocsStats]      = useState<DocsStats>({ total_processed: 0, processed_24h: 0 });
   const [adminUsers,     setAdminUsers]     = useState<AdminUser[]>([]);
   const [usersError,     setUsersError]     = useState<string | null>(null);
+  const [stuckJobs,      setStuckJobs]      = useState<StuckJob[]>([]);
+  const [workerHealth,   setWorkerHealth]   = useState<WorkerHealth>({ status: 'checking' });
+  const [failingJob,     setFailingJob]     = useState<string | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
   const [togglingUser,   setTogglingUser]   = useState<string | null>(null);
+
+  const GATEWAY_BASE = (import.meta.env.VITE_GATEWAY_BASE_URL as string) ?? '';
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -134,13 +143,50 @@ export function MonitoringPage() {
         setAdminUsers((usersData ?? []) as AdminUser[]);
       }
 
+      // Jobs trabados (>20 min en processing)
+      const { data: stuckData } = await supabase.rpc('get_stuck_jobs', { p_minutes_threshold: 20 });
+      setStuckJobs((stuckData ?? []) as StuckJob[]);
+
       setLastUpdated(new Date());
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const checkWorkerHealth = useCallback(async () => {
+    setWorkerHealth({ status: 'checking' });
+    const t0 = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${GATEWAY_BASE}/health`, { signal: controller.signal });
+      clearTimeout(timeout);
+      const latency_ms = Date.now() - t0;
+      if (res.ok) {
+        const body = await res.json();
+        setWorkerHealth({ status: 'ok', worker_version: body.worker_version, google_oauth: body.google_oauth, latency_ms });
+      } else {
+        setWorkerHealth({ status: 'error', latency_ms });
+      }
+    } catch {
+      setWorkerHealth({ status: Date.now() - t0 >= 4900 ? 'timeout' : 'error' });
+    }
+  }, [GATEWAY_BASE]);
+
+  useEffect(() => { fetchData(); checkWorkerHealth(); }, [fetchData, checkWorkerHealth]);
+
+  const handleFailStuckJob = async (jobId: string) => {
+    setFailingJob(jobId);
+    try {
+      const { error } = await supabase.rpc('fail_stuck_job', { p_job_id: jobId });
+      if (error) throw error;
+      setStuckJobs(prev => prev.filter(j => j.job_id !== jobId));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setFailingJob(null);
+    }
+  };
 
   const handleToggleSuperadmin = async (userId: string, currentValue: boolean) => {
     setTogglingUser(userId);
@@ -178,7 +224,7 @@ export function MonitoringPage() {
         </div>
         <div className="flex items-center gap-3">
           {lastUpdated && <span className="text-xs text-muted-foreground">{lastUpdated.toLocaleTimeString('es-AR')}</span>}
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>{loading ? 'Actualizando…' : '↻ Actualizar'}</Button>
+          <Button variant="outline" size="sm" onClick={() => { fetchData(); checkWorkerHealth(); }} disabled={loading}>{loading ? 'Actualizando…' : '↻ Actualizar'}</Button>
         </div>
       </div>
 
@@ -198,7 +244,7 @@ export function MonitoringPage() {
           )}
 
           {/* Grid de tarjetas cuadradas */}
-          <div className="grid grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-3 lg:grid-cols-5 gap-4 auto-rows-fr">
             <MonitorCard
               title="Jobs" accent="#22C365" icon={<IconJobs />}
               metric={totalJobs} sub={`${completedJobs} completados`}
@@ -223,6 +269,20 @@ export function MonitoringPage() {
               title="Usuarios" accent="#FED210" icon={<IconUsers />}
               metric={adminUsers.length} sub={usersError ? 'error al cargar' : 'registrados'}
               onClick={() => setModal('users')}
+            />
+            <MonitorCard
+              title="Worker" accent={workerHealth.status === 'ok' ? '#22C365' : workerHealth.status === 'checking' ? '#94a3b8' : '#e11d48'}
+              icon={<IconWorker />}
+              metric={workerHealth.status === 'ok' ? 'Online' : workerHealth.status === 'checking' ? '...' : workerHealth.status === 'timeout' ? 'Timeout' : 'Offline'}
+              sub={workerHealth.status === 'ok' ? `${workerHealth.latency_ms}ms · v${workerHealth.worker_version ?? '?'}` : 'gateway health'}
+              onClick={() => setModal('worker')}
+            />
+            <MonitorCard
+              title="Trabados" accent={stuckJobs.length > 0 ? '#e11d48' : '#22C365'}
+              icon={<IconStuck />}
+              metric={stuckJobs.length}
+              sub=">20 min en processing"
+              onClick={() => setModal('stuck')}
             />
           </div>
         </>
@@ -367,6 +427,88 @@ export function MonitoringPage() {
                 ))}
               </TableBody>
             </Table>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Worker health */}
+      <Dialog open={modal === 'worker'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Worker — estado</DialogTitle></DialogHeader>
+          <div className="space-y-3 mt-2">
+            <div className={`rounded-lg border p-4 flex items-center gap-3 ${workerHealth.status === 'ok' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+              <span className={`w-3 h-3 rounded-full flex-shrink-0 ${workerHealth.status === 'ok' ? 'bg-green-500' : workerHealth.status === 'checking' ? 'bg-slate-400 animate-pulse' : 'bg-red-500'}`} />
+              <div>
+                <p className={`text-sm font-semibold ${workerHealth.status === 'ok' ? 'text-green-800' : 'text-red-800'}`}>
+                  {workerHealth.status === 'ok' ? 'Gateway online' : workerHealth.status === 'checking' ? 'Verificando...' : workerHealth.status === 'timeout' ? 'Timeout (>5s)' : 'Gateway offline'}
+                </p>
+                {workerHealth.status === 'ok' && (
+                  <p className="text-xs text-green-700 mt-0.5">Latencia: {workerHealth.latency_ms}ms · Versión: {workerHealth.worker_version ?? '?'}</p>
+                )}
+              </div>
+            </div>
+            {workerHealth.status === 'ok' && (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Google OAuth</p>
+                  <p className="font-medium mt-0.5">{workerHealth.google_oauth ? '✅ Configurado' : '⚠️ Sin configurar'}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Versión</p>
+                  <p className="font-mono font-medium mt-0.5">{workerHealth.worker_version ?? '—'}</p>
+                </div>
+              </div>
+            )}
+            <Button variant="outline" size="sm" className="w-full" onClick={checkWorkerHealth} disabled={workerHealth.status === 'checking'}>
+              ↻ Verificar ahora
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Jobs trabados */}
+      <Dialog open={modal === 'stuck'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Jobs trabados (&gt;20 min en processing)</DialogTitle></DialogHeader>
+          {stuckJobs.length === 0 ? (
+            <div className="flex items-center gap-2 py-6 text-green-700">
+              <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+              <p className="text-sm font-medium">Sin jobs trabados. Todo procesando normalmente.</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground mb-3">Podés marcar un job como fallido para liberarlo. El tenant verá el error en su panel.</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Org</TableHead>
+                    <TableHead>Creado</TableHead>
+                    <TableHead className="text-right">Minutos</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stuckJobs.map((j) => (
+                    <TableRow key={j.job_id}>
+                      <TableCell className="text-sm">{j.org_name ?? '—'}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(j.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={j.minutes_stuck > 60 ? 'destructive' : 'warning'}>{j.minutes_stuck} min</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm" variant="destructive"
+                          disabled={failingJob === j.job_id}
+                          onClick={() => handleFailStuckJob(j.job_id)}
+                        >
+                          {failingJob === j.job_id ? '...' : 'Marcar fallido'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
           )}
         </DialogContent>
       </Dialog>
