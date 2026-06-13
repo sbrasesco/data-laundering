@@ -421,7 +421,7 @@ export function MonitoringPage() {
 
       {/* Balance tenants */}
       <Dialog open={modal === 'tenants'} onOpenChange={() => { setModal(null); setRechargeTarget(null); setRechargeAmount(''); }}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Balance por tenant</DialogTitle></DialogHeader>
           {tenantBalances.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">Sin datos.</p>
