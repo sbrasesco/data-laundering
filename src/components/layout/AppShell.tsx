@@ -64,7 +64,7 @@ export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const noCredits = !creditsLoading && balance === 0;
+  const noCredits = !creditsLoading && (balance ?? 0) <= 0;
 
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
@@ -132,8 +132,8 @@ export function AppShell({ children }: AppShellProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-destructive leading-none">Sin créditos</p>
-                <p className="text-xs text-destructive/70 mt-0.5">Recargar créditos →</p>
+                <p className="text-xs font-medium text-destructive leading-none">Sin saldo</p>
+                <p className="text-xs text-destructive/70 mt-0.5">Recargar saldo →</p>
               </div>
             </button>
           ) : (
@@ -142,7 +142,7 @@ export function AppShell({ children }: AppShellProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span className="text-xs text-muted-foreground">
-                {creditsLoading ? '—' : (balance ?? 0).toLocaleString()} créditos
+                {creditsLoading ? '—' : `$${(balance ?? 0).toFixed(2)}`} disponibles
               </span>
             </div>
           )}

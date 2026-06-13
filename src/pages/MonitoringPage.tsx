@@ -225,11 +225,11 @@ export function MonitoringPage() {
 
   const handleRecharge = async () => {
     if (!rechargeTarget) return;
-    const amount = parseInt(rechargeAmount, 10);
-    if (!amount || isNaN(amount)) return;
+    const amount = parseFloat(rechargeAmount);
+    if (!amount || isNaN(amount) || amount <= 0) return;
     setRecharging(true);
     try {
-      const { data: newBalance, error } = await supabase.rpc('add_credits_admin', { p_org_id: rechargeTarget.org_id, p_amount: amount });
+      const { data: newBalance, error } = await supabase.rpc('add_credits_admin', { p_org_id: rechargeTarget.org_id, p_amount_usd: amount });
       if (error) throw error;
       setTenantBalances(prev => prev.map(t => t.org_id === rechargeTarget.org_id ? { ...t, balance: newBalance as number } : t).sort((a, b) => a.balance - b.balance));
       setRechargeTarget(null);
@@ -430,7 +430,7 @@ export function MonitoringPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Organización</TableHead>
-                  <TableHead className="text-right">Créditos</TableHead>
+                  <TableHead className="text-right">Saldo USD</TableHead>
                   <TableHead>Saldo</TableHead>
                   <TableHead className="text-center">Activa</TableHead>
                   <TableHead></TableHead>
@@ -441,7 +441,7 @@ export function MonitoringPage() {
                   <>
                     <TableRow key={t.org_id} className={!t.is_active ? 'opacity-50' : ''}>
                       <TableCell className="text-sm">{t.name}</TableCell>
-                      <TableCell className="text-right font-medium text-sm tabular-nums">{t.balance.toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-medium text-sm tabular-nums">${Number(t.balance).toFixed(2)}</TableCell>
                       <TableCell>
                         {t.balance === 0
                           ? <Badge variant="destructive">Sin saldo</Badge>
@@ -466,7 +466,7 @@ export function MonitoringPage() {
                         <div className="flex items-center gap-1.5">
                           <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
                             onClick={() => { setRechargeTarget(t); setRechargeAmount(''); }}>
-                            + Créditos
+                            + Saldo
                           </Button>
                           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
                             onClick={() => handleViewActivity(t)}>
@@ -479,11 +479,12 @@ export function MonitoringPage() {
                       <TableRow key={`${t.org_id}-recharge`} className="bg-muted/40">
                         <TableCell colSpan={4} className="py-3">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground flex-shrink-0">Agregar créditos a <strong>{t.name}</strong>:</span>
+                            <span className="text-xs text-muted-foreground flex-shrink-0">Agregar saldo a <strong>{t.name}</strong> (USD):</span>
                             <input
                               type="number"
-                              min="1"
-                              placeholder="Cantidad"
+                              min="0.01"
+                              step="0.01"
+                              placeholder="0.00"
                               value={rechargeAmount}
                               onChange={e => setRechargeAmount(e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && handleRecharge()}

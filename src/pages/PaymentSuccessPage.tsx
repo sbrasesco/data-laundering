@@ -43,7 +43,7 @@ export function PaymentSuccessPage() {
 
         <h1 className="text-3xl font-black text-black mb-2">¡Pago exitoso!</h1>
         <p className="text-gray-500 mb-6">
-          Tu pago fue procesado correctamente. Los créditos serán acreditados en tu cuenta en instantes.
+          Tu pago fue procesado correctamente. El saldo será acreditado en tu cuenta en instantes.
         </p>
 
         {paymentId && (
