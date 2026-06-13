@@ -10,6 +10,7 @@ interface JobSummary   { status: string; error_type: string | null; count: numbe
 interface RecentError  { id: string; organization_name: string | null; error_type: string | null; error_message: string | null; created_at: string; }
 interface TenantBalance{ name: string; balance: number; }
 interface DocsStats    { total_processed: number; processed_24h: number; }
+interface AdminUser    { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
 
 function StatCard({ label, value, sub, accent = '#22C365' }: { label: string; value: number | string; sub?: string; accent?: string }) {
   return (
@@ -41,6 +42,8 @@ export function MonitoringPage() {
   const [docsStats,      setDocsStats]      = useState<DocsStats>({ total_processed: 0, processed_24h: 0 });
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
+  const [adminUsers,     setAdminUsers]     = useState<AdminUser[]>([]);
+  const [togglingUser,   setTogglingUser]   = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -73,9 +76,25 @@ export function MonitoringPage() {
       const now = Date.now(); const h24 = 86400000; let total = 0; let last24 = 0;
       for (const j of allJobs ?? []) { const docs = j.processed_documents ?? 0; total += docs; if (now - new Date(j.created_at).getTime() < h24) last24 += docs; }
       setDocsStats({ total_processed: total, processed_24h: last24 });
+      const { data: usersData } = await supabase.rpc('get_all_users_admin');
+      setAdminUsers((usersData ?? []) as AdminUser[]);
+
       setLastUpdated(new Date());
     } finally { setLoading(false); }
   }, []);
+
+  const handleToggleSuperadmin = async (userId: string, currentValue: boolean) => {
+    setTogglingUser(userId);
+    try {
+      const { error } = await supabase.rpc('set_user_superadmin', { p_user_id: userId, p_value: !currentValue });
+      if (error) throw error;
+      setAdminUsers(prev => prev.map(u => u.user_id === userId ? { ...u, is_superadmin: !currentValue } : u));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al cambiar el rol');
+    } finally {
+      setTogglingUser(null);
+    }
+  };
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -160,6 +179,52 @@ export function MonitoringPage() {
                         <TableCell className="text-right font-medium text-sm tabular-nums">{t.balance.toLocaleString()}</TableCell>
                         <TableCell>
                           {t.balance === 0 ? <Badge variant="destructive">⛔ Sin saldo</Badge> : t.balance < 10 ? <Badge variant="warning">⚠️ Saldo bajo</Badge> : <Badge variant="success">✅ OK</Badge>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Gestión de usuarios</CardTitle>
+                <span className="text-xs text-muted-foreground">{adminUsers.length} usuario{adminUsers.length !== 1 ? 's' : ''}</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {adminUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin usuarios.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Organización</TableHead>
+                      <TableHead>Registro</TableHead>
+                      <TableHead className="text-center">Superadmin</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adminUsers.map((u) => (
+                      <TableRow key={u.user_id}>
+                        <TableCell className="text-sm font-medium">{u.email}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{u.org_name ?? '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(u.created_at)}</TableCell>
+                        <TableCell className="text-center">
+                          <button
+                            type="button"
+                            disabled={togglingUser === u.user_id}
+                            onClick={() => handleToggleSuperadmin(u.user_id, u.is_superadmin)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              u.is_superadmin ? 'bg-[#A347D1]' : 'bg-slate-300'
+                            } ${togglingUser === u.user_id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${u.is_superadmin ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </button>
                         </TableCell>
                       </TableRow>
                     ))}
