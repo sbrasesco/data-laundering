@@ -24,7 +24,7 @@ export function MisProcesosPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">
             Mis{' '}
-            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#000000', color: '#ffffff' }}>Procesos</span>
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#FED210', color: '#000000' }}>Procesos</span>
           </h1>
           <p className="text-sm text-muted-foreground">
             Historial de todos tus procesos de extracción.

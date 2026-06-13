@@ -79,7 +79,8 @@ export function SubirZipPage() {
   const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 lg:p-8 flex justify-center">
+      <div className="w-full max-w-xl space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight">
           Crear{' '}
@@ -90,7 +91,7 @@ export function SubirZipPage() {
 
       {clientsError && <ErrorMessage message={clientsError} />}
 
-      <Card className="max-w-xl">
+      <Card>
         <CardHeader><CardTitle className="text-base">Datos del proceso</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -153,6 +154,7 @@ export function SubirZipPage() {
       </Card>
 
       <InsufficientCreditsModal isOpen={showCreditsModal} onClose={() => setShowCreditsModal(false)} />
+      </div>
     </div>
   );
 }

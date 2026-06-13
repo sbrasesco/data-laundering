@@ -22,9 +22,9 @@ const FEATURE_LABELS: Record<string, string> = {
 };
 
 const PLANES = [
-  { nombre: 'Básico',      slug: 'basico',      creditos: '200 créditos',   precio: 'USD 60'  },
-  { nombre: 'Profesional', slug: 'profesional', creditos: '600 créditos',   precio: 'USD 162', destacado: true },
-  { nombre: 'Business',    slug: 'business',    creditos: '1.000 créditos', precio: 'USD 220' },
+  { nombre: 'Básico',      slug: 'basico',      creditos: '200 créditos',   precio: 'USD 60',  accent: '#22C365' },
+  { nombre: 'Profesional', slug: 'profesional', creditos: '600 créditos',   precio: 'USD 162', accent: '#A347D1', badge: 'Popular' },
+  { nombre: 'Business',    slug: 'business',    creditos: '1.000 créditos', precio: 'USD 220', accent: '#000000' },
 ];
 
 const CUSTOM_MIN = 20;
@@ -165,116 +165,141 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Sin créditos disponibles</DialogTitle>
           <DialogDescription>
-            Necesitás créditos para procesar documentos. Elegí el plan o comprá la cantidad que necesitás.
+            Elegí un plan o comprá la cantidad exacta que necesitás.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Planes */}
-        <div className="space-y-2 mt-1">
-          {PLANES.map((plan) => (
-            <div
-              key={plan.slug}
-              className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
-                plan.destacado ? 'border-primary bg-accent' : 'border-border'
-              }`}
-            >
-              <div>
-                <p className="text-sm font-medium">{plan.nombre}</p>
-                <p className="text-xs text-muted-foreground">{plan.creditos} · {plan.precio}</p>
-              </div>
-              <Button
-                size="sm"
-                variant={plan.destacado ? 'default' : 'outline'}
-                onClick={() => handleBuy(plan.slug)}
-                disabled={isAnyLoading}
-              >
-                {loadingSlug === plan.slug ? 'Procesando…' : 'Contratar'}
-              </Button>
-            </div>
-          ))}
-        </div>
+        <div className="flex gap-0 mt-1">
 
-        {/* Créditos sueltos */}
-        <div className="border-t border-border pt-3 space-y-3">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            O comprá la cantidad que necesitás
-          </p>
+          {/* ── Columna izquierda — acción ─────────────────────────────── */}
+          <div className="flex-1 pr-5 space-y-3 min-w-0">
 
-          {/* Tabla de precios por tramo */}
-          {tiers.length > 0 && (
-            <div className="rounded-md border border-border overflow-hidden">
-              {tiers.map((t) => {
-                const isActive = activeTier?.min_credits === t.min_credits;
-                return (
-                  <div
-                    key={t.min_credits}
-                    className={`flex justify-between items-center px-3 py-1.5 text-xs border-b border-border last:border-0 transition-colors ${
-                      isActive ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'
-                    }`}
-                  >
-                    <span>{formatTierRange(t)} créditos</span>
-                    <span>USD {Number(t.price_per_credit).toFixed(2)}/cr.</span>
+            {/* Planes */}
+            <div className="space-y-2">
+              {PLANES.map((plan) => (
+                <div
+                  key={plan.slug}
+                  className="flex items-center justify-between rounded-lg border border-border overflow-hidden"
+                  style={{ borderLeftColor: plan.accent, borderLeftWidth: '3px' }}
+                >
+                  <div className="flex items-center gap-3 px-3 py-2.5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{plan.nombre}</p>
+                        {plan.badge && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: plan.accent }}>
+                            {plan.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{plan.creditos} · {plan.precio}</p>
+                    </div>
                   </div>
-                );
-              })}
+                  <div className="px-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleBuy(plan.slug)}
+                      disabled={isAnyLoading}
+                    >
+                      {loadingSlug === plan.slug ? 'Procesando…' : 'Contratar'}
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
 
-          {/* Input + precio en tiempo real */}
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={CUSTOM_MIN}
-              step={1}
-              value={customCredits}
-              onChange={(e) => setCustomCredits(Math.max(CUSTOM_MIN, parseInt(e.target.value, 10) || CUSTOM_MIN))}
-              className="flex h-9 w-24 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-            <span className="text-sm text-muted-foreground flex-1">
-              créditos = <span className="font-semibold text-foreground">USD {totalPrice}</span>
-              {pricePerCredit !== null && (
-                <span className="ml-1 text-xs">({pricePerCredit.toFixed(2)}/cr.)</span>
-              )}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleBuyCustom}
-              disabled={isAnyLoading || customCredits < CUSTOM_MIN || pricePerCredit === null}
-            >
-              {loadingCustom ? 'Procesando…' : 'Comprar'}
-            </Button>
+            {/* Separador */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground">o elegí la cantidad</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            {/* Input custom + comprar */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={CUSTOM_MIN}
+                  step={1}
+                  value={customCredits}
+                  onChange={(e) => setCustomCredits(Math.max(CUSTOM_MIN, parseInt(e.target.value, 10) || CUSTOM_MIN))}
+                  className="flex h-9 w-24 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+                <span className="text-sm text-muted-foreground flex-1">
+                  cr. = <span className="font-semibold text-foreground">USD {totalPrice}</span>
+                  {pricePerCredit !== null && (
+                    <span className="ml-1 text-xs text-muted-foreground">({pricePerCredit.toFixed(2)}/cr.)</span>
+                  )}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={handleBuyCustom}
+                  disabled={isAnyLoading || customCredits < CUSTOM_MIN || pricePerCredit === null}
+                >
+                  {loadingCustom ? 'Procesando…' : 'Comprar'}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Mínimo {CUSTOM_MIN} créditos · 1 crédito = 1 documento</p>
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
 
-          {/* Informativo con integraciones activas */}
-          {effectiveDocs !== null && effectiveCostPerDoc !== null ? (
-            <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 space-y-1">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs font-medium text-amber-800 dark:text-amber-300">Integraciones activas:</span>
-                {activeFeatures.map(f => (
-                  <span key={f.key} className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-800/40 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                    {FEATURE_LABELS[f.key] ?? f.key} +{(f.multiplierPremium * 100).toFixed(0)}%
-                  </span>
-                ))}
-              </div>
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                {customCredits} créditos → <span className="font-semibold">~{effectiveDocs} documentos</span>
-                {' '}· <span className="font-semibold">USD {effectiveCostPerDoc}/doc</span>
-                {' '}(×{effectiveMultiplier.toFixed(2)} por integraciones)
-              </p>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Mínimo {CUSTOM_MIN} créditos · 1 crédito = 1 documento
-            </p>
-          )}
-        </div>
+          {/* ── Divisor ────────────────────────────────────────────────── */}
+          <div className="w-px bg-border mx-1 self-stretch" />
 
-        {error && <p className="text-sm text-destructive mt-1">{error}</p>}
+          {/* ── Columna derecha — informativo ──────────────────────────── */}
+          <div className="flex-1 pl-5 space-y-3 min-w-0">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Precios por volumen</p>
+
+            {tiers.length > 0 && (
+              <div className="rounded-md border border-border overflow-hidden">
+                {tiers.map((t) => {
+                  const isActive = activeTier?.min_credits === t.min_credits;
+                  return (
+                    <div
+                      key={t.min_credits}
+                      className={`flex justify-between items-center px-3 py-1.5 text-xs border-b border-border last:border-0 transition-colors ${
+                        isActive ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      <span>{formatTierRange(t)} cr.</span>
+                      <span>USD {Number(t.price_per_credit).toFixed(2)}/cr.</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {effectiveDocs !== null && effectiveCostPerDoc !== null ? (
+              <div className="rounded-md bg-[#FED210]/10 border border-[#FED210]/40 px-3 py-2 space-y-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-medium" style={{ color: '#92400e' }}>Integraciones activas:</span>
+                  {activeFeatures.map(f => (
+                    <span key={f.key} className="inline-flex items-center rounded-full bg-[#FED210]/30 px-2 py-0.5 text-[11px] font-medium" style={{ color: '#92400e' }}>
+                      {FEATURE_LABELS[f.key] ?? f.key} +{(f.multiplierPremium * 100).toFixed(0)}%
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs" style={{ color: '#92400e' }}>
+                  {customCredits} cr. → <span className="font-semibold">~{effectiveDocs} docs</span>
+                  {' '}· <span className="font-semibold">USD {effectiveCostPerDoc}/doc</span>
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                A mayor volumen, menor precio por crédito.
+              </p>
+            )}
+          </div>
+
+        </div>
       </DialogContent>
     </Dialog>
   );

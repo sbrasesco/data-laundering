@@ -76,7 +76,7 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
   };
 
   const getMonedaBadge = (row: DocumentRow) => {
-    if (row._row_type === 'oc') return <Badge variant="secondary">-</Badge>;
+    if (row._row_type === 'oc') return <Badge variant="warning">-</Badge>;
     if (row.es_moneda_usd) return <Badge variant="info">USD</Badge>;
     return <Badge variant="success">ARS</Badge>;
   };
@@ -129,7 +129,7 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
                   <td className="doc-table-date px-3 py-2 text-sm whitespace-nowrap">{formatDisplayDate(doc.fecha)}</td>
                   <td className="px-3 py-2">
                     {isOC
-                      ? <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200">OC</Badge>
+                      ? <Badge className="border-transparent text-white" style={{ background: '#A347D1' }}>OC</Badge>
                       : <span className="text-xs text-muted-foreground">{doc.tipo_documento || 'Comprobante'}</span>
                     }
                   </td>
@@ -144,7 +144,7 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
                   </td>
                   <td className="px-3 py-2 text-sm">
                     {isOC && doc.codigo_obra
-                      ? <span className="font-medium text-indigo-600">{doc.codigo_obra}</span>
+                      ? <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#A347D1' }}>{doc.codigo_obra}</span>
                       : <span className="text-muted-foreground">-</span>
                     }
                   </td>
