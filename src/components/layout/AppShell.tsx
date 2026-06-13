@@ -175,10 +175,10 @@ export function AppShell({ children }: AppShellProps) {
               {initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground truncate">
+              <p className="text-xs font-medium text-foreground group-hover:text-accent-foreground truncate transition-colors">
                 {user?.email?.split('@')[0] ?? 'Usuario'}
               </p>
-              <p className="text-xs text-muted-foreground truncate">
+              <p className="text-xs text-muted-foreground group-hover:text-accent-foreground/70 truncate transition-colors">
                 {user?.email ?? ''}
               </p>
             </div>
