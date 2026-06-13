@@ -505,23 +505,29 @@ export function IntegracionesPage() {
                 )}
 
                 {/* ── Acciones ─────────────────────────────────────────────── */}
-                <div className="border-t border-border px-5 py-3 flex items-center gap-2 bg-muted/20">
-                  {integration.integration_type === 'google_drive' && !hasDriveOAuth(integration) && (
-                    <Button size="sm" onClick={() => handleReconnectGoogle(integration)} className="gap-1.5">
-                      <IconLink size={13} /> Conectar con Google Drive
-                    </Button>
-                  )}
-                  {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && (
-                    <button type="button" onClick={() => handleReconnectGoogle(integration)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-                      <IconRefresh size={12} /> Reconectar
-                    </button>
-                  )}
+                <div className="border-t border-border px-5 py-3 flex items-center gap-3 bg-muted/20">
+                  {/* Toggle activa/inactiva */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(integration.id, integration.is_active, integration.integration_type)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${integration.is_active ? 'bg-[#22C365]' : 'bg-slate-300'}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </button>
+                  <span className="text-xs text-muted-foreground">{integration.is_active ? 'Activa' : 'Inactiva'}</span>
+
                   <div className="ml-auto flex items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => handleToggle(integration.id, integration.is_active, integration.integration_type)}>
-                      {integration.is_active ? 'Desactivar' : 'Activar'}
-                    </Button>
+                    {integration.integration_type === 'google_drive' && !hasDriveOAuth(integration) && (
+                      <Button size="sm" onClick={() => handleReconnectGoogle(integration)} className="gap-1.5">
+                        <IconLink size={13} /> Conectar
+                      </Button>
+                    )}
+                    {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && (
+                      <button type="button" onClick={() => handleReconnectGoogle(integration)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                        <IconRefresh size={12} /> Reconectar
+                      </button>
+                    )}
                     <Button size="sm" variant="outline" onClick={() => openEditForm(integration)}>Editar</Button>
-                    <Button size="sm" variant="destructive" onClick={() => handleDelete(integration.id)}>Eliminar</Button>
                   </div>
                 </div>
 
