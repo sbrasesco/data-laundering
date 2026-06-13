@@ -378,159 +378,183 @@ export function IntegracionesPage() {
       {error      && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {successMsg && <Alert><AlertDescription>{successMsg}</AlertDescription></Alert>}
 
-      {/* ── Lista ───────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
-          {[...SELECTABLE_TYPES].sort((a, b) => {
-            const aActive = integrations.find(i => i.integration_type === a)?.is_active ?? false;
-            const bActive = integrations.find(i => i.integration_type === b)?.is_active ?? false;
-            return (bActive ? 1 : 0) - (aActive ? 1 : 0);
-          }).map((type) => {
-            const integration = integrations.find(i => i.integration_type === type) ?? null;
-            const isActive = integration?.is_active ?? false;
-            return (
-            <Card key={type} className={`overflow-hidden ${isActive ? 'ring-2 ring-[#22C365]' : ''}`}>
-              <CardContent className="p-0">
+      {/* ── Layout: activa (izq) + resto (der) ─────────────────────────────── */}
+      {(() => {
+        const activeType   = SELECTABLE_TYPES.find(t => integrations.find(i => i.integration_type === t && i.is_active)) ?? null;
+        const activeInteg  = activeType ? integrations.find(i => i.integration_type === activeType && i.is_active)! : null;
+        const otherTypes   = SELECTABLE_TYPES.filter(t => t !== activeType);
 
-                {/* ── Card header ──────────────────────────────────────────── */}
-                {/* ── Header: siempre visible ──────────────────────────────── */}
-                <div className="flex items-center gap-3 px-5 py-4">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: TYPE_ACCENTS[type], color: TYPE_ICON_FG[type] }}
-                  >
-                    <IntegTypeIcon type={type} size={20} />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-sm leading-tight">{TYPE_LABELS[type]}</p>
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      {integration ? (
-                        <Badge variant={integration.is_active ? 'success' : 'secondary'}>
-                          {integration.is_active ? 'Activa' : 'Inactiva'}
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">No configurada</Badge>
-                      )}
-                      {integration?.integration_type === 'google_drive' && (
-                        hasDriveOAuth(integration)
-                          ? <Badge variant="info">OAuth conectado</Badge>
-                          : <Badge variant="outline" className="text-orange-600 border-orange-300">Sin conectar</Badge>
-                      )}
-                      {WORKER_STATUS[type] === 'coming_soon' && (
-                        <Badge variant="secondary">Próximamente</Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
+        return (
+          <div className="flex gap-5 items-start">
 
-                {integration ? (<>
-                  {/* ── Info: Entrada / Salida — solo si activa ────────────── */}
-                  {isActive && <div className="border-t border-border divide-y divide-border">
-                    <div className="px-5 py-3 space-y-1">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Entrada</p>
-                      {integration.folder_path ? (
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <span className="text-muted-foreground flex-shrink-0"><IconFolder /></span>
-                          <span className="font-mono break-all">{integration.folder_path}</span>
+            {/* ── Columna izquierda: integración activa ─────────────────── */}
+            <div className="w-[340px] flex-shrink-0">
+              {activeInteg && activeType ? (
+                <Card className="overflow-hidden ring-2 ring-[#22C365]">
+                  <CardContent className="p-0">
+
+                    {/* Header */}
+                    <div className="flex items-center gap-3 px-5 py-4">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                        style={{ background: TYPE_ACCENTS[activeType], color: TYPE_ICON_FG[activeType] }}>
+                        <IntegTypeIcon type={activeType} size={20} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm leading-tight">{TYPE_LABELS[activeType]}</p>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Badge variant="success">Activa</Badge>
+                          {activeType === 'google_drive' && (
+                            hasDriveOAuth(activeInteg)
+                              ? <Badge variant="info">OAuth conectado</Badge>
+                              : <Badge variant="outline" className="text-orange-600 border-orange-300">Sin conectar</Badge>
+                          )}
                         </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground italic">Sin carpeta configurada</p>
-                      )}
-                      <p className="text-xs text-muted-foreground">Cada {integration.polling_interval_minutes} min</p>
+                      </div>
                     </div>
-                    <div className="px-5 py-3 space-y-1">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Salida</p>
-                      {integration.output_enabled ? (
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <span className="text-muted-foreground flex-shrink-0"><IconUpload /></span>
-                          <span>{integration.output_format?.toUpperCase()}</span>
-                          <span className="text-muted-foreground">→</span>
-                          <span className="font-mono break-all">{integration.output_folder_path ?? 'extracciones'}</span>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground italic">Deshabilitada</p>
-                      )}
-                    </div>
-                  </div>}
 
-                  {/* ── Drive folder picker — solo si activa ──────────────── */}
-                  {isActive && integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && !hasDriveFolder(integration) && (
-                    <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
-                      <p className="text-xs font-medium text-muted-foreground">Seleccioná la carpeta de Drive a monitorear</p>
-                      {loadingFolders[integration.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
-                      {folderError[integration.id] && <p className="text-xs text-destructive">{folderError[integration.id]}</p>}
-                      {!loadingFolders[integration.id] && driveFolders[integration.id] && (
-                        <div className="flex gap-2 items-center">
-                          <select value={selectedFolder[integration.id] ?? ''} onChange={(e) => setSelectedFolder(prev => ({ ...prev, [integration.id]: e.target.value }))} className={`${selectCls} flex-1`}>
-                            <option value="">— Elegí una carpeta —</option>
-                            {driveFolders[integration.id].map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                          </select>
-                          <Button size="sm" disabled={!selectedFolder[integration.id] || savingFolder[integration.id]} onClick={() => handleSetFolder(integration)}>
-                            {savingFolder[integration.id] ? 'Guardando...' : 'Confirmar'}
-                          </Button>
-                          <button type="button" onClick={() => fetchDriveFolders(integration.id)} className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-muted-foreground">
-                            <IconRefresh />
-                          </button>
-                        </div>
-                      )}
-                      {!loadingFolders[integration.id] && !driveFolders[integration.id] && !folderError[integration.id] && (
-                        <Button size="sm" variant="outline" onClick={() => fetchDriveFolders(integration.id)}>Cargar carpetas</Button>
-                      )}
+                    {/* Entrada / Salida */}
+                    <div className="border-t border-border divide-y divide-border">
+                      <div className="px-5 py-3 space-y-1.5">
+                        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Entrada</p>
+                        {activeInteg.folder_path ? (
+                          <div className="flex items-start gap-1.5 text-xs">
+                            <span className="text-muted-foreground flex-shrink-0 mt-px"><IconFolder /></span>
+                            <span className="font-mono break-all">{activeInteg.folder_path}</span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic">Sin carpeta configurada</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">Intervalo: cada {activeInteg.polling_interval_minutes} min</p>
+                      </div>
+                      <div className="px-5 py-3 space-y-1.5">
+                        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Salida</p>
+                        {activeInteg.output_enabled ? (
+                          <>
+                            <div className="flex items-start gap-1.5 text-xs">
+                              <span className="text-muted-foreground flex-shrink-0 mt-px"><IconUpload /></span>
+                              <span>Formato <strong>{activeInteg.output_format?.toUpperCase()}</strong> → carpeta <span className="font-mono">{activeInteg.output_folder_path ?? 'extracciones'}</span></span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Salida automática habilitada</p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic">Salida automática deshabilitada</p>
+                        )}
+                      </div>
                     </div>
-                  )}
 
-                  {/* ── Carpeta Drive configurada — solo si activa ────────── */}
-                  {isActive && integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && hasDriveFolder(integration) && (
-                    <div className="border-t border-border px-5 py-2 flex items-center gap-2 bg-muted/10">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1"><IconFolder /> Carpeta:</span>
-                      <span className="text-xs font-mono">{integration.folder_path ?? integration.credentials?.folder_id}</span>
-                      <button type="button" onClick={() => { setDriveFolders(prev => { const n = {...prev}; delete n[integration.id]; return n; }); fetchDriveFolders(integration.id); }} className="ml-auto text-xs text-muted-foreground hover:text-foreground underline">
-                        Cambiar
-                      </button>
-                    </div>
-                  )}
-
-                  {/* ── Acciones: configurada ──────────────────────────────── */}
-                  <div className="border-t border-border px-5 py-3 flex items-center gap-3 bg-muted/20">
-                    <button type="button" onClick={() => handleToggle(integration.id, integration.is_active, integration.integration_type)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${integration.is_active ? 'bg-[#22C365]' : 'bg-slate-300'}`}>
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                    </button>
-                    <span className="text-xs text-muted-foreground">{integration.is_active ? 'Activa' : 'Inactiva'}</span>
-                    <div className="ml-auto flex items-center gap-2">
-                      {integration.integration_type === 'google_drive' && !hasDriveOAuth(integration) && (
-                        <Button size="sm" onClick={() => handleReconnectGoogle(integration)} className="gap-1.5">
-                          <IconLink size={13} /> Conectar
-                        </Button>
-                      )}
-                      {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && (
-                        <button type="button" onClick={() => handleReconnectGoogle(integration)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-                          <IconRefresh size={12} /> Reconectar
-                        </button>
-                      )}
-                      <Button size="sm" variant="outline" onClick={() => openEditForm(integration)}>Editar</Button>
-                    </div>
-                  </div>
-                </>) : (
-                  /* ── Estado: no configurada ───────────────────────────────── */
-                  <div className="border-t border-border px-5 py-4 flex items-center justify-between bg-muted/10">
-                    <p className="text-xs text-muted-foreground">Sin configuración</p>
-                    {WORKER_STATUS[type] === 'coming_soon' ? (
-                      <span className="text-xs text-muted-foreground">Próximamente</span>
-                    ) : type === 'google_drive' ? (
-                      <Button size="sm" onClick={() => openConfigureForm(type)} className="gap-1.5">
-                        <IconLink size={13} /> Configurar
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="outline" onClick={() => openConfigureForm(type)}>Configurar</Button>
+                    {/* Drive folder picker */}
+                    {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && !hasDriveFolder(activeInteg) && (
+                      <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
+                        <p className="text-xs font-medium text-muted-foreground">Seleccioná la carpeta de Drive a monitorear</p>
+                        {loadingFolders[activeInteg.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
+                        {folderError[activeInteg.id] && <p className="text-xs text-destructive">{folderError[activeInteg.id]}</p>}
+                        {!loadingFolders[activeInteg.id] && driveFolders[activeInteg.id] && (
+                          <div className="flex gap-2 items-center">
+                            <select value={selectedFolder[activeInteg.id] ?? ''} onChange={(e) => setSelectedFolder(prev => ({ ...prev, [activeInteg.id]: e.target.value }))} className={`${selectCls} flex-1`}>
+                              <option value="">— Elegí una carpeta —</option>
+                              {driveFolders[activeInteg.id].map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                            </select>
+                            <Button size="sm" disabled={!selectedFolder[activeInteg.id] || savingFolder[activeInteg.id]} onClick={() => handleSetFolder(activeInteg)}>
+                              {savingFolder[activeInteg.id] ? 'Guardando...' : 'Confirmar'}
+                            </Button>
+                            <button type="button" onClick={() => fetchDriveFolders(activeInteg.id)} className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-muted-foreground">
+                              <IconRefresh />
+                            </button>
+                          </div>
+                        )}
+                        {!loadingFolders[activeInteg.id] && !driveFolders[activeInteg.id] && !folderError[activeInteg.id] && (
+                          <Button size="sm" variant="outline" onClick={() => fetchDriveFolders(activeInteg.id)}>Cargar carpetas</Button>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-              </CardContent>
-            </Card>
-            );
-          })}
-        </div>
+                    {/* Carpeta Drive configurada */}
+                    {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && hasDriveFolder(activeInteg) && (
+                      <div className="border-t border-border px-5 py-2 flex items-center gap-2 bg-muted/10">
+                        <span className="text-xs text-muted-foreground flex items-center gap-1"><IconFolder /> Carpeta Drive:</span>
+                        <span className="text-xs font-mono">{activeInteg.folder_path ?? activeInteg.credentials?.folder_id}</span>
+                        <button type="button" onClick={() => { setDriveFolders(prev => { const n = {...prev}; delete n[activeInteg.id]; return n; }); fetchDriveFolders(activeInteg.id); }} className="ml-auto text-xs text-muted-foreground hover:text-foreground underline">
+                          Cambiar
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Acciones */}
+                    <div className="border-t border-border px-5 py-3 flex items-center gap-3 bg-muted/20">
+                      <button type="button" onClick={() => handleToggle(activeInteg.id, true, activeType)}
+                        className="relative inline-flex h-5 w-9 items-center rounded-full bg-[#22C365] flex-shrink-0">
+                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow translate-x-4" />
+                      </button>
+                      <span className="text-xs text-muted-foreground">Activa</span>
+                      <div className="ml-auto flex items-center gap-2">
+                        {activeType === 'google_drive' && !hasDriveOAuth(activeInteg) && (
+                          <Button size="sm" onClick={() => handleReconnectGoogle(activeInteg)} className="gap-1.5">
+                            <IconLink size={13} /> Conectar
+                          </Button>
+                        )}
+                        {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && (
+                          <button type="button" onClick={() => handleReconnectGoogle(activeInteg)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                            <IconRefresh size={12} /> Reconectar
+                          </button>
+                        )}
+                        <Button size="sm" variant="outline" onClick={() => openEditForm(activeInteg)}>Editar</Button>
+                      </div>
+                    </div>
+
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="overflow-hidden border-dashed">
+                  <CardContent className="py-10 text-center space-y-2">
+                    <div className="flex justify-center text-muted-foreground/30"><IconPlug size={36} /></div>
+                    <p className="text-sm font-medium">Sin integración activa</p>
+                    <p className="text-xs text-muted-foreground">Activá una de las integraciones de la derecha.</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* ── Columna derecha: resto de integraciones (compactas) ───── */}
+            <div className="flex-1 space-y-2 min-w-0">
+              {otherTypes.map((type) => {
+                const integration = integrations.find(i => i.integration_type === type) ?? null;
+                return (
+                  <Card key={type} className="overflow-hidden">
+                    <CardContent className="p-0">
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                          style={{ background: TYPE_ACCENTS[type], color: TYPE_ICON_FG[type] }}>
+                          <IntegTypeIcon type={type} size={16} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-tight">{TYPE_LABELS[type]}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {WORKER_STATUS[type] === 'coming_soon' ? 'Próximamente' : integration ? 'Configurada' : 'Sin configurar'}
+                          </p>
+                        </div>
+                        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+                          {integration && WORKER_STATUS[type] !== 'coming_soon' && (
+                            <button type="button" onClick={() => handleToggle(integration.id, integration.is_active, type)}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${integration.is_active ? 'bg-[#22C365]' : 'bg-slate-300'}`}>
+                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                            </button>
+                          )}
+                          {integration ? (
+                            <Button size="sm" variant="outline" onClick={() => openEditForm(integration)}>Editar</Button>
+                          ) : WORKER_STATUS[type] !== 'coming_soon' ? (
+                            <Button size="sm" variant="outline" onClick={() => openConfigureForm(type)}>Configurar</Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+          </div>
+        );
+      })()}
 
       {/* ── Modal: formulario nueva/editar integración ──────────────────────── */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); resetForm(); } }}>
