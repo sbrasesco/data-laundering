@@ -4,7 +4,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -17,7 +17,6 @@ const GOOGLE_REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI
   ?? 'http://localhost:3001/api/auth/google/callback';
 const GOOGLE_SCOPE        = 'https://www.googleapis.com/auth/drive';
 
-// Base URL del gateway (deriva de VITE_WORKER_GATEWAY_URL o usa default)
 const GATEWAY_BASE_URL = (import.meta.env.VITE_GATEWAY_BASE_URL as string)
   ?? (import.meta.env.VITE_WORKER_GATEWAY_URL as string ?? '').replace('/api/enqueue', '')
   ?? 'http://localhost:3001';
@@ -25,7 +24,6 @@ const GATEWAY_API_KEY  = import.meta.env.VITE_WORKER_API_KEY as string ?? '';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type IntegrationType = 'frontend_only' | 'google_drive' | 'ftp' | 'sftp' | 'remote_folder' | 'firebase_storage';
-// Tipos disponibles en el selector (frontend_only no es una "integración" — es el comportamiento base)
 const SELECTABLE_TYPES: IntegrationType[] = ['google_drive', 'ftp', 'sftp', 'remote_folder', 'firebase_storage'];
 
 interface TenantIntegration {
@@ -51,18 +49,21 @@ const TYPE_LABELS: Record<IntegrationType, string> = {
   frontend_only: 'Subida manual', google_drive: 'Google Drive',
   ftp: 'FTP', sftp: 'SFTP', remote_folder: 'Carpeta de red (SMB)', firebase_storage: 'Firebase Storage',
 };
-const TYPE_ICONS: Record<IntegrationType, string> = {
-  frontend_only: '🖥️', google_drive: '📁', ftp: '🗄️', sftp: '🔒', remote_folder: '🗂️', firebase_storage: '🔥',
+const TYPE_ACCENTS: Record<IntegrationType, string> = {
+  frontend_only: '#000000', google_drive: '#22C365', ftp: '#000000',
+  sftp: '#A347D1', remote_folder: '#FED210', firebase_storage: '#e11d48',
+};
+const TYPE_ICON_FG: Record<IntegrationType, string> = {
+  frontend_only: '#fff', google_drive: '#fff', ftp: '#fff',
+  sftp: '#fff', remote_folder: '#000', firebase_storage: '#fff',
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
   frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available',
   remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
 };
-
-// Google Drive: sin credenciales manuales — todo se configura via OAuth + folder picker
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only:    [],
-  google_drive:     [],  // OAuth: no hay campos manuales
+  google_drive:     [],
   ftp:              [{ key: 'host', label: 'Host', placeholder: 'ftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '21' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
   sftp:             [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
   remote_folder:    [{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\servidor\\compartido\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
@@ -76,28 +77,58 @@ const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
   firebase_storage: { service_account_json: '', bucket_name: '' },
 };
 
+// ─── SVG Icons ────────────────────────────────────────────────────────────────
+function IntegTypeIcon({ type, size = 18 }: { type: IntegrationType; size?: number }) {
+  const p = { width: size, height: size, fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, viewBox: '0 0 24 24', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  switch (type) {
+    case 'google_drive':
+      return <svg {...p}><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>;
+    case 'ftp':
+      return <svg {...p}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>;
+    case 'sftp':
+      return <svg {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1" fill="currentColor"/></svg>;
+    case 'remote_folder':
+      return <svg {...p}><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="13" x2="12" y2="17"/><polyline points="9 15 12 12 15 15"/></svg>;
+    case 'firebase_storage':
+      return <svg {...p}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>;
+    default:
+      return <svg {...p}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>;
+  }
+}
+
+function IconFolder({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
+}
+function IconRefresh({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>;
+}
+function IconLink({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>;
+}
+function IconLock({ size = 14, open = false }: { size?: number; open?: boolean }) {
+  if (open) return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>;
+  return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>;
+}
+function IconUpload({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>;
+}
+function IconPlug({ size = 36 }: { size?: number }) {
+  return <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/></svg>;
+}
+
 // ─── OAuth helpers ─────────────────────────────────────────────────────────────
 function buildGoogleOAuthUrl(orgId: string, integrationId: string): string {
   const state = btoa(JSON.stringify({ orgId, integrationId }))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
   const params = new URLSearchParams({
-    client_id:     GOOGLE_CLIENT_ID,
-    redirect_uri:  GOOGLE_REDIRECT_URI,
-    response_type: 'code',
-    scope:         GOOGLE_SCOPE,
-    access_type:   'offline',
-    prompt:        'consent',
-    state,
+    client_id: GOOGLE_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: 'code', scope: GOOGLE_SCOPE,
+    access_type: 'offline', prompt: 'consent', state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
-
-function hasDriveOAuth(integration: TenantIntegration): boolean {
-  return !!integration.credentials?.oauth_refresh_token;
-}
-function hasDriveFolder(integration: TenantIntegration): boolean {
-  return !!integration.credentials?.folder_id;
-}
+function hasDriveOAuth(i: TenantIntegration): boolean { return !!i.credentials?.oauth_refresh_token; }
+function hasDriveFolder(i: TenantIntegration): boolean { return !!i.credentials?.folder_id; }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 export function IntegracionesPage() {
@@ -126,12 +157,11 @@ export function IntegracionesPage() {
   const [outputFormat, setOutputFormat]           = useState<'csv' | 'xlsx' | 'json'>('csv');
   const [showXlsxDisclosure, setShowXlsxDisclosure] = useState(false);
 
-  // Folder picker state (por integration.id)
-  const [driveFolders, setDriveFolders]           = useState<Record<string, DriveFolder[]>>({});
-  const [loadingFolders, setLoadingFolders]       = useState<Record<string, boolean>>({});
-  const [folderError, setFolderError]             = useState<Record<string, string>>({});
-  const [selectedFolder, setSelectedFolder]       = useState<Record<string, string>>({});
-  const [savingFolder, setSavingFolder]           = useState<Record<string, boolean>>({});
+  const [driveFolders, setDriveFolders]     = useState<Record<string, DriveFolder[]>>({});
+  const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
+  const [folderError, setFolderError]       = useState<Record<string, string>>({});
+  const [selectedFolder, setSelectedFolder] = useState<Record<string, string>>({});
+  const [savingFolder, setSavingFolder]     = useState<Record<string, boolean>>({});
 
   const loadIntegrations = useCallback(async () => {
     setLoading(true); setError(null);
@@ -141,45 +171,38 @@ export function IntegracionesPage() {
       setIntegrations((data as TenantIntegration[]) ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al cargar integraciones');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
 
-  // ── Detectar retorno de OAuth ────────────────────────────────────────────────
   useEffect(() => {
-    const connected      = searchParams.get('google_connected');
-    const integrationId  = searchParams.get('integration_id');
-    const oauthErr       = searchParams.get('google_error');
+    const connected     = searchParams.get('google_connected');
+    const integrationId = searchParams.get('integration_id');
+    const oauthErr      = searchParams.get('google_error');
     if (connected === 'true') {
       setSearchParams({}, { replace: true });
       if (integrationId) {
         supabase.rpc('toggle_tenant_integration', { p_integration_id: integrationId, p_active: true })
           .then(() => loadIntegrations());
       }
-      setSuccessMsg('✅ Google Drive conectado. Ahora seleccioná la carpeta a monitorear.');
+      setSuccessMsg('Google Drive conectado. Ahora seleccioná la carpeta a monitorear.');
     } else if (oauthErr) {
       setError(`Error al conectar con Google Drive: ${oauthErr}`);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams, loadIntegrations]);
 
-  // Auto-cargar carpetas para integraciones con OAuth pero sin folder
   useEffect(() => {
     if (!organizationId) return;
     integrations.forEach((i) => {
       if (i.integration_type === 'google_drive' && hasDriveOAuth(i) && !hasDriveFolder(i)) {
-        if (!driveFolders[i.id] && !loadingFolders[i.id]) {
-          fetchDriveFolders(i.id);
-        }
+        if (!driveFolders[i.id] && !loadingFolders[i.id]) fetchDriveFolders(i.id);
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [integrations, organizationId]);
 
-  // ── Folder picker ─────────────────────────────────────────────────────────────
   const fetchDriveFolders = async (integrationId: string) => {
     if (!organizationId) return;
     setLoadingFolders(prev => ({ ...prev, [integrationId]: true }));
@@ -206,18 +229,13 @@ export function IntegracionesPage() {
     setSavingFolder(prev => ({ ...prev, [integration.id]: true }));
     try {
       const res = await fetch(`${GATEWAY_BASE_URL}/api/drive/set-folder`, {
-        method:  'POST',
+        method: 'POST',
         headers: { Authorization: `Bearer ${GATEWAY_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          integration_id: integration.id,
-          org_id:         organizationId,
-          folder_id:      folderId,
-          folder_name:    folder?.name ?? folderId,
-        }),
+        body: JSON.stringify({ integration_id: integration.id, org_id: organizationId, folder_id: folderId, folder_name: folder?.name ?? folderId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error guardando carpeta');
-      setSuccessMsg(`✅ Carpeta "${folder?.name}" configurada. La integración está lista.`);
+      setSuccessMsg(`Carpeta "${folder?.name}" configurada. La integración está lista.`);
       await loadIntegrations();
     } catch (e: unknown) {
       setFolderError(prev => ({ ...prev, [integration.id]: e instanceof Error ? e.message : 'Error' }));
@@ -226,7 +244,6 @@ export function IntegracionesPage() {
     }
   };
 
-  // ── Formulario ────────────────────────────────────────────────────────────────
   const resetForm = () => {
     setEditingId(null); setSelectedType('google_drive'); setCredentials({});
     setFolderPath(''); setPollingInterval(15); setOutputEnabled(false);
@@ -237,17 +254,15 @@ export function IntegracionesPage() {
 
   const openEditForm = (i: TenantIntegration) => {
     setEditingId(i.id); setSelectedType(i.integration_type);
-    const editCreds = i.integration_type === 'google_drive' ? {} : { ...i.credentials };
-    setCredentials(editCreds);
+    setCredentials(i.integration_type === 'google_drive' ? {} : { ...i.credentials });
     setFolderPath(i.folder_path ?? ''); setPollingInterval(i.polling_interval_minutes);
     setOutputEnabled(i.output_enabled ?? false);
     const savedFolder = i.output_folder_path ?? 'extracciones';
-    setOutputFolder(savedFolder);
-    setOutputFolderLocked(savedFolder === 'extracciones');
-    setOutputFormat((i.output_format ?? 'csv') as 'csv' | 'xlsx' | 'json'); setSaveError(null); setShowForm(true);
+    setOutputFolder(savedFolder); setOutputFolderLocked(savedFolder === 'extracciones');
+    setOutputFormat((i.output_format ?? 'csv') as 'csv' | 'xlsx' | 'json');
+    setSaveError(null); setShowForm(true);
   };
 
-  // Guardar integración normal (FTP, SFTP, etc.)
   const handleSave = async () => {
     setSaving(true); setSaveError(null);
     try {
@@ -262,12 +277,9 @@ export function IntegracionesPage() {
       setShowForm(false); await loadIntegrations();
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : 'Error al guardar');
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
-  // Google Drive: guardar config + iniciar OAuth en un solo click
   const handleConnectGoogleDrive = async () => {
     if (!organizationId) { setSaveError('No se pudo obtener el ID de organización.'); return; }
     if (!GOOGLE_CLIENT_ID) { setSaveError('VITE_GOOGLE_CLIENT_ID no está configurado.'); return; }
@@ -288,7 +300,6 @@ export function IntegracionesPage() {
     }
   };
 
-  // Reconectar Google Drive desde la tarjeta
   const handleReconnectGoogle = (integration: TenantIntegration) => {
     if (!organizationId || !GOOGLE_CLIENT_ID) return;
     window.location.href = buildGoogleOAuthUrl(organizationId, integration.id);
@@ -296,9 +307,7 @@ export function IntegracionesPage() {
 
   const fetchOutputFolderOptions = async (integrationId: string) => {
     if (!organizationId) return;
-    setLoadingOutputFolders(true);
-    setOutputFolderOptions([]);
-    setOutputFolderError(null);
+    setLoadingOutputFolders(true); setOutputFolderOptions([]); setOutputFolderError(null);
     try {
       const res = await fetch(
         `${GATEWAY_BASE_URL}/api/drive/folders?integration_id=${integrationId}&org_id=${organizationId}`,
@@ -309,16 +318,13 @@ export function IntegracionesPage() {
       setOutputFolderOptions(data.folders ?? []);
     } catch (e: unknown) {
       setOutputFolderError(e instanceof Error ? e.message : 'Error cargando carpetas');
-    } finally {
-      setLoadingOutputFolders(false);
-    }
+    } finally { setLoadingOutputFolders(false); }
   };
 
   const [confirmActivate, setConfirmActivate] = useState<{ id: string; newType: string; currentType: string } | null>(null);
 
   const handleToggle = async (id: string, current: boolean, integrationType: string) => {
     if (!current) {
-      // Activando: verificar si hay otra activa
       const activeIntegration = integrations.find(i => i.is_active && i.id !== id);
       if (activeIntegration) {
         setConfirmActivate({
@@ -349,347 +355,369 @@ export function IntegracionesPage() {
     } catch (e: unknown) { console.error(e); }
   };
 
+  const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
   if (loading) return <LoadingSpinner />;
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      <div className="max-w-2xl mx-auto space-y-6">
 
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">
-              <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#A347D1', color: '#ffffff' }}>Integraciones</span>
-            </h1>
-            <p className="text-sm text-muted-foreground">Configurá desde dónde el sistema busca archivos para procesar automáticamente.</p>
-          </div>
-          {!showForm && <Button onClick={openAddForm}>+ Nueva integración</Button>}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight">
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#A347D1', color: '#ffffff' }}>Integraciones</span>
+          </h1>
+          <p className="text-sm text-muted-foreground">Configurá desde dónde el sistema busca archivos para procesar automáticamente.</p>
         </div>
-
-        {error      && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-        {successMsg && <Alert><AlertDescription>{successMsg}</AlertDescription></Alert>}
-
-        {/* ── Formulario ─────────────────────────────────────────────────── */}
-        {showForm && (
-          <Card>
-            <CardHeader><CardTitle className="text-base">{editingId ? 'Editar integración' : 'Nueva integración'}</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-
-              {/* Selector de tipo */}
-              <div>
-                <Label className="mb-2 block">Tipo de fuente</Label>
-                <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}>
-                  {SELECTABLE_TYPES.map((type) => (
-                    <button key={type} type="button"
-                      onClick={() => { setSelectedType(type); setCredentials({ ...EMPTY_CREDS[type] }); }}
-                      className={`rounded-lg border-2 p-3 text-left cursor-pointer transition-colors ${selectedType === type ? 'border-foreground bg-muted' : 'border-border bg-background hover:bg-muted/50'}`}>
-                      <div className="text-xl mb-1">{TYPE_ICONS[type]}</div>
-                      <div className="text-xs font-semibold leading-tight">{TYPE_LABELS[type]}</div>
-                      {WORKER_STATUS[type] === 'coming_soon' && <div className="text-xs text-muted-foreground mt-0.5">🔜 Próximamente</div>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Aviso Google Drive */}
-              {selectedType === 'google_drive' && (
-                <Alert>
-                  <AlertDescription className="text-sm">
-                    Configurá el intervalo y luego hacé click en <strong>"Conectar con Google Drive"</strong>. Después de autorizar, podrás seleccionar la carpeta a monitorear directamente desde tu Drive.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Credenciales (no Google Drive) */}
-              {CRED_FIELDS[selectedType].length > 0 && (
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium">Credenciales</Label>
-                  {CRED_FIELDS[selectedType].map((field) => (
-                    <div key={field.key} className="space-y-1.5">
-                      <Label htmlFor={`cred-${field.key}`} className="text-sm">
-                        {field.label}{field.required && <span className="text-destructive ml-1">*</span>}
-                      </Label>
-                      {field.type === 'textarea'
-                        ? <textarea id={`cred-${field.key}`} value={credentials[field.key] ?? ''}
-                            onChange={(e) => setCredentials(c => ({ ...c, [field.key]: e.target.value }))}
-                            placeholder={field.placeholder} rows={4}
-                            className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y" />
-                        : <Input id={`cred-${field.key}`} type={field.type ?? 'text'}
-                            value={credentials[field.key] ?? ''}
-                            onChange={(e) => setCredentials(c => ({ ...c, [field.key]: e.target.value }))}
-                            placeholder={field.placeholder} />
-                      }
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Intervalo + carpeta */}
-              {(
-                <div className="grid grid-cols-[2fr_1fr] gap-3">
-                  {selectedType !== 'google_drive' && (
-                    <div className="space-y-1.5">
-                      <Label>Carpeta a monitorear</Label>
-                      <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
-                    </div>
-                  )}
-                  <div className={`space-y-1.5 ${selectedType === 'google_drive' ? 'col-span-2 max-w-[200px]' : ''}`}>
-                    <Label>Intervalo (min)</Label>
-                    <Input type="number" value={pollingInterval} onChange={(e) => setPollingInterval(Number(e.target.value))} min={5} max={1440} />
-                  </div>
-                </div>
-              )}
-
-              {/* Salida automática */}
-              {(
-                <div className="space-y-3 border-t pt-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm font-medium">Salida automática</Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">Depositar el CSV al terminar el procesamiento.</p>
-                    </div>
-                    <button type="button" onClick={() => setOutputEnabled(v => !v)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-slate-300'}`}>
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                    </button>
-                  </div>
-                  {outputEnabled && (
-                    <div className="grid grid-cols-[2fr_1fr] gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-sm">Carpeta de salida</Label>
-                        <div className="flex gap-1.5 items-center">
-                          {outputFolderLocked ? (
-                            <div className="flex flex-1 items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted text-sm text-muted-foreground">
-                              <span className="font-mono flex-1">📁 {outputFolder}</span>
-                            </div>
-                          ) : selectedType === 'google_drive' && editingId ? (
-                            loadingOutputFolders ? (
-                              <div className="flex flex-1 items-center h-9 px-3 text-sm text-muted-foreground">⏳ Cargando carpetas...</div>
-                            ) : outputFolderError ? (
-                              <div className="flex flex-1 items-center gap-2 h-9 px-3 text-sm text-destructive">
-                                <span>⚠️ {outputFolderError}</span>
-                                <button type="button" onClick={() => fetchOutputFolderOptions(editingId)} className="underline text-xs">Reintentar</button>
-                              </div>
-                            ) : (
-                              <select
-                                className="flex flex-1 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                value={outputFolder}
-                                onChange={(e) => setOutputFolder(e.target.value)}
-                              >
-                                <option value="extracciones">📁 extracciones (default)</option>
-                                {outputFolderOptions
-                                  .filter(f => f.name !== 'extracciones')
-                                  .map(f => (
-                                    <option key={f.id} value={f.name}>📁 {f.name}</option>
-                                  ))
-                                }
-                              </select>
-                            )
-                          ) : (
-                            <Input
-                              className="flex-1"
-                              value={outputFolder}
-                              onChange={(e) => setOutputFolder(e.target.value)}
-                              placeholder="extracciones"
-                              autoFocus
-                            />
-                          )}
-                          <button
-                            type="button"
-                            title={outputFolderLocked ? 'Cambiar carpeta de salida' : 'Volver al default (extracciones)'}
-                            onClick={() => {
-                              if (outputFolderLocked) {
-                                setOutputFolderLocked(false);
-                                if (selectedType === 'google_drive' && editingId) {
-                                  fetchOutputFolderOptions(editingId);
-                                }
-                              } else {
-                                setOutputFolder('extracciones');
-                                setOutputFolderLocked(true);
-                              }
-                            }}
-                            className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-base"
-                          >
-                            {outputFolderLocked ? '🔒' : '🔓'}
-                          </button>
-                        </div>
-                        {!outputFolderLocked && (
-                          <p className="text-xs text-muted-foreground">
-                            {selectedType === 'google_drive' ? 'Seleccioná la carpeta destino en tu Drive.' : 'Ingresá el nombre de la carpeta de salida.'}
-                          </p>
-                        )}
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-sm">Formato</Label>
-                        <select
-                          value={outputFormat}
-                          onChange={(e) => {
-                            const val = e.target.value as 'csv' | 'xlsx' | 'json';
-                            if (val === 'xlsx' && !localStorage.getItem('dl_xlsx_disclosure_seen')) {
-                              setShowXlsxDisclosure(true);
-                            } else {
-                              setOutputFormat(val);
-                            }
-                          }}
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                          <option value="csv">CSV</option>
-                          <option value="xlsx">Excel (.xlsx)</option>
-                          <option value="json">JSON (próximamente)</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {saveError && <Alert variant="destructive"><AlertDescription>{saveError}</AlertDescription></Alert>}
-
-              {/* Botones */}
-              <div className="flex gap-3">
-                {selectedType === 'google_drive' && !editingId ? (
-                  <Button onClick={handleConnectGoogleDrive} disabled={saving}>
-                    {saving ? 'Conectando...' : '🔗 Conectar con Google Drive'}
-                  </Button>
-                ) : (
-                  <Button onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
-                )}
-                <Button variant="outline" onClick={() => { setShowForm(false); resetForm(); }} disabled={saving}>Cancelar</Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── Lista de integraciones ──────────────────────────────────────── */}
-        {integrations.length === 0 && !showForm ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <div className="text-4xl mb-3">🔌</div>
-              <p className="font-semibold mb-1">Sin integraciones configuradas</p>
-              <p className="text-sm text-muted-foreground mb-4">Configurá cómo el sistema busca archivos para procesar automáticamente.</p>
-              <Button onClick={openAddForm}>+ Agregar integración</Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {integrations.map((integration) => (
-              <Card key={integration.id}>
-                <CardContent className="py-4 space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{TYPE_ICONS[integration.integration_type]}</span>
-                      <div>
-                        <div className="font-medium text-sm">{TYPE_LABELS[integration.integration_type]}</div>
-                        {integration.folder_path && (
-                          <div className="text-xs text-muted-foreground font-mono mt-0.5">📁 {integration.folder_path}</div>
-                        )}
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          <Badge variant={integration.is_active ? 'success' : 'secondary'}>
-                            {integration.is_active ? '● Activa' : '○ Inactiva'}
-                          </Badge>
-                          {integration.integration_type !== 'frontend_only' && (
-                            <span className="text-xs text-muted-foreground self-center">Cada {integration.polling_interval_minutes} min</span>
-                          )}
-                          {integration.output_enabled && <Badge variant="secondary">📤 Salida automática</Badge>}
-
-                          {/* Estado OAuth Google Drive */}
-                          {integration.integration_type === 'google_drive' && (
-                            hasDriveOAuth(integration)
-                              ? <Badge variant="success">🔑 OAuth conectado</Badge>
-                              : <Badge variant="outline" className="text-orange-600 border-orange-300">⚠️ Sin conectar</Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {integration.integration_type === 'google_drive' && !hasDriveOAuth(integration) && (
-                        <Button variant="default" size="sm" onClick={() => handleReconnectGoogle(integration)}>
-                          🔗 Conectar con Google Drive
-                        </Button>
-                      )}
-                      {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && (
-                        <Button variant="ghost" size="sm" onClick={() => handleReconnectGoogle(integration)}>
-                          🔄 Reconectar
-                        </Button>
-                      )}
-                      <Button variant="outline" size="sm" onClick={() => handleToggle(integration.id, integration.is_active, integration.integration_type)}>
-                        {integration.is_active ? 'Desactivar' : 'Activar'}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openEditForm(integration)}>Editar</Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(integration.id)}>Eliminar</Button>
-                    </div>
-                  </div>
-
-                  {/* Folder picker: solo si OAuth OK pero sin carpeta */}
-                  {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && !hasDriveFolder(integration) && (
-                    <div className="border-t pt-3 space-y-2">
-                      <Label className="text-sm font-medium">Seleccionar carpeta de Drive</Label>
-
-                      {loadingFolders[integration.id] && (
-                        <p className="text-xs text-muted-foreground">Cargando carpetas...</p>
-                      )}
-
-                      {folderError[integration.id] && (
-                        <p className="text-xs text-destructive">{folderError[integration.id]}</p>
-                      )}
-
-                      {!loadingFolders[integration.id] && driveFolders[integration.id] && (
-                        <div className="flex gap-2 items-end">
-                          <div className="flex-1 space-y-1">
-                            <select
-                              value={selectedFolder[integration.id] ?? ''}
-                              onChange={(e) => setSelectedFolder(prev => ({ ...prev, [integration.id]: e.target.value }))}
-                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            >
-                              <option value="">— Elegí una carpeta —</option>
-                              {driveFolders[integration.id].map(f => (
-                                <option key={f.id} value={f.id}>{f.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <Button
-                            size="sm"
-                            disabled={!selectedFolder[integration.id] || savingFolder[integration.id]}
-                            onClick={() => handleSetFolder(integration)}
-                          >
-                            {savingFolder[integration.id] ? 'Guardando...' : 'Confirmar'}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => fetchDriveFolders(integration.id)}>
-                            ↺
-                          </Button>
-                        </div>
-                      )}
-
-                      {!loadingFolders[integration.id] && !driveFolders[integration.id] && !folderError[integration.id] && (
-                        <Button size="sm" variant="outline" onClick={() => fetchDriveFolders(integration.id)}>
-                          Cargar carpetas
-                        </Button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Carpeta configurada */}
-                  {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && hasDriveFolder(integration) && (
-                    <div className="border-t pt-2 flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">Carpeta:</span>
-                      <span className="text-xs font-mono">{integration.folder_path ?? integration.credentials?.folder_id}</span>
-                      <Button size="sm" variant="ghost" className="h-6 px-2 text-xs ml-auto"
-                        onClick={() => {
-                          setDriveFolders(prev => { const n = {...prev}; delete n[integration.id]; return n; });
-                          fetchDriveFolders(integration.id);
-                        }}>
-                        Cambiar carpeta
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+        <Button onClick={openAddForm}>+ Nueva integración</Button>
       </div>
 
-      {/* ── Modal: confirmar cambio de integración activa ──────────────── */}
+      {error      && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {successMsg && <Alert><AlertDescription>{successMsg}</AlertDescription></Alert>}
+
+      {/* ── Lista ───────────────────────────────────────────────────────────── */}
+      {integrations.length === 0 ? (
+        <Card>
+          <CardContent className="py-14 text-center space-y-3">
+            <div className="flex justify-center text-muted-foreground/40">
+              <IconPlug size={40} />
+            </div>
+            <p className="font-semibold">Sin integraciones configuradas</p>
+            <p className="text-sm text-muted-foreground">Configurá cómo el sistema busca archivos para procesar automáticamente.</p>
+            <Button onClick={openAddForm} className="mt-2">+ Agregar integración</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+          {integrations.map((integration) => (
+            <Card key={integration.id} className="overflow-hidden">
+              <CardContent className="p-0">
+
+                {/* ── Card header ──────────────────────────────────────────── */}
+                <div className="flex items-center justify-between px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: TYPE_ACCENTS[integration.integration_type], color: TYPE_ICON_FG[integration.integration_type] }}
+                    >
+                      <IntegTypeIcon type={integration.integration_type} size={20} />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm leading-tight">{TYPE_LABELS[integration.integration_type]}</p>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <Badge variant={integration.is_active ? 'success' : 'secondary'}>
+                          {integration.is_active ? 'Activa' : 'Inactiva'}
+                        </Badge>
+                        {integration.integration_type === 'google_drive' && (
+                          hasDriveOAuth(integration)
+                            ? <Badge variant="info">OAuth conectado</Badge>
+                            : <Badge variant="outline" className="text-orange-600 border-orange-300">Sin conectar</Badge>
+                        )}
+                        {WORKER_STATUS[integration.integration_type] === 'coming_soon' && (
+                          <Badge variant="secondary">Próximamente</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Info: Entrada / Salida ───────────────────────────────── */}
+                <div className="border-t border-border divide-y divide-border">
+                  <div className="px-5 py-3 space-y-1">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Entrada</p>
+                    {integration.folder_path ? (
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-muted-foreground flex-shrink-0"><IconFolder /></span>
+                        <span className="font-mono break-all">{integration.folder_path}</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">Sin carpeta configurada</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Cada {integration.polling_interval_minutes} min</p>
+                  </div>
+                  <div className="px-5 py-3 space-y-1">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Salida</p>
+                    {integration.output_enabled ? (
+                      <>
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-muted-foreground flex-shrink-0"><IconUpload /></span>
+                          <span>{integration.output_format?.toUpperCase()}</span>
+                          <span className="text-muted-foreground">→</span>
+                          <span className="font-mono break-all">{integration.output_folder_path ?? 'extracciones'}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Salida automática habilitada</p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">Salida automática deshabilitada</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Drive folder picker ──────────────────────────────────── */}
+                {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && !hasDriveFolder(integration) && (
+                  <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
+                    <p className="text-xs font-medium text-muted-foreground">Seleccioná la carpeta de Drive a monitorear</p>
+                    {loadingFolders[integration.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
+                    {folderError[integration.id] && <p className="text-xs text-destructive">{folderError[integration.id]}</p>}
+                    {!loadingFolders[integration.id] && driveFolders[integration.id] && (
+                      <div className="flex gap-2 items-center">
+                        <select
+                          value={selectedFolder[integration.id] ?? ''}
+                          onChange={(e) => setSelectedFolder(prev => ({ ...prev, [integration.id]: e.target.value }))}
+                          className={`${selectCls} flex-1`}
+                        >
+                          <option value="">— Elegí una carpeta —</option>
+                          {driveFolders[integration.id].map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        </select>
+                        <Button size="sm" disabled={!selectedFolder[integration.id] || savingFolder[integration.id]} onClick={() => handleSetFolder(integration)}>
+                          {savingFolder[integration.id] ? 'Guardando...' : 'Confirmar'}
+                        </Button>
+                        <button type="button" onClick={() => fetchDriveFolders(integration.id)} className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-muted-foreground">
+                          <IconRefresh />
+                        </button>
+                      </div>
+                    )}
+                    {!loadingFolders[integration.id] && !driveFolders[integration.id] && !folderError[integration.id] && (
+                      <Button size="sm" variant="outline" onClick={() => fetchDriveFolders(integration.id)}>Cargar carpetas</Button>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Carpeta Drive configurada ────────────────────────────── */}
+                {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && hasDriveFolder(integration) && (
+                  <div className="border-t border-border px-5 py-2 flex items-center gap-2 bg-muted/10">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <IconFolder /> Carpeta Drive:
+                    </span>
+                    <span className="text-xs font-mono">{integration.folder_path ?? integration.credentials?.folder_id}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDriveFolders(prev => { const n = {...prev}; delete n[integration.id]; return n; });
+                        fetchDriveFolders(integration.id);
+                      }}
+                      className="ml-auto text-xs text-muted-foreground hover:text-foreground underline"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                )}
+
+                {/* ── Acciones ─────────────────────────────────────────────── */}
+                <div className="border-t border-border px-5 py-3 flex items-center gap-2 bg-muted/20">
+                  {integration.integration_type === 'google_drive' && !hasDriveOAuth(integration) && (
+                    <Button size="sm" onClick={() => handleReconnectGoogle(integration)} className="gap-1.5">
+                      <IconLink size={13} /> Conectar con Google Drive
+                    </Button>
+                  )}
+                  {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && (
+                    <button type="button" onClick={() => handleReconnectGoogle(integration)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                      <IconRefresh size={12} /> Reconectar
+                    </button>
+                  )}
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => handleToggle(integration.id, integration.is_active, integration.integration_type)}>
+                      {integration.is_active ? 'Desactivar' : 'Activar'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => openEditForm(integration)}>Editar</Button>
+                    <Button size="sm" variant="destructive" onClick={() => handleDelete(integration.id)}>Eliminar</Button>
+                  </div>
+                </div>
+
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* ── Modal: formulario nueva/editar integración ──────────────────────── */}
+      <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); resetForm(); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Editar integración' : 'Nueva integración'}</DialogTitle>
+            <DialogDescription>
+              {editingId ? 'Modificá la configuración de esta integración.' : 'Elegí el tipo de fuente y configurá los accesos.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 pt-1">
+
+            {/* Selector de tipo */}
+            <div>
+              <Label className="mb-2 block text-sm">Tipo de fuente</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {SELECTABLE_TYPES.map((type) => (
+                  <button key={type} type="button"
+                    onClick={() => { setSelectedType(type); setCredentials({ ...EMPTY_CREDS[type] }); }}
+                    className={`rounded-lg border-2 p-3 text-left cursor-pointer transition-all ${selectedType === type ? 'border-primary bg-muted' : 'border-border bg-background hover:bg-muted/50'}`}
+                  >
+                    <div
+                      className="w-7 h-7 rounded-md flex items-center justify-center mb-2"
+                      style={{ background: TYPE_ACCENTS[type], color: TYPE_ICON_FG[type] }}
+                    >
+                      <IntegTypeIcon type={type} size={15} />
+                    </div>
+                    <div className="text-xs font-semibold leading-tight">{TYPE_LABELS[type]}</div>
+                    {WORKER_STATUS[type] === 'coming_soon' && <div className="text-[10px] text-muted-foreground mt-0.5">Próximamente</div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Aviso Google Drive */}
+            {selectedType === 'google_drive' && (
+              <Alert>
+                <AlertDescription className="text-sm">
+                  Configurá el intervalo y luego hacé click en <strong>"Conectar con Google Drive"</strong>. Después de autorizar, podrás seleccionar la carpeta a monitorear.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Credenciales */}
+            {CRED_FIELDS[selectedType].length > 0 && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Credenciales</Label>
+                {CRED_FIELDS[selectedType].map((field) => (
+                  <div key={field.key} className="space-y-1.5">
+                    <Label htmlFor={`cred-${field.key}`} className="text-sm">
+                      {field.label}{field.required && <span className="text-destructive ml-1">*</span>}
+                    </Label>
+                    {field.type === 'textarea'
+                      ? <textarea id={`cred-${field.key}`} value={credentials[field.key] ?? ''}
+                          onChange={(e) => setCredentials(c => ({ ...c, [field.key]: e.target.value }))}
+                          placeholder={field.placeholder} rows={4}
+                          className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y" />
+                      : <Input id={`cred-${field.key}`} type={field.type ?? 'text'}
+                          value={credentials[field.key] ?? ''}
+                          onChange={(e) => setCredentials(c => ({ ...c, [field.key]: e.target.value }))}
+                          placeholder={field.placeholder} />
+                    }
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Carpeta + intervalo */}
+            <div className="grid grid-cols-[2fr_1fr] gap-3">
+              {selectedType !== 'google_drive' && (
+                <div className="space-y-1.5">
+                  <Label>Carpeta a monitorear</Label>
+                  <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
+                </div>
+              )}
+              <div className={`space-y-1.5 ${selectedType === 'google_drive' ? 'col-span-2 max-w-[200px]' : ''}`}>
+                <Label>Intervalo (min)</Label>
+                <Input type="number" value={pollingInterval} onChange={(e) => setPollingInterval(Number(e.target.value))} min={5} max={1440} />
+              </div>
+            </div>
+
+            {/* Salida automática */}
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-medium flex items-center gap-1.5">
+                    <IconUpload size={13} /> Salida automática
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Depositar el resultado al terminar el procesamiento.</p>
+                </div>
+                <button type="button" onClick={() => setOutputEnabled(v => !v)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-slate-300'}`}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+
+              {outputEnabled && (
+                <div className="grid grid-cols-[2fr_1fr] gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Carpeta de salida</Label>
+                    <div className="flex gap-1.5 items-center">
+                      {outputFolderLocked ? (
+                        <div className="flex flex-1 items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted text-sm text-muted-foreground">
+                          <IconFolder size={13} />
+                          <span className="font-mono flex-1">{outputFolder}</span>
+                        </div>
+                      ) : selectedType === 'google_drive' && editingId ? (
+                        loadingOutputFolders
+                          ? <div className="flex flex-1 items-center h-9 px-3 text-sm text-muted-foreground">Cargando carpetas...</div>
+                          : outputFolderError
+                            ? <div className="flex flex-1 items-center gap-2 h-9 px-3 text-sm text-destructive">
+                                <span>{outputFolderError}</span>
+                                <button type="button" onClick={() => fetchOutputFolderOptions(editingId)} className="underline text-xs">Reintentar</button>
+                              </div>
+                            : (
+                              <select className={`${selectCls} flex-1`} value={outputFolder} onChange={(e) => setOutputFolder(e.target.value)}>
+                                <option value="extracciones">extracciones (default)</option>
+                                {outputFolderOptions.filter(f => f.name !== 'extracciones').map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                              </select>
+                            )
+                      ) : (
+                        <Input className="flex-1" value={outputFolder} onChange={(e) => setOutputFolder(e.target.value)} placeholder="extracciones" autoFocus />
+                      )}
+                      <button
+                        type="button"
+                        title={outputFolderLocked ? 'Cambiar carpeta de salida' : 'Volver al default'}
+                        onClick={() => {
+                          if (outputFolderLocked) {
+                            setOutputFolderLocked(false);
+                            if (selectedType === 'google_drive' && editingId) fetchOutputFolderOptions(editingId);
+                          } else {
+                            setOutputFolder('extracciones');
+                            setOutputFolderLocked(true);
+                          }
+                        }}
+                        className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-muted-foreground"
+                      >
+                        <IconLock size={14} open={!outputFolderLocked} />
+                      </button>
+                    </div>
+                    {!outputFolderLocked && (
+                      <p className="text-xs text-muted-foreground">
+                        {selectedType === 'google_drive' ? 'Seleccioná la carpeta destino en tu Drive.' : 'Ingresá el nombre de la carpeta de salida.'}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Formato</Label>
+                    <select
+                      value={outputFormat}
+                      onChange={(e) => {
+                        const val = e.target.value as 'csv' | 'xlsx' | 'json';
+                        if (val === 'xlsx' && !localStorage.getItem('dl_xlsx_disclosure_seen')) {
+                          setShowXlsxDisclosure(true);
+                        } else {
+                          setOutputFormat(val);
+                        }
+                      }}
+                      className={selectCls}
+                    >
+                      <option value="csv">CSV</option>
+                      <option value="xlsx">Excel (.xlsx)</option>
+                      <option value="json">JSON (próximamente)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {saveError && <Alert variant="destructive"><AlertDescription>{saveError}</AlertDescription></Alert>}
+
+            {/* Botones */}
+            <div className="flex gap-3 pt-1">
+              {selectedType === 'google_drive' && !editingId ? (
+                <Button onClick={handleConnectGoogleDrive} disabled={saving} className="gap-1.5">
+                  <IconLink size={13} /> {saving ? 'Conectando...' : 'Conectar con Google Drive'}
+                </Button>
+              ) : (
+                <Button onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+              )}
+              <Button variant="outline" onClick={() => { setShowForm(false); resetForm(); }} disabled={saving}>Cancelar</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: confirmar cambio de integración activa ──────────────────── */}
       {confirmActivate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-background rounded-xl shadow-lg p-6 max-w-sm w-full mx-4 space-y-4">
@@ -703,40 +731,26 @@ export function IntegracionesPage() {
               <Button onClick={async () => {
                 const { id } = confirmActivate;
                 setConfirmActivate(null);
-                await doToggle(id, false); // false = actualmente inactiva → activar
-              }}>
-                Confirmar
-              </Button>
+                await doToggle(id, false);
+              }}>Confirmar</Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Disclosure: costo incremental por Excel (.xlsx) ───────────────── */}
+      {/* ── Disclosure: costo incremental Excel ───────────────────────────── */}
       <Dialog open={showXlsxDisclosure} onOpenChange={(open) => { if (!open) setShowXlsxDisclosure(false); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Formato Excel — costo incremental</DialogTitle>
             <DialogDescription>
               Exportar en formato <strong>Excel (.xlsx)</strong> tiene un costo ligeramente mayor por documento procesado.
-              El incremento exacto se aplica según la tabla de precios vigente.
-              Podés volver a CSV en cualquier momento.
+              El incremento exacto se aplica según la tabla de precios vigente. Podés volver a CSV en cualquier momento.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowXlsxDisclosure(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => {
-                localStorage.setItem('dl_xlsx_disclosure_seen', '1');
-                setOutputFormat('xlsx');
-                setShowXlsxDisclosure(false);
-              }}
-            >
+            <Button variant="outline" onClick={() => setShowXlsxDisclosure(false)}>Cancelar</Button>
+            <Button onClick={() => { localStorage.setItem('dl_xlsx_disclosure_seen', '1'); setOutputFormat('xlsx'); setShowXlsxDisclosure(false); }}>
               Entendido, usar Excel
             </Button>
           </DialogFooter>
