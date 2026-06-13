@@ -26,12 +26,13 @@ function InputSourceBadge({ source }: { source: PdfJob['input_source'] }) {
   return <Badge variant="outline" className="text-xs">{SOURCE_LABELS[source] ?? source}</Badge>;
 }
 
-function MetricCard({ value, label }: { value: number; label: string }) {
+function MetricCard({ value, label, accent = '#22C365' }: { value: number; label: string; accent?: string }) {
   return (
-    <Card>
-      <CardContent className="pt-6 text-center">
+    <Card className="overflow-hidden">
+      <div className="h-1.5 w-full" style={{ background: accent }} />
+      <CardContent className="pt-4 pb-5 text-center">
         <div className="text-3xl font-bold tracking-tight text-foreground mb-1">{value}</div>
-        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</div>
       </CardContent>
     </Card>
   );
@@ -87,7 +88,10 @@ export function ClientDashboardPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard de procesos</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Dashboard{' '}
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#FED210', color: '#000000' }}>de procesos</span>
+          </h1>
           <p className="text-sm text-muted-foreground">
             Resumen de actividad y procesos de la organización
           </p>
@@ -140,13 +144,13 @@ export function ClientDashboardPage() {
         <>
           {/* Métricas */}
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-            <MetricCard value={metrics.jobsCount}             label="Total de procesos" />
-            <MetricCard value={metrics.totalDocuments}        label="Documentos totales" />
-            <MetricCard value={metrics.processedDocuments}    label="Documentos correctos" />
-            <MetricCard value={metrics.failedDocuments}       label="Documentos fallidos" />
-            <MetricCard value={metrics.documentsWithWarnings} label="Con advertencias" />
-            <MetricCard value={metrics.correctedDocuments}    label="Corregidos manualmente" />
-            <MetricCard value={metrics.jobsWithError}         label="Procesos con error" />
+            <MetricCard value={metrics.jobsCount}             label="Total de procesos"      accent="#000000" />
+            <MetricCard value={metrics.totalDocuments}        label="Documentos totales"     accent="#22C365" />
+            <MetricCard value={metrics.processedDocuments}    label="Documentos correctos"   accent="#22C365" />
+            <MetricCard value={metrics.failedDocuments}       label="Documentos fallidos"    accent="#e11d48" />
+            <MetricCard value={metrics.documentsWithWarnings} label="Con advertencias"       accent="#FED210" />
+            <MetricCard value={metrics.correctedDocuments}    label="Corregidos manualmente" accent="#A347D1" />
+            <MetricCard value={metrics.jobsWithError}         label="Procesos con error"     accent="#e11d48" />
           </div>
 
           {/* Tabla de procesos */}

@@ -88,7 +88,7 @@ export function AppShell({ children }: AppShellProps) {
     <div className="flex h-screen overflow-hidden bg-background">
 
       {/* ── Sidebar ───────────────────────────────────────────────────────── */}
-      <aside className="flex flex-col w-[220px] flex-shrink-0 border-r border-border bg-card overflow-y-auto">
+      <aside className="flex flex-col w-[220px] flex-shrink-0 border-r-2 bg-card overflow-y-auto" style={{ borderRightColor: '#22C365' }}>
 
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 py-5 border-b border-border">
