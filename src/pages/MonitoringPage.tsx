@@ -25,6 +25,8 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
     'En lugar de un archivo por lote, mantiene un único Excel acumulativo que se va completando con cada proceso. Todo el historial en un solo archivo siempre actualizado.',
   xlsx_output:
     'Genera el resultado en formato Excel (.xlsx) y lo mantiene actualizado en Drive. La descarga básica (CSV o Excel puntual) es parte del servicio base; este adicional escribe y actualiza el archivo en la nube.',
+  polling_interval_1min:
+    'Determina cada cuánto el sistema escanea carpetas en busca de nuevos archivos. El intervalo mínimo (1 min) implica mayor carga continua en el sistema. A mayor frecuencia de escucha, mayor costo por el uso de infraestructura.',
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
