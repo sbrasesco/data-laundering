@@ -16,7 +16,7 @@ interface ProtectedRouteProps {
 // Evita que useTenantCredits y otras suscripciones globales se reinicien en
 // cada navegación entre páginas protegidas.
 export function ProtectedLayout() {
-  const { session, loading } = useAuth();
+  const { session, loading, orgBlocked, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -28,6 +28,25 @@ export function ProtectedLayout() {
   }
 
   if (!session) return <Navigate to="/login" replace />;
+
+  if (orgBlocked) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background gap-4 px-4">
+        <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+          <svg className="w-6 h-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+        </div>
+        <div className="text-center space-y-1">
+          <h1 className="text-lg font-semibold">Cuenta suspendida</h1>
+          <p className="text-sm text-muted-foreground max-w-sm">Tu organización fue desactivada. Contactá al administrador para más información.</p>
+        </div>
+        <button onClick={() => signOut()} className="text-sm text-muted-foreground hover:text-foreground underline">
+          Cerrar sesión
+        </button>
+      </div>
+    );
+  }
 
   return <AppLayout><Outlet /></AppLayout>;
 }

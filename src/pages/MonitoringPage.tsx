@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface JobSummary    { status: string; error_type: string | null; count: number; }
 interface RecentError   { id: string; organization_name: string | null; error_type: string | null; error_message: string | null; created_at: string; }
-interface TenantBalance { org_id: string; name: string; balance: number; }
+interface TenantBalance { org_id: string; name: string; balance: number; is_active: boolean; }
 interface DocsStats     { total_processed: number; processed_24h: number; }
 interface AdminUser     { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
 interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
@@ -77,6 +77,7 @@ export function MonitoringPage() {
   const [rechargeTarget, setRechargeTarget] = useState<TenantBalance | null>(null);
   const [rechargeAmount, setRechargeAmount] = useState('');
   const [recharging,     setRecharging]     = useState(false);
+  const [togglingTenant, setTogglingTenant] = useState<string | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
@@ -118,12 +119,16 @@ export function MonitoringPage() {
       // Balance por tenant
       const { data: creditsData } = await supabase.from('organization_credits').select('organization_id, balance');
       const creditOrgIds = (creditsData ?? []).map((c) => c.organization_id);
-      const { data: creditOrgsData } = await supabase.from('organizations').select('id, name').in('id', creditOrgIds);
-      const creditOrgNames: Record<string, string> = {};
-      for (const o of creditOrgsData ?? []) creditOrgNames[o.id] = o.name;
+      const { data: creditOrgsData } = await supabase.from('organizations').select('id, name, is_active').in('id', creditOrgIds);
+      const creditOrgs: Record<string, { name: string; is_active: boolean }> = {};
+      for (const o of creditOrgsData ?? []) creditOrgs[o.id] = { name: o.name, is_active: o.is_active ?? true };
       setTenantBalances(
-        (creditsData ?? []).map((c) => ({ org_id: c.organization_id, name: creditOrgNames[c.organization_id] ?? c.organization_id?.slice(0, 8) + '…', balance: c.balance ?? 0 }))
-          .sort((a, b) => a.balance - b.balance)
+        (creditsData ?? []).map((c) => ({
+          org_id: c.organization_id,
+          name: creditOrgs[c.organization_id]?.name ?? c.organization_id?.slice(0, 8) + '…',
+          balance: c.balance ?? 0,
+          is_active: creditOrgs[c.organization_id]?.is_active ?? true,
+        })).sort((a, b) => a.balance - b.balance)
       );
 
       // Docs stats
@@ -182,6 +187,19 @@ export function MonitoringPage() {
   }, [GATEWAY_BASE]);
 
   useEffect(() => { fetchData(); checkWorkerHealth(); }, [fetchData, checkWorkerHealth]);
+
+  const handleToggleTenant = async (t: TenantBalance) => {
+    setTogglingTenant(t.org_id);
+    try {
+      const { error } = await supabase.rpc('set_tenant_active', { p_org_id: t.org_id, p_value: !t.is_active });
+      if (error) throw error;
+      setTenantBalances(prev => prev.map(x => x.org_id === t.org_id ? { ...x, is_active: !t.is_active } : x));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setTogglingTenant(null);
+    }
+  };
 
   const handleRecharge = async () => {
     if (!rechargeTarget) return;
@@ -391,14 +409,15 @@ export function MonitoringPage() {
                 <TableRow>
                   <TableHead>Organización</TableHead>
                   <TableHead className="text-right">Créditos</TableHead>
-                  <TableHead>Estado</TableHead>
+                  <TableHead>Saldo</TableHead>
+                  <TableHead className="text-center">Activa</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {tenantBalances.map((t) => (
                   <>
-                    <TableRow key={t.org_id}>
+                    <TableRow key={t.org_id} className={!t.is_active ? 'opacity-50' : ''}>
                       <TableCell className="text-sm">{t.name}</TableCell>
                       <TableCell className="text-right font-medium text-sm tabular-nums">{t.balance.toLocaleString()}</TableCell>
                       <TableCell>
@@ -408,6 +427,18 @@ export function MonitoringPage() {
                           ? <Badge variant="warning">Saldo bajo</Badge>
                           : <Badge variant="success">OK</Badge>
                         }
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <button
+                          type="button"
+                          disabled={togglingTenant === t.org_id}
+                          onClick={() => handleToggleTenant(t)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            t.is_active ? 'bg-[#22C365]' : 'bg-slate-300'
+                          } ${togglingTenant === t.org_id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${t.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </button>
                       </TableCell>
                       <TableCell>
                         <Button

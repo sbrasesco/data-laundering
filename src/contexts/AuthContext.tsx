@@ -15,6 +15,7 @@ interface AuthContextType {
   profile: Profile | null;
   organizationId: string | null;
   isSuperadmin: boolean;
+  orgBlocked: boolean;
   loading: boolean;
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
@@ -26,6 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [orgBlocked, setOrgBlocked] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string): Promise<Profile | null> => {
@@ -55,6 +57,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setProfile(data ?? null);
+
+      // Verificar si la org está activa (superadmins siempre pasan)
+      if (data?.organization_id && !data?.is_superadmin) {
+        const { data: org } = await supabase.from('organizations').select('is_active').eq('id', data.organization_id).single();
+        setOrgBlocked(org?.is_active === false);
+      } else {
+        setOrgBlocked(false);
+      }
+
       return data ?? null;
     } catch (err: any) {
       console.warn('Exception fetching profile (non-blocking):', err);
@@ -174,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile,
     organizationId: profile?.organization_id ?? null,
     isSuperadmin: profile?.is_superadmin ?? false,
+    orgBlocked,
     loading,
     signInWithPassword,
     signOut,
