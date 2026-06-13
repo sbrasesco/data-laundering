@@ -1,6 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import { ProtectedRoute, ProtectedLayout } from './components/auth/ProtectedRoute';
+import { ProtectedRoute, ProtectedLayout, SuperadminRoute } from './components/auth/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { LandingPage } from './pages/LandingPage';
 import { ClientsPage } from './pages/ClientsPage';
@@ -32,7 +32,9 @@ function App() {
           <Route path="/jobs/new"     element={<SubirZipPage />} />
           <Route path="/jobs/:id"     element={<ProcesoDetailPage />} />
           <Route path="/documents"    element={<DocumentsPage />} />
-          <Route path="/monitoring"   element={<MonitoringPage />} />
+          <Route element={<SuperadminRoute />}>
+            <Route path="/monitoring" element={<MonitoringPage />} />
+          </Route>
           <Route path="/integrations" element={<IntegracionesPage />} />
           <Route path="/settings"     element={<SettingsPage />} />
           <Route path="/mis-procesos" element={<MisProcesosPage />} />

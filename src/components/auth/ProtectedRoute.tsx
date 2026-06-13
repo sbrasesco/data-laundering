@@ -2,6 +2,12 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { AppLayout } from '../layout/AppLayout';
 
+export function SuperadminRoute() {
+  const { isSuperadmin, loading } = useAuth();
+  if (loading) return null;
+  return isSuperadmin ? <Outlet /> : <Navigate to="/dashboard" replace />;
+}
+
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }

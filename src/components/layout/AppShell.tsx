@@ -58,7 +58,7 @@ function SidebarNavItem({ item, active }: { item: NavItem; active: boolean }) {
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 
 export function AppShell({ children }: AppShellProps) {
-  const { signOut, user } = useAuth();
+  const { signOut, user, isSuperadmin } = useAuth();
   const { balance, loading: creditsLoading } = useTenantCredits();
   const [showRecharge, setShowRecharge] = useState(false);
   const navigate = useNavigate();
@@ -114,7 +114,7 @@ export function AppShell({ children }: AppShellProps) {
           <p className="px-3 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider mt-4 mb-1">
             Sistema
           </p>
-          {NAV_SYSTEM.map((item) => (
+          {NAV_SYSTEM.filter(item => item.path !== '/monitoring' || isSuperadmin).map((item) => (
             <SidebarNavItem key={item.path} item={item} active={isActive(item.path)} />
           ))}
         </nav>

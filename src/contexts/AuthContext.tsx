@@ -6,6 +6,7 @@ export interface Profile {
   id: string;
   organization_id: string;
   onboarding_completed: boolean;
+  is_superadmin: boolean;
 }
 
 interface AuthContextType {
@@ -13,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   organizationId: string | null;
+  isSuperadmin: boolean;
   loading: boolean;
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
@@ -34,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const profilePromise = supabase
         .from('profiles')
-        .select('id, organization_id, onboarding_completed')
+        .select('id, organization_id, onboarding_completed, is_superadmin')
         .eq('id', userId)
         .single();
 
@@ -171,6 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     profile,
     organizationId: profile?.organization_id ?? null,
+    isSuperadmin: profile?.is_superadmin ?? false,
     loading,
     signInWithPassword,
     signOut,
