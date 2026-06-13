@@ -153,13 +153,18 @@ export function MonitoringPage() {
     }
   }, []);
 
+  const GATEWAY_API_KEY = (import.meta.env.VITE_WORKER_API_KEY as string) ?? '';
+
   const checkWorkerHealth = useCallback(async () => {
     setWorkerHealth({ status: 'checking' });
     const t0 = Date.now();
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`${GATEWAY_BASE}/health`, { signal: controller.signal });
+      const res = await fetch(`${GATEWAY_BASE}/health`, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${GATEWAY_API_KEY}` },
+      });
       clearTimeout(timeout);
       const latency_ms = Date.now() - t0;
       if (res.ok) {
