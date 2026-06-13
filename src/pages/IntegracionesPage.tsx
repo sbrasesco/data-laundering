@@ -58,8 +58,8 @@ const TYPE_ICON_FG: Record<IntegrationType, string> = {
   sftp: '#fff', remote_folder: '#000', firebase_storage: '#fff',
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
-  frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available',
-  remote_folder: 'available', firebase_storage: 'coming_soon',
+  frontend_only: 'available', google_drive: 'available', ftp: 'coming_soon', sftp: 'available',
+  remote_folder: 'coming_soon', firebase_storage: 'available',
 };
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only:    [],
