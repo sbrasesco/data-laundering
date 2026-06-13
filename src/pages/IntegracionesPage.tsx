@@ -514,34 +514,39 @@ export function IntegracionesPage() {
               )}
             </div>
 
-            {/* ── Columna derecha: resto de integraciones (compactas) ───── */}
-            <div className="flex-1 space-y-2 min-w-0">
+            {/* ── Columna derecha: resto en grid 2x2 ────────────────────── */}
+            <div className="flex-1 grid grid-cols-2 gap-3 min-w-0 content-start">
               {otherTypes.map((type) => {
                 const integration = integrations.find(i => i.integration_type === type) ?? null;
+                const comingSoon = WORKER_STATUS[type] === 'coming_soon';
                 return (
                   <Card key={type} className="overflow-hidden">
-                    <CardContent className="p-0">
-                      <div className="flex items-center gap-3 px-4 py-3">
+                    <CardContent className="p-0 flex flex-col h-full">
+                      {/* Header */}
+                      <div className="flex items-center gap-2.5 px-4 py-3">
                         <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                           style={{ background: TYPE_ACCENTS[type], color: TYPE_ICON_FG[type] }}>
                           <IntegTypeIcon type={type} size={16} />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium leading-tight">{TYPE_LABELS[type]}</p>
+                          <p className="text-sm font-medium leading-tight truncate">{TYPE_LABELS[type]}</p>
                           <p className="text-xs text-muted-foreground">
-                            {WORKER_STATUS[type] === 'coming_soon' ? 'Próximamente' : integration ? 'Configurada' : 'Sin configurar'}
+                            {comingSoon ? 'Próximamente' : integration ? 'Configurada' : 'Sin configurar'}
                           </p>
                         </div>
-                        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                          {integration && WORKER_STATUS[type] !== 'coming_soon' && (
-                            <button type="button" onClick={() => handleToggle(integration.id, integration.is_active, type)}
-                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${integration.is_active ? 'bg-[#22C365]' : 'bg-slate-300'}`}>
-                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                            </button>
-                          )}
+                      </div>
+                      {/* Acciones */}
+                      <div className="border-t border-border px-4 py-2.5 flex items-center gap-2 bg-muted/20 mt-auto">
+                        {integration && !comingSoon && (
+                          <button type="button" onClick={() => handleToggle(integration.id, integration.is_active, type)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${integration.is_active ? 'bg-[#22C365]' : 'bg-slate-300'}`}>
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </button>
+                        )}
+                        <div className="ml-auto">
                           {integration ? (
                             <Button size="sm" variant="outline" onClick={() => openEditForm(integration)}>Editar</Button>
-                          ) : WORKER_STATUS[type] !== 'coming_soon' ? (
+                          ) : !comingSoon ? (
                             <Button size="sm" variant="outline" onClick={() => openConfigureForm(type)}>Configurar</Button>
                           ) : null}
                         </div>
