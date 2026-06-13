@@ -4,7 +4,28 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { supabase } from '../lib/supabase';
+
+// ─── Descripciones de features para tooltips ──────────────────────────────────
+const FEATURE_DESCRIPTIONS: Record<string, string> = {
+  integration_drive:
+    'Escribe y actualiza el archivo procesado directamente en tu Google Drive. El servicio base solo descarga el archivo; esta feature lo sube y lo mantiene en la nube automáticamente.',
+  integration_drive_multiclient:
+    'Organiza los archivos en subcarpetas separadas por cliente dentro de tu Drive. En lugar de una carpeta raíz única, cada cliente tiene su propia carpeta con sus documentos.',
+  integration_firebase:
+    'Deposita el archivo procesado en tu Firebase Storage. Ideal para apps o sistemas que ya consumen datos desde Firebase.',
+  integration_ftp:
+    'Transfiere el archivo procesado a un servidor FTP remoto configurado por el cliente.',
+  integration_sftp:
+    'Igual que FTP pero con transferencia cifrada (SSH). Para clientes que requieren mayor seguridad en la transferencia.',
+  human_review:
+    'Los documentos con baja confianza de clasificación quedan en espera antes de procesarse. Un operador los revisa y aprueba manualmente, garantizando mayor exactitud.',
+  master_file:
+    'En lugar de un archivo por lote, mantiene un único Excel acumulativo que se va completando con cada proceso. Todo el historial en un solo archivo siempre actualizado.',
+  xlsx_output:
+    'Genera el resultado en formato Excel (.xlsx) y lo mantiene actualizado en Drive. La descarga básica (CSV o Excel puntual) es parte del servicio base; este adicional escribe y actualiza el archivo en la nube.',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface JobSummary    { status: string; error_type: string | null; count: number; }
@@ -19,6 +40,62 @@ interface PricingPlan   { name: string; display_name: string; price_per_doc: num
 interface PricingFeature{ feature_key: string; label: string; cost_usd: number; }
 
 type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | null;
+
+// ─── FeatureRow ───────────────────────────────────────────────────────────────
+function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
+  feat: PricingFeature;
+  editPrices: Record<string, string>;
+  setEditPrices: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  savingPrice: string | null;
+  onSave: (featureKey: string) => void;
+  indent?: boolean;
+  border?: boolean;
+}) {
+  const key = `feat_${feat.feature_key}`;
+  const editVal = editPrices[key];
+  const isDirty = editVal !== undefined;
+  const desc = FEATURE_DESCRIPTIONS[feat.feature_key];
+
+  return (
+    <div className={`flex items-center gap-3 px-3 py-2.5 ${indent ? 'pl-7 bg-muted/10' : ''} ${border ? 'border-b' : ''}`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium">{feat.label}</p>
+          {desc && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" className="text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0">
+                    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="10"/>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16v-4M12 8h.01"/>
+                    </svg>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-64 text-xs leading-relaxed">
+                  {desc}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground">+$</span>
+        <input
+          type="number" step="0.01" min="0"
+          value={editVal ?? Number(feat.cost_usd).toFixed(4)}
+          onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
+          className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => onSave(feat.feature_key)}>
+          {savingPrice === key ? '...' : 'Guardar'}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(iso: string) {
@@ -816,6 +893,7 @@ export function MonitoringPage() {
               <div className="space-y-3">
 
                 {/* Google Drive — agrupado con sub-configs */}
+                {/* Google Drive agrupado */}
                 {(() => {
                   const driveFeats = pricingFeatures.filter(f => f.feature_key.startsWith('integration_drive'));
                   if (driveFeats.length === 0) return null;
@@ -827,37 +905,23 @@ export function MonitoringPage() {
                         </svg>
                         <span className="text-xs font-semibold">Google Drive</span>
                       </div>
-                      {driveFeats.map((feat, i) => {
-                        const key = `feat_${feat.feature_key}`;
-                        const editVal = editPrices[key];
-                        const isDirty = editVal !== undefined;
-                        const isSubConfig = feat.feature_key !== 'integration_drive';
-                        return (
-                          <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${isSubConfig ? 'pl-7 bg-muted/10' : ''} ${i < driveFeats.length - 1 ? 'border-b' : ''}`}>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium">{feat.label}</p>
-                              <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-muted-foreground">+$</span>
-                              <input
-                                type="number" step="0.01" min="0"
-                                value={editVal ?? Number(feat.cost_usd).toFixed(4)}
-                                onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
-                                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                              />
-                              <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSaveFeatureCost(feat.feature_key)}>
-                                {savingPrice === key ? '...' : 'Guardar'}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {driveFeats.map((feat, i) => (
+                        <FeatureRow
+                          key={feat.feature_key}
+                          feat={feat}
+                          editPrices={editPrices}
+                          setEditPrices={setEditPrices}
+                          savingPrice={savingPrice}
+                          onSave={handleSaveFeatureCost}
+                          indent={feat.feature_key !== 'integration_drive'}
+                          border={i < driveFeats.length - 1}
+                        />
+                      ))}
                     </div>
                   );
                 })()}
 
-                {/* Otras integraciones — filas simples */}
+                {/* Otras integraciones */}
                 {(() => {
                   const others = pricingFeatures.filter(f =>
                     f.feature_key.startsWith('integration_') && !f.feature_key.startsWith('integration_drive')
@@ -865,31 +929,17 @@ export function MonitoringPage() {
                   if (others.length === 0) return null;
                   return (
                     <div className="rounded-md border overflow-hidden">
-                      {others.map((feat, i) => {
-                        const key = `feat_${feat.feature_key}`;
-                        const editVal = editPrices[key];
-                        const isDirty = editVal !== undefined;
-                        return (
-                          <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${i < others.length - 1 ? 'border-b' : ''}`}>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium">{feat.label}</p>
-                              <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-muted-foreground">+$</span>
-                              <input
-                                type="number" step="0.01" min="0"
-                                value={editVal ?? Number(feat.cost_usd).toFixed(4)}
-                                onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
-                                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                              />
-                              <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSaveFeatureCost(feat.feature_key)}>
-                                {savingPrice === key ? '...' : 'Guardar'}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {others.map((feat, i) => (
+                        <FeatureRow
+                          key={feat.feature_key}
+                          feat={feat}
+                          editPrices={editPrices}
+                          setEditPrices={setEditPrices}
+                          savingPrice={savingPrice}
+                          onSave={handleSaveFeatureCost}
+                          border={i < others.length - 1}
+                        />
+                      ))}
                     </div>
                   );
                 })()}
@@ -905,31 +955,17 @@ export function MonitoringPage() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Features adicionales (USD/doc)</p>
                   <div className="rounded-md border overflow-hidden">
-                    {extras.map((feat, i) => {
-                      const key = `feat_${feat.feature_key}`;
-                      const editVal = editPrices[key];
-                      const isDirty = editVal !== undefined;
-                      return (
-                        <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${i < extras.length - 1 ? 'border-b' : ''}`}>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium">{feat.label}</p>
-                            <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-muted-foreground">+$</span>
-                            <input
-                              type="number" step="0.01" min="0"
-                              value={editVal ?? Number(feat.cost_usd).toFixed(4)}
-                              onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
-                              className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            />
-                            <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSaveFeatureCost(feat.feature_key)}>
-                              {savingPrice === key ? '...' : 'Guardar'}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {extras.map((feat, i) => (
+                      <FeatureRow
+                        key={feat.feature_key}
+                        feat={feat}
+                        editPrices={editPrices}
+                        setEditPrices={setEditPrices}
+                        savingPrice={savingPrice}
+                        onSave={handleSaveFeatureCost}
+                        border={i < extras.length - 1}
+                      />
+                    ))}
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">El costo total por doc = precio base del plan + suma de adicionales de features activas.</p>
                 </div>
