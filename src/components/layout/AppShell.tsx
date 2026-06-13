@@ -64,7 +64,7 @@ export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const noCredits = !creditsLoading && (balance ?? 0) <= 0;
+  const noCredits = !creditsLoading && balance !== null && balance <= 0;
 
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
