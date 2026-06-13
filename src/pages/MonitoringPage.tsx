@@ -11,12 +11,13 @@ interface RecentError  { id: string; organization_name: string | null; error_typ
 interface TenantBalance{ name: string; balance: number; }
 interface DocsStats    { total_processed: number; processed_24h: number; }
 
-function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
+function StatCard({ label, value, sub, accent = '#22C365' }: { label: string; value: number | string; sub?: string; accent?: string }) {
   return (
-    <Card className="flex-1 text-center" style={{ minWidth: '150px' }}>
-      <CardContent className="pt-6">
+    <Card className="flex-1 text-center overflow-hidden" style={{ minWidth: '150px' }}>
+      <div className="h-1.5 w-full" style={{ background: accent }} />
+      <CardContent className="pt-4 pb-5">
         <div className="text-3xl font-bold tracking-tight">{value}</div>
-        <div className="text-sm font-medium mt-1">{label}</div>
+        <div className="text-xs font-medium uppercase tracking-wide mt-1">{label}</div>
         {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
       </CardContent>
     </Card>
@@ -92,7 +93,9 @@ export function MonitoringPage() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Monitoreo</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#FED210', color: '#000000' }}>Monitoreo</span>
+          </h1>
           <p className="text-sm text-muted-foreground">Estado general del sistema y errores recientes.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -111,12 +114,12 @@ export function MonitoringPage() {
           )}
 
           <div className="flex flex-wrap gap-4">
-            <StatCard label="Jobs totales"     value={totalJobs} />
-            <StatCard label="Completados"      value={completedJobs} />
-            <StatCard label="En procesamiento" value={processing} />
-            <StatCard label="Errores sistema"  value={errorSystem + errorUnknown} sub={`${errorRate}% tasa de error`} />
-            <StatCard label="Errores créditos" value={errorCredits}               sub="Responsabilidad del cliente" />
-            <StatCard label="Docs procesados"  value={docsStats.total_processed}  sub={`${docsStats.processed_24h} en las últimas 24h`} />
+            <StatCard label="Jobs totales"     value={totalJobs}                   accent="#000000" />
+            <StatCard label="Completados"      value={completedJobs}               accent="#22C365" />
+            <StatCard label="En procesamiento" value={processing}                  accent="#FED210" />
+            <StatCard label="Errores sistema"  value={errorSystem + errorUnknown}  accent="#e11d48" sub={`${errorRate}% tasa de error`} />
+            <StatCard label="Errores créditos" value={errorCredits}                accent="#A347D1" sub="Responsabilidad del cliente" />
+            <StatCard label="Docs procesados"  value={docsStats.total_processed}   accent="#22C365" sub={`${docsStats.processed_24h} en las últimas 24h`} />
           </div>
 
           <Card>

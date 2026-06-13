@@ -357,7 +357,9 @@ export function IntegracionesPage() {
 
         <div className="flex items-start justify-between">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Integraciones</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#A347D1', color: '#ffffff' }}>Integraciones</span>
+            </h1>
             <p className="text-sm text-muted-foreground">Configurá desde dónde el sistema busca archivos para procesar automáticamente.</p>
           </div>
           {!showForm && <Button onClick={openAddForm}>+ Nueva integración</Button>}

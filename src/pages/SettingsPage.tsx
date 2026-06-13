@@ -36,7 +36,9 @@ export function SettingsPage() {
     <div className="p-6 lg:p-8 max-w-3xl mx-auto space-y-8">
 
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Configuración</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#22C365', color: '#ffffff' }}>Configuración</span>
+        </h1>
         <p className="text-sm text-muted-foreground">
           Preferencias de apariencia y comportamiento del sistema.
         </p>

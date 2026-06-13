@@ -81,7 +81,10 @@ export function SubirZipPage() {
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Crear nuevo proceso</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Crear{' '}
+          <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#22C365', color: '#ffffff' }}>nuevo proceso</span>
+        </h1>
         <p className="text-sm text-muted-foreground">Subí un ZIP, PDF o imagen (JPG, PNG) con comprobantes para procesar.</p>
       </div>
 

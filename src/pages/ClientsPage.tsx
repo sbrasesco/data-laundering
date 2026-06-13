@@ -75,7 +75,9 @@ export function ClientsPage() {
 
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Clientes</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#FED210', color: '#000000' }}>Clientes</span>
+          </h1>
           <p className="text-sm text-muted-foreground">Gestión de clientes de la organización.</p>
         </div>
         <Button variant={showForm ? 'outline' : 'default'} onClick={() => setShowForm(!showForm)}>

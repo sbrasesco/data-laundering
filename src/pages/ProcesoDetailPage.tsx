@@ -52,7 +52,10 @@ export function ProcesoDetailPage() {
       />
 
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">Filas procesadas</h2>
+        <h2 className="text-lg font-bold tracking-tight">
+          Filas{' '}
+          <span className="inline-block px-1.5 py-0.5 rounded-md text-base" style={{ background: '#22C365', color: '#ffffff' }}>procesadas</span>
+        </h2>
         <JobRowsTable
           rows={rows}
           jobId={id || ''}

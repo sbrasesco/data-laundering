@@ -22,7 +22,10 @@ export function MisProcesosPage() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Mis Procesos</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Mis{' '}
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#000000', color: '#ffffff' }}>Procesos</span>
+          </h1>
           <p className="text-sm text-muted-foreground">
             Historial de todos tus procesos de extracción.
           </p>

@@ -50,7 +50,10 @@ export function DocumentsPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Todos los documentos</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Todos los{' '}
+            <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#A347D1', color: '#ffffff' }}>documentos</span>
+          </h1>
           <p className="text-sm text-muted-foreground">Listado consolidado de todos los comprobantes procesados.</p>
         </div>
         <div className="flex flex-col items-end gap-2">
