@@ -15,8 +15,10 @@ interface AdminUser     { user_id: string; email: string; org_id: string | null;
 interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
 interface WorkerHealth  { status: 'ok' | 'error' | 'timeout' | 'checking'; worker_version?: string; google_oauth?: boolean; latency_ms?: number; }
 interface TenantJob     { id: string; status: string; error_type: string | null; created_at: string; finished_at: string | null; total_documents: number | null; processed_documents: number | null; failed_documents: number | null; input_source: string | null; }
+interface PricingPlan   { name: string; display_name: string; price_per_doc: number; balance_usd: number; docs_included: number; }
+interface PricingFeature{ feature_key: string; label: string; cost_usd: number; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(iso: string) {
@@ -63,6 +65,7 @@ const IconTenants = () => <svg width={18} height={18} fill="none" stroke="curren
 const IconUsers   = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
 const IconWorker  = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="currentColor" stroke="none"/></svg>;
 const IconStuck   = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline strokeLinecap="round" strokeLinejoin="round" points="12 6 12 12 16 14"/></svg>;
+const IconPrices  = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/></svg>;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export function MonitoringPage() {
@@ -86,6 +89,10 @@ export function MonitoringPage() {
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
   const [togglingUser,   setTogglingUser]   = useState<string | null>(null);
+  const [pricingPlans,   setPricingPlans]   = useState<PricingPlan[]>([]);
+  const [pricingFeatures,setPricingFeatures]= useState<PricingFeature[]>([]);
+  const [editPrices,     setEditPrices]     = useState<Record<string, string>>({});
+  const [savingPrice,    setSavingPrice]    = useState<string | null>(null);
 
   const GATEWAY_BASE = (import.meta.env.VITE_GATEWAY_BASE_URL as string) ?? '';
 
@@ -158,6 +165,22 @@ export function MonitoringPage() {
       // Jobs trabados (>20 min en processing)
       const { data: stuckData } = await supabase.rpc('get_stuck_jobs', { p_minutes_threshold: 20 });
       setStuckJobs((stuckData ?? []) as StuckJob[]);
+
+      // Precios
+      const { data: plansData } = await supabase
+        .from('billing_plans')
+        .select('name, display_name, price_per_doc, balance_usd, docs_included')
+        .in('name', ['basico', 'profesional', 'business'])
+        .eq('active', true)
+        .order('balance_usd', { ascending: true });
+      setPricingPlans((plansData ?? []) as PricingPlan[]);
+
+      const { data: featuresData } = await supabase
+        .from('feature_pricing_multipliers')
+        .select('feature_key, label, cost_usd')
+        .eq('active', true)
+        .order('feature_key');
+      setPricingFeatures((featuresData ?? []) as PricingFeature[]);
 
       setLastUpdated(new Date());
     } finally {
@@ -267,6 +290,40 @@ export function MonitoringPage() {
     }
   };
 
+  const handleSavePlanPrice = async (planName: string) => {
+    const key = `plan_${planName}`;
+    const val = parseFloat(editPrices[key] ?? '');
+    if (isNaN(val) || val < 0) return;
+    setSavingPrice(key);
+    try {
+      const { error } = await supabase.rpc('update_plan_price', { p_plan_name: planName, p_price_per_doc: val });
+      if (error) throw error;
+      setPricingPlans(prev => prev.map(p => p.name === planName ? { ...p, price_per_doc: val } : p));
+      setEditPrices(prev => { const n = { ...prev }; delete n[key]; return n; });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setSavingPrice(null);
+    }
+  };
+
+  const handleSaveFeatureCost = async (featureKey: string) => {
+    const key = `feat_${featureKey}`;
+    const val = parseFloat(editPrices[key] ?? '');
+    if (isNaN(val) || val < 0) return;
+    setSavingPrice(key);
+    try {
+      const { error } = await supabase.rpc('update_feature_cost', { p_feature_key: featureKey, p_cost_usd: val });
+      if (error) throw error;
+      setPricingFeatures(prev => prev.map(f => f.feature_key === featureKey ? { ...f, cost_usd: val } : f));
+      setEditPrices(prev => { const n = { ...prev }; delete n[key]; return n; });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setSavingPrice(null);
+    }
+  };
+
   // Métricas derivadas
   const totalJobs     = jobSummary.reduce((s, r) => s + r.count, 0);
   const completedJobs = jobSummary.filter(r => r.status === 'done' || r.status === 'done_with_warnings').reduce((s, r) => s + r.count, 0);
@@ -349,6 +406,13 @@ export function MonitoringPage() {
               metric={stuckJobs.length}
               sub=">20 min en processing"
               onClick={() => setModal('stuck')}
+            />
+            <MonitorCard
+              title="Precios" accent="#f97316"
+              icon={<IconPrices />}
+              metric={pricingPlans.length > 0 ? `$${Number(pricingPlans[0]?.price_per_doc ?? 0).toFixed(2)}` : '—'}
+              sub="base doc · click para editar"
+              onClick={() => { setEditPrices({}); setModal('prices'); }}
             />
           </div>
         </>
@@ -704,6 +768,96 @@ export function MonitoringPage() {
               </Table>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Precios */}
+      <Dialog open={modal === 'prices'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Editor de precios</DialogTitle></DialogHeader>
+
+          <div className="space-y-5 mt-2">
+
+            {/* Precio base por plan */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Precio base por documento (USD)</p>
+              <div className="rounded-md border overflow-hidden">
+                {pricingPlans.map((plan, i) => {
+                  const key = `plan_${plan.name}`;
+                  const editVal = editPrices[key];
+                  const isDirty = editVal !== undefined;
+                  return (
+                    <div key={plan.name} className={`flex items-center gap-3 px-3 py-2.5 ${i < pricingPlans.length - 1 ? 'border-b' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{plan.display_name}</p>
+                        <p className="text-xs text-muted-foreground">{plan.docs_included.toLocaleString('es')} docs · paquete USD {Number(plan.balance_usd).toFixed(0)}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editVal ?? Number(plan.price_per_doc).toFixed(4)}
+                          onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
+                          className="w-20 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={!isDirty || savingPrice === key}
+                          onClick={() => handleSavePlanPrice(plan.name)}
+                        >
+                          {savingPrice === key ? '...' : 'Guardar'}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Costo por feature / integración */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Costo adicional por feature (USD/doc)</p>
+              <div className="rounded-md border overflow-hidden">
+                {pricingFeatures.map((feat, i) => {
+                  const key = `feat_${feat.feature_key}`;
+                  const editVal = editPrices[key];
+                  const isDirty = editVal !== undefined;
+                  return (
+                    <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${i < pricingFeatures.length - 1 ? 'border-b' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{feat.label}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">+$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editVal ?? Number(feat.cost_usd).toFixed(4)}
+                          onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
+                          className="w-20 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={!isDirty || savingPrice === key}
+                          onClick={() => handleSaveFeatureCost(feat.feature_key)}
+                        >
+                          {savingPrice === key ? '...' : 'Guardar'}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">El costo total por doc es la suma del precio base del plan más los adicionales de cada feature activa.</p>
+            </div>
+
+          </div>
         </DialogContent>
       </Dialog>
 
