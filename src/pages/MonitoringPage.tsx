@@ -14,8 +14,9 @@ interface DocsStats     { total_processed: number; processed_24h: number; }
 interface AdminUser     { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
 interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
 interface WorkerHealth  { status: 'ok' | 'error' | 'timeout' | 'checking'; worker_version?: string; google_oauth?: boolean; latency_ms?: number; }
+interface TenantJob     { id: string; status: string; error_type: string | null; created_at: string; finished_at: string | null; total_documents: number | null; processed_documents: number | null; failed_documents: number | null; input_source: string | null; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDate(iso: string) {
@@ -77,7 +78,10 @@ export function MonitoringPage() {
   const [rechargeTarget, setRechargeTarget] = useState<TenantBalance | null>(null);
   const [rechargeAmount, setRechargeAmount] = useState('');
   const [recharging,     setRecharging]     = useState(false);
-  const [togglingTenant, setTogglingTenant] = useState<string | null>(null);
+  const [togglingTenant,  setTogglingTenant]  = useState<string | null>(null);
+  const [activityTarget,  setActivityTarget]  = useState<TenantBalance | null>(null);
+  const [tenantJobs,      setTenantJobs]      = useState<TenantJob[]>([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
@@ -187,6 +191,24 @@ export function MonitoringPage() {
   }, [GATEWAY_BASE]);
 
   useEffect(() => { fetchData(); checkWorkerHealth(); }, [fetchData, checkWorkerHealth]);
+
+  const handleViewActivity = async (t: TenantBalance) => {
+    setActivityTarget(t);
+    setTenantJobs([]);
+    setModal('activity');
+    setLoadingActivity(true);
+    try {
+      const { data } = await supabase
+        .from('pdf_jobs')
+        .select('id, status, error_type, created_at, finished_at, total_documents, processed_documents, failed_documents, input_source')
+        .eq('organization_id', t.org_id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      setTenantJobs((data ?? []) as TenantJob[]);
+    } finally {
+      setLoadingActivity(false);
+    }
+  };
 
   const handleToggleTenant = async (t: TenantBalance) => {
     setTogglingTenant(t.org_id);
@@ -441,13 +463,16 @@ export function MonitoringPage() {
                         </button>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          size="sm" variant="outline"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => { setRechargeTarget(t); setRechargeAmount(''); }}
-                        >
-                          + Créditos
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                            onClick={() => { setRechargeTarget(t); setRechargeAmount(''); }}>
+                            + Créditos
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                            onClick={() => handleViewActivity(t)}>
+                            Actividad
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                     {rechargeTarget?.org_id === t.org_id && (
@@ -525,6 +550,74 @@ export function MonitoringPage() {
                     </TableCell>
                   </TableRow>
                 ))}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Actividad por tenant */}
+      <Dialog open={modal === 'activity'} onOpenChange={() => { setModal(null); setActivityTarget(null); }}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Actividad — {activityTarget?.name ?? ''}
+              <span className="ml-2 text-sm font-normal text-muted-foreground">últimos 30 jobs</span>
+            </DialogTitle>
+          </DialogHeader>
+          {loadingActivity ? (
+            <div className="py-8 flex justify-center"><LoadingSpinner /></div>
+          ) : tenantJobs.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">Sin actividad registrada.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Origen</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Docs</TableHead>
+                  <TableHead className="text-right">Procesados</TableHead>
+                  <TableHead className="text-right">Fallidos</TableHead>
+                  <TableHead className="text-right">Duración</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tenantJobs.map((j) => {
+                  const duration = j.finished_at
+                    ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000)
+                    : null;
+                  const sourceLabel: Record<string, string> = {
+                    frontend_upload: 'Manual', integration_drive: 'Drive',
+                    integration_remote: 'Integración', api_direct: 'API',
+                  };
+                  return (
+                    <TableRow key={j.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(j.created_at)}</TableCell>
+                      <TableCell className="text-xs">{sourceLabel[j.input_source ?? ''] ?? j.input_source ?? '—'}</TableCell>
+                      <TableCell>
+                        {j.status === 'done'
+                          ? <Badge variant="success">Completado</Badge>
+                          : j.status === 'done_with_warnings'
+                          ? <Badge variant="warning">Con avisos</Badge>
+                          : j.status === 'error'
+                          ? <Badge variant="destructive">{j.error_type === 'credits' ? 'Sin créditos' : 'Error'}</Badge>
+                          : j.status === 'processing'
+                          ? <Badge variant="secondary">Procesando</Badge>
+                          : <Badge variant="outline">{j.status}</Badge>
+                        }
+                      </TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">{j.total_documents ?? '—'}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">{j.processed_documents ?? '—'}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">
+                        {j.failed_documents ? <span className="text-destructive">{j.failed_documents}</span> : '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground">
+                        {duration != null ? `${duration}s` : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
