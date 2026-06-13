@@ -47,7 +47,7 @@ type CredentialFields = Record<string, string>;
 // ─── Static config ────────────────────────────────────────────────────────────
 const TYPE_LABELS: Record<IntegrationType, string> = {
   frontend_only: 'Subida manual', google_drive: 'Google Drive',
-  ftp: 'FTP', sftp: 'SFTP', remote_folder: 'Carpeta de red (SMB)', firebase_storage: 'Firebase Storage',
+  ftp: 'FTP', sftp: 'SFTP', remote_folder: 'Carpeta de red', firebase_storage: 'Firebase Storage',
 };
 const TYPE_ACCENTS: Record<IntegrationType, string> = {
   frontend_only: '#000000', google_drive: '#22C365', ftp: '#000000',
@@ -59,7 +59,7 @@ const TYPE_ICON_FG: Record<IntegrationType, string> = {
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
   frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available',
-  remote_folder: 'coming_soon', firebase_storage: 'coming_soon',
+  remote_folder: 'available', firebase_storage: 'coming_soon',
 };
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only:    [],
