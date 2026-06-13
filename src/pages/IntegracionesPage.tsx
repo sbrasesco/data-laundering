@@ -380,10 +380,15 @@ export function IntegracionesPage() {
 
       {/* ── Lista ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
-          {SELECTABLE_TYPES.map((type) => {
+          {[...SELECTABLE_TYPES].sort((a, b) => {
+            const aActive = integrations.find(i => i.integration_type === a)?.is_active ?? false;
+            const bActive = integrations.find(i => i.integration_type === b)?.is_active ?? false;
+            return (bActive ? 1 : 0) - (aActive ? 1 : 0);
+          }).map((type) => {
             const integration = integrations.find(i => i.integration_type === type) ?? null;
+            const isActive = integration?.is_active ?? false;
             return (
-            <Card key={type} className="overflow-hidden">
+            <Card key={type} className={`overflow-hidden ${isActive ? 'ring-2 ring-[#22C365]' : ''}`}>
               <CardContent className="p-0">
 
                 {/* ── Card header ──────────────────────────────────────────── */}
@@ -418,8 +423,8 @@ export function IntegracionesPage() {
                 </div>
 
                 {integration ? (<>
-                  {/* ── Info: Entrada / Salida ─────────────────────────────── */}
-                  <div className="border-t border-border divide-y divide-border">
+                  {/* ── Info: Entrada / Salida — solo si activa ────────────── */}
+                  {isActive && <div className="border-t border-border divide-y divide-border">
                     <div className="px-5 py-3 space-y-1">
                       <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Entrada</p>
                       {integration.folder_path ? (
@@ -445,10 +450,10 @@ export function IntegracionesPage() {
                         <p className="text-xs text-muted-foreground italic">Deshabilitada</p>
                       )}
                     </div>
-                  </div>
+                  </div>}
 
-                  {/* ── Drive folder picker ────────────────────────────────── */}
-                  {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && !hasDriveFolder(integration) && (
+                  {/* ── Drive folder picker — solo si activa ──────────────── */}
+                  {isActive && integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && !hasDriveFolder(integration) && (
                     <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
                       <p className="text-xs font-medium text-muted-foreground">Seleccioná la carpeta de Drive a monitorear</p>
                       {loadingFolders[integration.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
@@ -473,8 +478,8 @@ export function IntegracionesPage() {
                     </div>
                   )}
 
-                  {/* ── Carpeta Drive configurada ──────────────────────────── */}
-                  {integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && hasDriveFolder(integration) && (
+                  {/* ── Carpeta Drive configurada — solo si activa ────────── */}
+                  {isActive && integration.integration_type === 'google_drive' && hasDriveOAuth(integration) && hasDriveFolder(integration) && (
                     <div className="border-t border-border px-5 py-2 flex items-center gap-2 bg-muted/10">
                       <span className="text-xs text-muted-foreground flex items-center gap-1"><IconFolder /> Carpeta:</span>
                       <span className="text-xs font-mono">{integration.folder_path ?? integration.credentials?.folder_id}</span>
