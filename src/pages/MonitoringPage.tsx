@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface JobSummary    { status: string; error_type: string | null; count: number; }
 interface RecentError   { id: string; organization_name: string | null; error_type: string | null; error_message: string | null; created_at: string; }
-interface TenantBalance { name: string; balance: number; }
+interface TenantBalance { org_id: string; name: string; balance: number; }
 interface DocsStats     { total_processed: number; processed_24h: number; }
 interface AdminUser     { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
 interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
@@ -74,6 +74,9 @@ export function MonitoringPage() {
   const [stuckJobs,      setStuckJobs]      = useState<StuckJob[]>([]);
   const [workerHealth,   setWorkerHealth]   = useState<WorkerHealth>({ status: 'checking' });
   const [failingJob,     setFailingJob]     = useState<string | null>(null);
+  const [rechargeTarget, setRechargeTarget] = useState<TenantBalance | null>(null);
+  const [rechargeAmount, setRechargeAmount] = useState('');
+  const [recharging,     setRecharging]     = useState(false);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
@@ -119,7 +122,7 @@ export function MonitoringPage() {
       const creditOrgNames: Record<string, string> = {};
       for (const o of creditOrgsData ?? []) creditOrgNames[o.id] = o.name;
       setTenantBalances(
-        (creditsData ?? []).map((c) => ({ name: creditOrgNames[c.organization_id] ?? c.organization_id?.slice(0, 8) + '…', balance: c.balance ?? 0 }))
+        (creditsData ?? []).map((c) => ({ org_id: c.organization_id, name: creditOrgNames[c.organization_id] ?? c.organization_id?.slice(0, 8) + '…', balance: c.balance ?? 0 }))
           .sort((a, b) => a.balance - b.balance)
       );
 
@@ -179,6 +182,24 @@ export function MonitoringPage() {
   }, [GATEWAY_BASE]);
 
   useEffect(() => { fetchData(); checkWorkerHealth(); }, [fetchData, checkWorkerHealth]);
+
+  const handleRecharge = async () => {
+    if (!rechargeTarget) return;
+    const amount = parseInt(rechargeAmount, 10);
+    if (!amount || isNaN(amount)) return;
+    setRecharging(true);
+    try {
+      const { data: newBalance, error } = await supabase.rpc('add_credits_admin', { p_org_id: rechargeTarget.org_id, p_amount: amount });
+      if (error) throw error;
+      setTenantBalances(prev => prev.map(t => t.org_id === rechargeTarget.org_id ? { ...t, balance: newBalance as number } : t).sort((a, b) => a.balance - b.balance));
+      setRechargeTarget(null);
+      setRechargeAmount('');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al recargar');
+    } finally {
+      setRecharging(false);
+    }
+  };
 
   const handleFailStuckJob = async (jobId: string) => {
     setFailingJob(jobId);
@@ -359,28 +380,71 @@ export function MonitoringPage() {
       </Dialog>
 
       {/* Balance tenants */}
-      <Dialog open={modal === 'tenants'} onOpenChange={() => setModal(null)}>
-        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+      <Dialog open={modal === 'tenants'} onOpenChange={() => { setModal(null); setRechargeTarget(null); setRechargeAmount(''); }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Balance por tenant</DialogTitle></DialogHeader>
           {tenantBalances.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">Sin datos.</p>
           ) : (
             <Table>
-              <TableHeader><TableRow><TableHead>Organización</TableHead><TableHead className="text-right">Créditos</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Organización</TableHead>
+                  <TableHead className="text-right">Créditos</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {tenantBalances.map((t) => (
-                  <TableRow key={t.name}>
-                    <TableCell className="text-sm">{t.name}</TableCell>
-                    <TableCell className="text-right font-medium text-sm tabular-nums">{t.balance.toLocaleString()}</TableCell>
-                    <TableCell>
-                      {t.balance === 0
-                        ? <Badge variant="destructive">Sin saldo</Badge>
-                        : t.balance < 10
-                        ? <Badge variant="warning">Saldo bajo</Badge>
-                        : <Badge variant="success">OK</Badge>
-                      }
-                    </TableCell>
-                  </TableRow>
+                  <>
+                    <TableRow key={t.org_id}>
+                      <TableCell className="text-sm">{t.name}</TableCell>
+                      <TableCell className="text-right font-medium text-sm tabular-nums">{t.balance.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {t.balance === 0
+                          ? <Badge variant="destructive">Sin saldo</Badge>
+                          : t.balance < 10
+                          ? <Badge variant="warning">Saldo bajo</Badge>
+                          : <Badge variant="success">OK</Badge>
+                        }
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm" variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => { setRechargeTarget(t); setRechargeAmount(''); }}
+                        >
+                          + Créditos
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    {rechargeTarget?.org_id === t.org_id && (
+                      <TableRow key={`${t.org_id}-recharge`} className="bg-muted/40">
+                        <TableCell colSpan={4} className="py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground flex-shrink-0">Agregar créditos a <strong>{t.name}</strong>:</span>
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="Cantidad"
+                              value={rechargeAmount}
+                              onChange={e => setRechargeAmount(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && handleRecharge()}
+                              className="flex h-7 w-24 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              autoFocus
+                            />
+                            <Button size="sm" className="h-7 px-3" disabled={!rechargeAmount || recharging} onClick={handleRecharge}>
+                              {recharging ? '...' : 'Confirmar'}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { setRechargeTarget(null); setRechargeAmount(''); }}>
+                              Cancelar
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 ))}
               </TableBody>
             </Table>
