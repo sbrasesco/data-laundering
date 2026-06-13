@@ -14,6 +14,7 @@ module.exports = {
     extend: {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        lora: ['Lora', 'Georgia', 'serif'],
       },
       colors: {
         // Las variables CSS ya contienen el valor oklch() completo,

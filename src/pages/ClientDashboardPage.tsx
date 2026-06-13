@@ -31,7 +31,7 @@ function MetricCard({ value, label, accent = '#22C365' }: { value: number; label
     <Card className="overflow-hidden">
       <div className="h-1.5 w-full" style={{ background: accent }} />
       <CardContent className="pt-4 pb-5 text-center">
-        <div className="text-3xl font-bold tracking-tight text-foreground mb-1">{value}</div>
+        <div className="text-3xl font-bold tracking-tight text-foreground mb-1 font-lora">{value}</div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</div>
       </CardContent>
     </Card>

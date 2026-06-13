@@ -49,7 +49,7 @@ function MonitorCard({
       <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 text-white" style={{ background: accent }}>
         {icon}
       </div>
-      <div className="text-3xl font-black tracking-tight">{metric}</div>
+      <div className="text-3xl font-bold tracking-tight font-lora">{metric}</div>
       <div className="text-xs font-semibold uppercase tracking-wide mt-1 text-muted-foreground">{title}</div>
       <div className="text-xs text-muted-foreground/70 mt-0.5">{sub}</div>
       <div className="absolute bottom-2 right-3 text-[10px] text-muted-foreground/40 group-hover:text-muted-foreground/70 transition-colors">Ver →</div>
