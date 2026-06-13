@@ -773,10 +773,10 @@ export function MonitoringPage() {
 
       {/* Precios */}
       <Dialog open={modal === 'prices'} onOpenChange={() => setModal(null)}>
-        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Editor de precios</DialogTitle></DialogHeader>
 
-          <div className="space-y-5 mt-2">
+          <div className="space-y-6 mt-2">
 
             {/* Precio base por plan */}
             <div>
@@ -795,19 +795,12 @@ export function MonitoringPage() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">$</span>
                         <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                          type="number" step="0.01" min="0"
                           value={editVal ?? Number(plan.price_per_doc).toFixed(4)}
                           onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
-                          className="w-20 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         />
-                        <Button
-                          size="sm"
-                          className="h-7 px-2.5 text-xs"
-                          disabled={!isDirty || savingPrice === key}
-                          onClick={() => handleSavePlanPrice(plan.name)}
-                        >
+                        <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSavePlanPrice(plan.name)}>
                           {savingPrice === key ? '...' : 'Guardar'}
                         </Button>
                       </div>
@@ -817,45 +810,131 @@ export function MonitoringPage() {
               </div>
             </div>
 
-            {/* Costo por feature / integración */}
+            {/* Integraciones de almacenamiento */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Costo adicional por feature (USD/doc)</p>
-              <div className="rounded-md border overflow-hidden">
-                {pricingFeatures.map((feat, i) => {
-                  const key = `feat_${feat.feature_key}`;
-                  const editVal = editPrices[key];
-                  const isDirty = editVal !== undefined;
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Integraciones (USD adicional/doc)</p>
+              <div className="space-y-3">
+
+                {/* Google Drive — agrupado con sub-configs */}
+                {(() => {
+                  const driveFeats = pricingFeatures.filter(f => f.feature_key.startsWith('integration_drive'));
+                  if (driveFeats.length === 0) return null;
                   return (
-                    <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${i < pricingFeatures.length - 1 ? 'border-b' : ''}`}>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{feat.label}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
+                    <div className="rounded-md border overflow-hidden">
+                      <div className="px-3 py-2 bg-muted/40 border-b flex items-center gap-2">
+                        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="text-muted-foreground flex-shrink-0">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+                        </svg>
+                        <span className="text-xs font-semibold">Google Drive</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">+$</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={editVal ?? Number(feat.cost_usd).toFixed(4)}
-                          onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
-                          className="w-20 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        />
-                        <Button
-                          size="sm"
-                          className="h-7 px-2.5 text-xs"
-                          disabled={!isDirty || savingPrice === key}
-                          onClick={() => handleSaveFeatureCost(feat.feature_key)}
-                        >
-                          {savingPrice === key ? '...' : 'Guardar'}
-                        </Button>
-                      </div>
+                      {driveFeats.map((feat, i) => {
+                        const key = `feat_${feat.feature_key}`;
+                        const editVal = editPrices[key];
+                        const isDirty = editVal !== undefined;
+                        const isSubConfig = feat.feature_key !== 'integration_drive';
+                        return (
+                          <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${isSubConfig ? 'pl-7 bg-muted/10' : ''} ${i < driveFeats.length - 1 ? 'border-b' : ''}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium">{feat.label}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground">+$</span>
+                              <input
+                                type="number" step="0.01" min="0"
+                                value={editVal ?? Number(feat.cost_usd).toFixed(4)}
+                                onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
+                                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              />
+                              <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSaveFeatureCost(feat.feature_key)}>
+                                {savingPrice === key ? '...' : 'Guardar'}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
-                })}
+                })()}
+
+                {/* Otras integraciones — filas simples */}
+                {(() => {
+                  const others = pricingFeatures.filter(f =>
+                    f.feature_key.startsWith('integration_') && !f.feature_key.startsWith('integration_drive')
+                  );
+                  if (others.length === 0) return null;
+                  return (
+                    <div className="rounded-md border overflow-hidden">
+                      {others.map((feat, i) => {
+                        const key = `feat_${feat.feature_key}`;
+                        const editVal = editPrices[key];
+                        const isDirty = editVal !== undefined;
+                        return (
+                          <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${i < others.length - 1 ? 'border-b' : ''}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium">{feat.label}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground">+$</span>
+                              <input
+                                type="number" step="0.01" min="0"
+                                value={editVal ?? Number(feat.cost_usd).toFixed(4)}
+                                onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
+                                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              />
+                              <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSaveFeatureCost(feat.feature_key)}>
+                                {savingPrice === key ? '...' : 'Guardar'}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
               </div>
-              <p className="text-xs text-muted-foreground mt-2">El costo total por doc es la suma del precio base del plan más los adicionales de cada feature activa.</p>
             </div>
+
+            {/* Features adicionales */}
+            {(() => {
+              const extras = pricingFeatures.filter(f => !f.feature_key.startsWith('integration_'));
+              if (extras.length === 0) return null;
+              return (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Features adicionales (USD/doc)</p>
+                  <div className="rounded-md border overflow-hidden">
+                    {extras.map((feat, i) => {
+                      const key = `feat_${feat.feature_key}`;
+                      const editVal = editPrices[key];
+                      const isDirty = editVal !== undefined;
+                      return (
+                        <div key={feat.feature_key} className={`flex items-center gap-3 px-3 py-2.5 ${i < extras.length - 1 ? 'border-b' : ''}`}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{feat.label}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{feat.feature_key}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-muted-foreground">+$</span>
+                            <input
+                              type="number" step="0.01" min="0"
+                              value={editVal ?? Number(feat.cost_usd).toFixed(4)}
+                              onChange={e => setEditPrices(prev => ({ ...prev, [key]: e.target.value }))}
+                              className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            />
+                            <Button size="sm" className="h-7 px-2.5 text-xs" disabled={!isDirty || savingPrice === key} onClick={() => handleSaveFeatureCost(feat.feature_key)}>
+                              {savingPrice === key ? '...' : 'Guardar'}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">El costo total por doc = precio base del plan + suma de adicionales de features activas.</p>
+                </div>
+              );
+            })()}
 
           </div>
         </DialogContent>
