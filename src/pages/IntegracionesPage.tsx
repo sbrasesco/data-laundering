@@ -537,12 +537,17 @@ export function IntegracionesPage() {
                       </div>
                       {/* Acciones */}
                       <div className="border-t border-border px-4 py-2.5 flex items-center gap-2 bg-muted/20 mt-auto">
-                        {integration && !comingSoon && (
-                          <button type="button" onClick={() => handleToggle(integration.id, integration.is_active, type)}
-                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${integration.is_active ? 'bg-[#22C365]' : 'bg-slate-300'}`}>
-                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                          </button>
-                        )}
+                        {/* Toggle — siempre visible, deshabilitado si no configurada o coming soon */}
+                        <button
+                          type="button"
+                          disabled={!integration || comingSoon}
+                          onClick={() => integration && !comingSoon && handleToggle(integration.id, integration.is_active, type)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
+                            integration?.is_active ? 'bg-[#22C365]' : 'bg-slate-300'
+                          } ${(!integration || comingSoon) ? 'opacity-30 cursor-not-allowed' : ''}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${integration?.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </button>
                         <div className="ml-auto">
                           {integration ? (
                             <Button size="sm" variant="outline" onClick={() => openEditForm(integration)}>Editar</Button>
