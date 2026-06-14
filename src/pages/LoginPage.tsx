@@ -139,7 +139,15 @@ export function LoginPage() {
     if (signupPassword.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); setLoading(false); return; }
 
     try {
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email: signupEmail.trim(), password: signupPassword });
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: signupEmail.trim(),
+        password: signupPassword,
+        options: {
+          // El trigger handle_new_user() lee organization_name desde raw_user_meta_data
+          // y crea la organización y el profile automáticamente al registrar el usuario.
+          data: { organization_name: organizationName.trim() },
+        },
+      });
       if (signUpError) throw new Error(signUpError.message);
       const user = signUpData.user;
       if (!user) throw new Error('El registro fue exitoso, pero no se obtuvo el usuario.');
@@ -162,11 +170,8 @@ export function LoginPage() {
         throw new Error(signInError.message || 'No se pudo iniciar sesión automáticamente.');
       }
 
-      // Create org+profile BEFORE setLoading(false) so the !loading guard in useEffect holds
-      const { data: org, error: orgError } = await supabase.from('organizations').insert({ name: organizationName.trim() }).select().single();
-      if (orgError || !org) throw new Error(orgError?.message || 'Error al crear la organización');
-      const { error: profileError } = await supabase.from('profiles').insert({ id: user.id, organization_id: org.id });
-      if (profileError) throw new Error(profileError.message || 'Error al crear el perfil');
+      // La organización y el profile ya fueron creados por el trigger handle_new_user()
+      // al momento del signUp — no se necesita crearlos manualmente.
 
       const successMsg = planSlug ? 'Cuenta creada. Redirigiendo al pago...' : 'Cuenta creada con éxito. Redirigiendo...';
       setSuccessMessage(successMsg);
