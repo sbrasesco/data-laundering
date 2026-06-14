@@ -471,6 +471,10 @@ async function handleCreateCustomMpPreference(body, log) {
   if (pricePerCredit === null) return { status: 500, body: { error: 'No se pudo determinar el precio del crédito' } };
   const totalPrice = creditsNum * pricePerCredit;
 
+  // Pre-generar UUID del payment para usarlo como external_reference en MP
+  // Esto permite que el webhook matchee por external_reference cuando preference_id viene null (sandbox)
+  const paymentUUID = randomUUID();
+
   const mpRes = await fetch('https://api.mercadopago.com/checkout/preferences', {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
@@ -482,7 +486,7 @@ async function handleCreateCustomMpPreference(body, log) {
         pending: `${FRONTEND_URL}/payment/pending`,
       },
       ...(FRONTEND_URL.startsWith('https://') ? { auto_return: 'approved' } : {}),
-      external_reference: organization_id,
+      external_reference: paymentUUID,
       ...(GATEWAY_URL ? { notification_url: `${GATEWAY_URL}/api/mp/webhook` } : {}),
     }),
   });
@@ -497,6 +501,7 @@ async function handleCreateCustomMpPreference(body, log) {
     method:  'POST',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
     body: JSON.stringify({
+      id: paymentUUID,
       organization_id,
       plan_id: null,
       amount: totalPrice,
@@ -541,6 +546,10 @@ async function handleCreateMpPreference(body, log) {
   if (!plans.length) return { status: 404, body: { error: 'Plan no encontrado' } };
   const plan = plans[0];
 
+  // Pre-generar UUID del payment para usarlo como external_reference en MP
+  // Esto permite que el webhook matchee por external_reference cuando preference_id viene null (sandbox)
+  const paymentUUID = randomUUID();
+
   const mpRes = await fetch('https://api.mercadopago.com/checkout/preferences', {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
@@ -552,7 +561,7 @@ async function handleCreateMpPreference(body, log) {
         pending: `${FRONTEND_URL}/payment/pending`,
       },
       ...(FRONTEND_URL.startsWith('https://') ? { auto_return: 'approved' } : {}),
-      external_reference: organization_id,
+      external_reference: paymentUUID,
       ...(GATEWAY_URL ? { notification_url: `${GATEWAY_URL}/api/mp/webhook` } : {}),
     }),
   });
@@ -566,7 +575,7 @@ async function handleCreateMpPreference(body, log) {
   const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
     method:  'POST',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-    body: JSON.stringify({ organization_id, plan_id, amount: Number(plan.price), currency: plan.currency, gateway: 'mercadopago', gateway_preference_id: mpData.id, status: 'pending' }),
+    body: JSON.stringify({ id: paymentUUID, organization_id, plan_id, amount: Number(plan.price), currency: plan.currency, gateway: 'mercadopago', gateway_preference_id: mpData.id, status: 'pending' }),
   });
   if (!payRes.ok) {
     const payErr = await payRes.text();
@@ -610,24 +619,33 @@ async function handleMpWebhook(body, log) {
     return { status: 200, body: { ok: true } };
   }
 
-  const preferenceId = payment.preference_id;
-  if (!preferenceId) {
-    log('warn', 'mp.webhook.no_preference_id', { paymentId });
+  const preferenceId   = payment.preference_id;
+  const externalRef    = payment.external_reference; // UUID de nuestro payment (desde v2 del handler)
+
+  if (!preferenceId && !externalRef) {
+    log('warn', 'mp.webhook.no_identifiers', { paymentId });
     return { status: 200, body: { ok: true } };
   }
 
-  // Buscar el payment local por gateway_preference_id
-  const payRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata&limit=1`,
-    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
-  );
+  // Buscar el payment local: primero por preference_id, luego por external_reference (UUID)
+  // El fallback por external_reference es necesario en sandbox donde preference_id puede venir null
+  let lookupUrl;
+  if (preferenceId) {
+    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata&limit=1`;
+  } else {
+    // external_reference es el UUID del payment (asignado al crear la preferencia)
+    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?id=eq.${encodeURIComponent(externalRef)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata&limit=1`;
+    log('info', 'mp.webhook.fallback_external_ref', { paymentId, externalRef });
+  }
+
+  const payRes = await fetch(lookupUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
   if (!payRes.ok) {
-    log('error', 'mp.webhook.db_lookup_failed', { preferenceId });
+    log('error', 'mp.webhook.db_lookup_failed', { preferenceId, externalRef });
     return { status: 200, body: { ok: false } };
   }
   const payments = await payRes.json();
   if (!payments.length) {
-    log('warn', 'mp.webhook.payment_not_found', { preferenceId });
+    log('warn', 'mp.webhook.payment_not_found', { preferenceId, externalRef });
     return { status: 200, body: { ok: true } };
   }
   const localPayment = payments[0];
