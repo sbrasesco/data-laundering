@@ -63,6 +63,28 @@ ssh root@157.230.231.207 "cd /root/worker && docker compose build && docker comp
 | TASK-82 | Panel Monitoreo superadmin — ✅ Validado prod |
 | TASK-83 | Resiliencia frontend ante extensiones de browser — ✅ Validado prod |
 
+## TASK-83 — Resiliencia frontend ante extensiones (2026-06-14)
+
+Cuatro fixes deployados ante pantalla en blanco / bugs causados por extensiones de browser o red lenta:
+
+### Fix 1 — Guard `organizationId` en SubirZipPage (`daf80d5`)
+`fetchProfile` puede hacer timeout en redes lentas → `organizationId = null` → el gateway rechazaba el job con "Campos requeridos". Fix: `if (!organizationId) { setError(...); return; }` en `handleSubmit` antes de crear el job. También se deshabilita el botón mientras `authLoading || !organizationId`.
+- Archivo: `src/pages/SubirZipPage.tsx`
+
+### Fix 2 — ErrorBoundary global + handler `unhandledrejection` (`956542e`)
+Sin error boundary, cualquier excepción en el árbol React deja pantalla en blanco. Las extensiones que corren en main world pueden inyectar promesas sin catch que propagan al contexto de la página. Fix: `<ErrorBoundary>` wrapeando `<App />` muestra "Algo salió mal / Recargar página" en vez de blanco. `window.addEventListener('unhandledrejection', e => { e.preventDefault(); })` swallowea promesas externas.
+- Archivos: `src/components/ErrorBoundary.tsx`, `src/main.tsx`
+
+### Fix 3 — `fetchProfile` no limpia profile en error (`27749d4`)
+`onAuthStateChange` dispara `fetchProfile` en cada refresh de token. Si fallaba (timeout/red), llamaba `setProfile(null)` → `isSuperadmin = false` → tab Monitoreo desaparecía. Fix: eliminar los `setProfile(null)` dentro de `fetchProfile` — solo `signOut` y el handler de sesión nula limpian el profile.
+- Archivo: `src/contexts/AuthContext.tsx`
+
+### Fix 4 — Fallback HTML + reintentos automáticos (`12cfa00`)
+Si el CSS/JS bundle es bloqueado por extensión, el browser mostraba pantalla en blanco total. Si Supabase era bloqueado momentáneamente, `fetchProfile` fallaba sin reintento. Fixes:
+- `index.html`: spinner con estilos inline dentro de `#root` — visible antes de que cargue cualquier JS/CSS. Mensaje "Tardando demasiado — hacé clic para recargar" aparece a los 8s vía CSS animation.
+- `AuthContext`: `fetchProfile` reintenta hasta 3 veces (espera 1.5s y 3s entre intentos). Timeout externo subido de 10s a 20s.
+- Archivos: `index.html`, `src/contexts/AuthContext.tsx`
+
 ## Patrones clave del frontend
 
 ### Sidebar balance (AppShell.tsx)
