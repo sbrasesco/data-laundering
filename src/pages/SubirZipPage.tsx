@@ -19,7 +19,7 @@ export function SubirZipPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
-  const { user, organizationId } = useAuth();
+  const { user, organizationId, loading: authLoading } = useAuth();
   const { clients, loading: clientsLoading, error: clientsError } = useActiveClients();
   const { balance, loading: creditsLoading } = useTenantCredits();
   const navigate = useNavigate();
@@ -40,6 +40,7 @@ export function SubirZipPage() {
     if (!file) { setError('Por favor seleccioná un archivo'); return; }
     if (!clientId) { setError('Por favor seleccioná un cliente'); return; }
     if (!user) { setError('No hay sesión activa. Por favor iniciá sesión nuevamente.'); return; }
+    if (!organizationId) { setError('No se pudo cargar tu perfil de organización. Por favor recargá la página.'); return; }
 
     setLoading(true);
     setError(null);
@@ -132,7 +133,7 @@ export function SubirZipPage() {
             {error && <ErrorMessage message={error} />}
 
             <div className="flex gap-3 pt-2">
-              <Button type="submit" disabled={loading || !file || !clientId || clientsLoading || balance === 0}>
+              <Button type="submit" disabled={loading || authLoading || !organizationId || !file || !clientId || clientsLoading || balance === 0}>
                 {loading ? 'Creando proceso…' : 'Crear proceso'}
               </Button>
               <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} disabled={loading}>
