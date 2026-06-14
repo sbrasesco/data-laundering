@@ -695,11 +695,14 @@ async function handleMpWebhook(body, log) {
     amountToCredit = localPayment.amount;
   }
 
-  // Llamar add_credits
+  // add_credits es SECURITY DEFINER sin check de auth.uid() — funciona con service key
   try {
     await callSupabaseRpc('add_credits', {
-      p_org_id:     localPayment.organization_id,
-      p_amount_usd: Number(amountToCredit),
+      p_organization_id:    localPayment.organization_id,
+      p_amount_usd:         Number(amountToCredit),
+      p_plan_id:            localPayment.plan_id ?? null,
+      p_description:        'Pago MercadoPago aprobado',
+      p_gateway_payment_id: String(paymentId),
     });
     log('info', 'mp.webhook.approved', {
       paymentId,
