@@ -206,19 +206,15 @@ export function MonitoringPage() {
         created_at: e.created_at,
       })));
 
-      // Balance por tenant
-      const { data: creditsData } = await supabase.from('organization_credits').select('organization_id, balance');
-      const creditOrgIds = (creditsData ?? []).map((c) => c.organization_id);
-      const { data: creditOrgsData } = await supabase.from('organizations').select('id, name, is_active').in('id', creditOrgIds);
-      const creditOrgs: Record<string, { name: string; is_active: boolean }> = {};
-      for (const o of creditOrgsData ?? []) creditOrgs[o.id] = { name: o.name, is_active: o.is_active ?? true };
+      // Balance por tenant (RPC bypass RLS para superadmin)
+      const { data: tenantsData } = await supabase.rpc('get_all_tenants_admin');
       setTenantBalances(
-        (creditsData ?? []).map((c) => ({
-          org_id: c.organization_id,
-          name: creditOrgs[c.organization_id]?.name ?? c.organization_id?.slice(0, 8) + '…',
-          balance: c.balance ?? 0,
-          is_active: creditOrgs[c.organization_id]?.is_active ?? true,
-        })).sort((a, b) => a.balance - b.balance)
+        (tenantsData ?? []).map((t: { org_id: string; name: string; is_active: boolean; balance: number }) => ({
+          org_id: t.org_id,
+          name: t.name ?? t.org_id?.slice(0, 8) + '…',
+          balance: t.balance ?? 0,
+          is_active: t.is_active ?? true,
+        }))
       );
 
       // Docs stats
@@ -300,12 +296,7 @@ export function MonitoringPage() {
     setModal('activity');
     setLoadingActivity(true);
     try {
-      const { data } = await supabase
-        .from('pdf_jobs')
-        .select('id, status, error_type, created_at, finished_at, total_documents, processed_documents, failed_documents, input_source')
-        .eq('organization_id', t.org_id)
-        .order('created_at', { ascending: false })
-        .limit(30);
+      const { data } = await supabase.rpc('get_tenant_jobs_admin', { p_org_id: t.org_id });
       setTenantJobs((data ?? []) as TenantJob[]);
     } finally {
       setLoadingActivity(false);
