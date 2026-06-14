@@ -62,6 +62,7 @@ ssh root@157.230.231.207 "cd /root/worker && docker compose build && docker comp
 | TASK-81 | Reemplazar créditos por saldo USD — ✅ Validado prod |
 | TASK-82 | Panel Monitoreo superadmin — ✅ Validado prod |
 | TASK-83 | Resiliencia frontend ante extensiones de browser — ✅ Validado prod |
+| TASK-84 | Fix MonitoringPage Tenants: RPC bypass RLS para superadmin — ✅ Validado prod |
 
 ## TASK-83 — Resiliencia frontend ante extensiones (2026-06-14)
 
@@ -84,6 +85,23 @@ Si el CSS/JS bundle es bloqueado por extensión, el browser mostraba pantalla en
 - `index.html`: spinner con estilos inline dentro de `#root` — visible antes de que cargue cualquier JS/CSS. Mensaje "Tardando demasiado — hacé clic para recargar" aparece a los 8s vía CSS animation.
 - `AuthContext`: `fetchProfile` reintenta hasta 3 veces (espera 1.5s y 3s entre intentos). Timeout externo subido de 10s a 20s.
 - Archivos: `index.html`, `src/contexts/AuthContext.tsx`
+
+### Fix 5 — Guard temprano en `index.html` (`ced328f`)
+El `unhandledrejection` handler en `main.tsx` llegaba tarde — extensiones que inyectan en `document_start` podían lanzar errores antes de que el bundle cargara. Fix: script inline en `<head>` antes de cualquier recurso externo que captura `window.fetch` nativo (`window.__nativeFetch`) y registra el handler de promesas temprano.
+- Archivo: `index.html`
+
+## TASK-84 — Fix MonitoringPage Tenants (2026-06-14)
+
+### Problema
+Tarjeta Tenants en MonitoringPage mostraba solo la organización propia del superadmin. Las queries directas a `organization_credits` y `organizations` están filtradas por RLS — devuelven solo filas de la org del usuario autenticado, sin importar `is_superadmin`.
+
+### Solución — commit `9fd576c`
+Dos RPCs `SECURITY DEFINER` en Supabase que bypasean RLS verificando internamente que `auth.uid()` sea superadmin:
+- `get_all_tenants_admin()` → devuelve todas las orgs con nombre, balance y estado `is_active`
+- `get_tenant_jobs_admin(p_org_id uuid)` → devuelve últimos 50 jobs de cualquier tenant
+
+MonitoringPage actualizado para usar ambas RPCs en lugar de queries directas.
+- Archivo: `src/pages/MonitoringPage.tsx`
 
 ## Patrones clave del frontend
 
@@ -119,6 +137,8 @@ Tres estados: skeleton (creditsLoading) → rojo "Sin saldo" (balance === 0) →
 - `add_credits_admin(p_org_id, p_amount_usd)` — superadmin
 - `approve_document_row(p_row_id bigint)` — aprueba doc + incrementa `corrected_documents`; si todos `ok` → job pasa a `done`
 - `get_stuck_jobs()`, `fail_stuck_job(p_job_id)`, `set_tenant_active(p_org_id, p_active)`
+- `get_all_tenants_admin()` — SECURITY DEFINER, superadmin; todas las orgs con balance
+- `get_tenant_jobs_admin(p_org_id)` — SECURITY DEFINER, superadmin; últimos 50 jobs de un tenant
 - `update_plan_price(p_plan_id, p_price)`, `update_feature_cost(p_feature_key, p_cost_usd)` — superadmin, precios editables
 
 ## Notas importantes
@@ -126,4 +146,6 @@ Tres estados: skeleton (creditsLoading) → rojo "Sin saldo" (balance === 0) →
 - `classify_pdf_job_row` trigger: si `NEW.approved_at IS NOT NULL` → `doc_status = 'ok'` definitivo (no sobreescribir aprobación manual)
 - `set_pdf_jobs_counters` trigger: incluye `status = 'done_with_warnings'` en cálculo de `has_warnings`
 - `feature_pricing_multipliers` tiene RLS — siempre necesita SELECT policy para usuarios autenticados
+- Las queries directas a `organization_credits` y `organizations` están filtradas por RLS — para superadmin usar siempre RPCs `SECURITY DEFINER` (`get_all_tenants_admin`, etc.)
+- `fetchProfile` en `AuthContext` NO llama `setProfile(null)` en error — preserva el profile cargado. Solo `signOut` y `onAuthStateChange` con session=null limpian el profile.
 - Login con Playwright/headless falla en prod (Supabase bloquea REST login con esas credenciales en CI); testing manual vía browser
