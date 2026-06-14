@@ -21,6 +21,7 @@ const SUPABASE_KEY       = process.env.SUPABASE_SERVICE_KEY;
 const GATEWAY_API_KEY    = process.env.GATEWAY_API_KEY;
 const MP_ACCESS_TOKEN    = process.env.MP_ACCESS_TOKEN;
 const FRONTEND_URL       = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+const GATEWAY_URL        = process.env.GATEWAY_URL  ?? '';
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID ?? '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? '';
 const GOOGLE_REDIRECT_URI  = process.env.GOOGLE_REDIRECT_URI
@@ -482,6 +483,7 @@ async function handleCreateCustomMpPreference(body, log) {
       },
       ...(FRONTEND_URL.startsWith('https://') ? { auto_return: 'approved' } : {}),
       external_reference: organization_id,
+      ...(GATEWAY_URL ? { notification_url: `${GATEWAY_URL}/api/mp/webhook` } : {}),
     }),
   });
   if (!mpRes.ok) {
@@ -551,6 +553,7 @@ async function handleCreateMpPreference(body, log) {
       },
       ...(FRONTEND_URL.startsWith('https://') ? { auto_return: 'approved' } : {}),
       external_reference: organization_id,
+      ...(GATEWAY_URL ? { notification_url: `${GATEWAY_URL}/api/mp/webhook` } : {}),
     }),
   });
   if (!mpRes.ok) {
@@ -575,6 +578,126 @@ async function handleCreateMpPreference(body, log) {
   return { status: 200, body: { payment_id: payment.id, preference_id: mpData.id, init_point: mpData.init_point, sandbox_init_point: mpData.sandbox_init_point } };
 }
 
+// ─── Handler: MercadoPago IPN webhook (TASK-85) ───────────────────────────────
+
+async function handleMpWebhook(body, log) {
+  const { data, type } = body ?? {};
+
+  // Ignorar notificaciones que no son de pagos (suscripciones, chargebacks, etc.)
+  if (type !== 'payment') {
+    log('info', 'mp.webhook.ignored', { type });
+    return { status: 200, body: { ok: true } };
+  }
+
+  const paymentId = data?.id;
+  if (!paymentId) return { status: 200, body: { ok: true } };
+
+  // Verificar el pago contra la API de MP
+  const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+    headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+  });
+  if (!mpRes.ok) {
+    const err = await mpRes.text();
+    log('error', 'mp.webhook.fetch_payment_failed', { paymentId, status: mpRes.status, err });
+    return { status: 200, body: { ok: false } }; // siempre 200 para que MP no reintente indefinidamente
+  }
+
+  const payment = await mpRes.json();
+
+  // Solo procesar pagos aprobados
+  if (payment.status !== 'approved') {
+    log('info', 'mp.webhook.not_approved', { paymentId, status: payment.status });
+    return { status: 200, body: { ok: true } };
+  }
+
+  const preferenceId = payment.preference_id;
+  if (!preferenceId) {
+    log('warn', 'mp.webhook.no_preference_id', { paymentId });
+    return { status: 200, body: { ok: true } };
+  }
+
+  // Buscar el payment local por gateway_preference_id
+  const payRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata&limit=1`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!payRes.ok) {
+    log('error', 'mp.webhook.db_lookup_failed', { preferenceId });
+    return { status: 200, body: { ok: false } };
+  }
+  const payments = await payRes.json();
+  if (!payments.length) {
+    log('warn', 'mp.webhook.payment_not_found', { preferenceId });
+    return { status: 200, body: { ok: true } };
+  }
+  const localPayment = payments[0];
+
+  // Idempotencia: si ya fue procesado, no hacer nada
+  if (localPayment.gateway_payment_id) {
+    log('info', 'mp.webhook.already_processed', { paymentId, localId: localPayment.id });
+    return { status: 200, body: { ok: true } };
+  }
+
+  // Actualizar el payment: status approved + gateway_payment_id
+  const updateRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/payments?id=eq.${localPayment.id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey:          SUPABASE_KEY,
+        Authorization:  `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer:         'return=minimal',
+      },
+      body: JSON.stringify({ status: 'approved', gateway_payment_id: String(paymentId) }),
+    }
+  );
+  if (!updateRes.ok) {
+    log('error', 'mp.webhook.update_failed', { localId: localPayment.id });
+    return { status: 200, body: { ok: false } };
+  }
+
+  // Determinar cuánto acreditar
+  let amountToCredit;
+
+  if (localPayment.plan_id) {
+    // Compra de plan: acreditar balance_usd del plan (puede diferir del precio pagado)
+    const planRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/billing_plans?id=eq.${encodeURIComponent(localPayment.plan_id)}&select=balance_usd&limit=1`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (planRes.ok) {
+      const plans = await planRes.json();
+      amountToCredit = plans[0]?.balance_usd ?? localPayment.amount;
+    } else {
+      amountToCredit = localPayment.amount;
+    }
+  } else {
+    // Custom credits: acreditar el monto pagado
+    amountToCredit = localPayment.amount;
+  }
+
+  // Llamar add_credits
+  try {
+    await callSupabaseRpc('add_credits', {
+      p_org_id:     localPayment.organization_id,
+      p_amount_usd: Number(amountToCredit),
+    });
+    log('info', 'mp.webhook.approved', {
+      paymentId,
+      preferenceId,
+      org_id:          localPayment.organization_id,
+      plan_id:         localPayment.plan_id,
+      amount_credited: amountToCredit,
+    });
+  } catch (err) {
+    log('error', 'mp.webhook.add_credits_failed', { org_id: localPayment.organization_id, error: err.message });
+    return { status: 200, body: { ok: false } };
+  }
+
+  return { status: 200, body: { ok: true } };
+}
+
 // ─── Server ───────────────────────────────────────────────────────────────────
 
 export function startGateway(queue, log) {
@@ -590,6 +713,18 @@ export function startGateway(queue, log) {
       } catch (err) {
         log('error', 'google_oauth.callback_error', { error: err.message });
         return redirect(res, `${FRONTEND_URL}/integrations?google_error=server_error`);
+      }
+    }
+
+    // IPN de MercadoPago — EXENTO de auth (MP no envía Bearer token)
+    if (req.method === 'POST' && req.url === '/api/mp/webhook') {
+      try {
+        const body = await readBody(req);
+        const result = await handleMpWebhook(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'mp.webhook.error', { error: err.message });
+        return json(res, 200, { ok: false }); // siempre 200 para MP
       }
     }
 
@@ -678,6 +813,8 @@ export function startGateway(queue, log) {
       endpoints: [
         'POST /api/enqueue',
         'POST /api/mp/create-preference',
+        'POST /api/mp/create-custom-preference',
+        'POST /api/mp/webhook',
         'POST /api/deposit-row',
         'GET  /api/auth/google/callback',
         'GET  /api/drive/folders',
@@ -691,7 +828,7 @@ export function startGateway(queue, log) {
     log('info', 'gateway.started', {
       port:      GATEWAY_PORT,
       auth:      GATEWAY_API_KEY ? 'Bearer token' : 'NONE (staging)',
-      endpoints: ['enqueue', 'mp/create-preference', 'deposit-row', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'health'],
+      endpoints: ['enqueue', 'mp/create-preference', 'mp/create-custom-preference', 'mp/webhook', 'deposit-row', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'health'],
     });
   });
 
