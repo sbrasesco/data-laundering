@@ -2,6 +2,15 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <!-- Guard temprano: captura fetch nativo antes de que extensiones lo parcheen,
+         y registra el handler de promesas antes de que el bundle cargue -->
+    <script>
+      window.__nativeFetch = window.fetch ? window.fetch.bind(window) : undefined;
+      window.addEventListener('unhandledrejection', function(e) {
+        console.warn('[unhandledrejection early]', e.reason);
+        e.preventDefault();
+      });
+    </script>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
