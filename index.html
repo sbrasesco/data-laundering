@@ -8,9 +8,49 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:wght@600;700&display=swap" rel="stylesheet">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DataLand</title>
+    <style>
+      #root-fallback {
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        background: #ffffff; gap: 14px;
+        font-family: Inter, system-ui, sans-serif;
+      }
+      #root-fallback .dl-logo {
+        font-size: 22px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 4px;
+      }
+      #root-fallback .dl-logo span { color: #22C365; }
+      #root-fallback .spinner {
+        width: 28px; height: 28px;
+        border: 3px solid #e5e7eb; border-top-color: #111827;
+        border-radius: 50%;
+        animation: dl-spin 0.8s linear infinite;
+      }
+      #root-fallback .msg { font-size: 13px; color: #6b7280; }
+      #root-fallback .msg-slow {
+        font-size: 12px; color: #9ca3af;
+        text-align: center; max-width: 280px; line-height: 1.5;
+        opacity: 0; animation: dl-fade 0.4s ease forwards; animation-delay: 8s;
+      }
+      #root-fallback .msg-slow a {
+        color: #22C365; cursor: pointer; text-decoration: underline;
+      }
+      @keyframes dl-spin { to { transform: rotate(360deg); } }
+      @keyframes dl-fade { to { opacity: 1; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="root-fallback">
+        <div class="dl-logo">Data<span>Land</span></div>
+        <div class="spinner"></div>
+        <p class="msg">Cargando...</p>
+        <p class="msg-slow">
+          Esto está tardando más de lo esperado.<br>
+          <a onclick="window.location.reload()">Hacé clic aquí para recargar</a>
+        </p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

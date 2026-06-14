@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [orgBlocked, setOrgBlocked] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string): Promise<Profile | null> => {
+  const fetchProfile = async (userId: string, attempt = 1): Promise<Profile | null> => {
     try {
       const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
         setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 5000);
@@ -45,12 +45,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await Promise.race([profilePromise, timeoutPromise]);
 
       if ('error' in result && result.error) {
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+          return fetchProfile(userId, attempt + 1);
+        }
         return null;
       }
 
       const { data, error } = result as { data: Profile | null; error: any };
 
       if (error) {
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+          return fetchProfile(userId, attempt + 1);
+        }
         return null;
       }
 
@@ -67,6 +75,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return data ?? null;
     } catch (err: any) {
       console.warn('Exception fetching profile (non-blocking):', err);
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, 1500 * attempt));
+        return fetchProfile(userId, attempt + 1);
+      }
       return null;
     }
   };
@@ -98,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn('Auth loading timeout - forzando fin del loading');
         setLoading(false);
       }
-    }, 10000);
+    }, 20000);
 
     supabase.auth.getSession().then(async ({ data: { session }, error: sessionError }) => {
       if (!mounted) {
