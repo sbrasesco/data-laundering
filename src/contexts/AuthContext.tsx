@@ -45,14 +45,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await Promise.race([profilePromise, timeoutPromise]);
 
       if ('error' in result && result.error) {
-        setProfile(null);
         return null;
       }
 
       const { data, error } = result as { data: Profile | null; error: any };
 
       if (error) {
-        setProfile(null);
         return null;
       }
 
@@ -69,7 +67,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return data ?? null;
     } catch (err: any) {
       console.warn('Exception fetching profile (non-blocking):', err);
-      setProfile(null);
       return null;
     }
   };
