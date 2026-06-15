@@ -33,8 +33,9 @@ export function useTenantCredits(): UseTenantCreditsResult {
     if (authLoading) return;
 
     if (!organizationId) {
-      setBalance(null);
-      setLoading(false);
+      // authLoading=false pero organizationId=null: el profile aún carga en background.
+      // Mantener loading=true para evitar el flash ···→skeleton→balance.
+      // El efecto se re-ejecuta cuando organizationId llegue.
       return;
     }
 

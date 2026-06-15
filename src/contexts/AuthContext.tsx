@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 20000);
 
-    supabase.auth.getSession().then(async ({ data: { session }, error: sessionError }) => {
+    supabase.auth.getSession().then(({ data: { session }, error: sessionError }) => {
       if (!mounted) {
         clearTimeout(timeoutId);
         return;
@@ -129,13 +129,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
 
+      // Desbloquear UI inmediatamente — la sesión se conoce desde local storage.
+      // El profile se carga en background sin bloquear el render.
+      if (mounted) setLoading(false);
+
       if (session?.user) {
-        await fetchProfile(session.user.id).catch(() => {});
+        fetchProfile(session.user.id).catch(() => {});
       } else {
         setProfile(null);
       }
-
-      if (mounted) setLoading(false);
     }).catch((err) => {
       console.error('Error in getSession promise:', err);
       if (mounted) {
