@@ -119,6 +119,7 @@ NODE_ENV=production
 | FIX-EXT | Supabase usa `window.__nativeFetch` para sobrevivir monkey-patching |
 | FIX-REG | Fix registro: `organization_name` en `signUp options.data` al trigger |
 | UX-BALANCE | Saldo sidebar clickeable abre modal recarga; modal título "Recargar saldo" + fix `credits` en custom preference (commit `47017bc`, 2026-06-15) |
+| FIX-AUTH-LOAD | `setLoading(false)` inmediato tras `getSession`; `fetchProfile` en background sin bloquear UI en F5 (commit `b7e6f9d`, 2026-06-15) |
 
 ---
 
@@ -232,11 +233,12 @@ El estado "sin saldo" es un `<button>` clickeable que abre `InsufficientCreditsM
 
 ### `useTenantCredits` hook
 - Early return si `authLoading` (evita flash de "Sin saldo")
+- Si `authLoading=false` pero `organizationId=null`: **no** limpiar balance ni bajar `loading` — el profile aún llega en background. El efecto se re-ejecuta cuando `organizationId` aparece.
 - Realtime subscription + polling fallback `setInterval(15_000)`
 - `return { balance, loading: loading || authLoading }`
 
 ### `AuthContext`
-- `await fetchProfile(session.user.id)` antes de `setLoading(false)` en `getSession`
+- `setLoading(false)` se llama **inmediatamente** tras `getSession` (la sesión viene de localStorage, disponible al instante). `fetchProfile` corre en background sin bloquear la UI — **no usar `await`**.
 - `fetchProfile` NO llama `setProfile(null)` en error — preserva el profile cargado
 - Reintenta 3 veces (espera 1.5s y 3s). Timeout 20s
 - Solo `signOut` y `onAuthStateChange` con session=null limpian el profile
