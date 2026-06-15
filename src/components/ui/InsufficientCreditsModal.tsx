@@ -83,7 +83,7 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
       const response = await fetch(`${workerGatewayUrl}/api/mp/create-custom-preference`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${workerApiKey}` },
-        body: JSON.stringify({ amount_usd: customAmount, user_id: session?.user?.id ?? user?.id }),
+        body: JSON.stringify({ credits: Math.floor(customAmount / 0.30), user_id: session?.user?.id ?? user?.id }),
       });
       if (!response.ok) { setError('Error al iniciar el pago. Intentá nuevamente.'); return; }
       redirectToCheckout(await response.json());
@@ -102,9 +102,9 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Sin saldo disponible</DialogTitle>
+          <DialogTitle>Recargar saldo</DialogTitle>
           <DialogDescription>
-            Elegí un plan o depositá el monto que necesitás.
+            Elegí un plan o depositá el monto que necesitás. El saldo se suma al disponible.
           </DialogDescription>
         </DialogHeader>
 
