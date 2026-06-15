@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, AuthError, User } from '@supabase/supabase-js';
+import * as Sentry from '@sentry/react';
 import { supabase } from '../lib/supabase';
 
 export interface Profile {
@@ -63,6 +64,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setProfile(data ?? null);
+
+      // Identificar usuario en Sentry para correlacionar errores con tenants
+      if (data) {
+        Sentry.setUser({ id: userId, email: data.id });
+        Sentry.setTag('organization_id', data.organization_id);
+        Sentry.setTag('is_superadmin', String(data.is_superadmin ?? false));
+      }
 
       // Verificar si la org está activa (superadmins siempre pasan)
       if (data?.organization_id && !data?.is_superadmin) {
@@ -199,6 +207,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
     setProfile(null);
     setUser(null);
+    Sentry.setUser(null);
+    Sentry.setTag('organization_id', '');
   };
 
   const value = {
