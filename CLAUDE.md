@@ -6,7 +6,7 @@
 - **Backend/DB**: Supabase (PostgreSQL + RLS + Realtime)
 - **Worker**: Node.js ESM (`worker/*.mjs`), Docker en VPS DigitalOcean
 - **Queue**: BullMQ + Redis Cloud (sa-east-1) — queue `pdf-processing`
-- **Pagos**: MercadoPago — IPN webhook pendiente TASK-85 (ver sección abajo)
+- **Pagos**: MercadoPago — IPN webhook ✅ validado e2e sandbox (TASK-85 prod 2026-06-14, commits f785cc1 + f7a8649)
 - **Integraciones activas**: Google Drive ✅, Firebase Storage ✅, SFTP ⛔ desactivado
 - **N8N**: ELIMINADO definitivamente (DEC-011). No existe. No referenciar.
 
@@ -60,12 +60,12 @@ Supabase (resultados)  +  Drive / Firebase / SFTP (outputs)
 | `POST /api/enqueue` | Bearer | Encolar job PDF/ZIP |
 | `POST /api/mp/create-preference` | Bearer | Crear preferencia MP + insertar payment (pending) |
 | `POST /api/mp/create-custom-preference` | Bearer | Igual, créditos personalizados |
+| `POST /api/mp/webhook` | Sin auth | IPN MercadoPago → aprueba payment + add_credits ✅ |
 | `POST /api/deposit-row` | Bearer | Depositar fila aprobada manualmente |
 | `GET /api/drive/folders` | Bearer | Listar carpetas Drive |
 | `POST /api/drive/set-folder` | Bearer | Guardar carpeta Drive seleccionada |
 | `GET /api/auth/google/callback` | Sin auth | OAuth callback Google |
 | `GET /health` | Bearer | Estado del gateway |
-| **`POST /api/mp/webhook`** | **Sin auth** | **⚠️ NO EXISTE AÚN — TASK-85** |
 
 ### metrics.mjs — puerto 9090
 
@@ -95,11 +95,6 @@ NODE_ENV=production
 
 ## Tareas — estado actual
 
-### 🔴 Próxima (bloquea revenue)
-| Task | Descripción | Notion |
-|------|-------------|--------|
-| **TASK-85** | MP Webhook Receiver — `POST /api/mp/webhook` en gateway.mjs | [ver](https://app.notion.com/p/37fe32b060fc8115908cce4d4ac4794d) |
-
 ### 🟡 Backlog activo
 | Task | Descripción | Notion |
 |------|-------------|--------|
@@ -120,33 +115,28 @@ NODE_ENV=production
 | TASK-82 | Panel Monitoreo superadmin |
 | TASK-83 | Resiliencia frontend ante extensiones de browser (6 fixes) |
 | TASK-84 | Fix MonitoringPage Tenants: RPC bypass RLS para superadmin |
+| TASK-85 | MP Webhook Receiver — `POST /api/mp/webhook` + `notification_url` en preferencias |
 | FIX-EXT | Supabase usa `window.__nativeFetch` para sobrevivir monkey-patching |
 | FIX-REG | Fix registro: `organization_name` en `signUp options.data` al trigger |
+| UX-BALANCE | Saldo sidebar clickeable abre modal recarga; modal título "Recargar saldo" + fix `credits` en custom preference (commit `47017bc`, 2026-06-15) |
 
 ---
 
-## TASK-85 — MP Webhook Receiver (pendiente — CRÍTICA)
+## TASK-85 — MP Webhook Receiver (✅ Validado e2e sandbox — 2026-06-14, commits f785cc1 + f7a8649)
 
-### Problema
-El gateway crea preferencias MP y registra pagos con `status: 'pending'`. No existe endpoint IPN. Además, las preferencias se crean **sin `notification_url`** → MP no sabe dónde enviar la confirmación. Resultado: todos los pagos quedan en `pending` permanentemente y `add_credits` nunca se llama. Los tenants pagan pero no reciben saldo.
+`POST /api/mp/webhook` en `gateway.mjs`. Flujo completo validado con sandbox:
 
-### Lo que falta implementar en gateway.mjs
+1. Gateway crea preferencia MP con `external_reference = paymentUUID` (UUID pre-generado antes del insert en DB)
+2. DB insert en `payments` usa ese mismo UUID como `id`
+3. MP envía IPN → handler fetch payment de la API de MP
+4. Lookup: `preference_id` (prod) o `external_reference` (fallback sandbox donde `preference_id` viene null)
+5. Idempotencia: si `gateway_payment_id` ya existe → skip
+6. PATCH `status='approved'` + `gateway_payment_id`
+7. `add_credits(p_organization_id, p_amount_usd, ...)` — SECURITY DEFINER, funciona con service key
 
-1. Agregar `notification_url: \`${process.env.GATEWAY_URL}/api/mp/webhook\`` al body del fetch en `handleCreateMpPreference` y `handleCreateCustomMpPreference`
-2. Handler `handleMpWebhook`:
-   - Parsear body `{ data: { id }, type }`; ignorar si `type !== 'payment'`
-   - Llamar `GET https://api.mercadopago.com/v1/payments/{id}` con Bearer MP_ACCESS_TOKEN
-   - Si `payment.status !== 'approved'` → 200 OK sin acción
-   - Buscar fila en `payments` por `gateway_preference_id = payment.preference_id`
-   - **Idempotencia**: si `gateway_payment_id IS NOT NULL` → 200 OK (ya procesado)
-   - Actualizar `payments` SET `status='approved'`, `gateway_payment_id=payment.id`
-   - Plan (`plan_id IS NOT NULL`): leer `billing_plans.balance_usd` → `add_credits(org_id, balance_usd)`
-   - Custom credits: `add_credits(org_id, amount)` (amount = precio pagado)
-3. Ruta EXENTA de auth (MP no envía Bearer), colocar ANTES del bloque de autenticación
-4. Agregar `GATEWAY_URL` a `.env` del servidor
+**Nota sandbox**: MP sandbox no envía IPNs automáticamente de forma confiable. En producción con pagos reales el IPN llega solo. Para test manual: buscar el payment_id en la API de MP y hacer POST al webhook.
 
-### Nota sobre `external_reference`
-Las preferencias MP tienen `external_reference: organization_id`. Esto es útil como fallback para identificar el tenant, pero el matching principal debe ser por `gateway_preference_id = payment.preference_id`.
+**MP_ACCESS_TOKEN**: restaurado a producción (`seller_id 290523599`) el 2026-06-15. El server está listo para recibir pagos reales.
 
 ---
 
@@ -238,6 +228,7 @@ Usa `window.__nativeFetch` para proteger llamadas de monkey-patching de extensio
 ### Sidebar balance (`AppShell.tsx`)
 Tres estados: skeleton (`creditsLoading`) → rojo "Sin saldo" (`balance <= 0`) → verde con monto.
 `noCredits = !creditsLoading && balance !== null && balance <= 0`
+El estado "sin saldo" es un `<button>` clickeable que abre `InsufficientCreditsModal` (`setShowRecharge(true)`). No es un `div` estático.
 
 ### `useTenantCredits` hook
 - Early return si `authLoading` (evita flash de "Sin saldo")
@@ -267,8 +258,8 @@ Tres estados: skeleton (`creditsLoading`) → rojo "Sin saldo" (`balance <= 0`) 
 | RPC | Tipo | Propósito |
 |-----|------|-----------|
 | `charge_credit(p_org_id, p_amount_usd)` | SECURITY DEFINER | Descontar saldo por doc procesado |
-| `add_credits(p_org_id, p_amount_usd)` | superadmin | Agregar saldo |
-| `add_credits_admin(p_org_id, p_amount_usd)` | superadmin | Agregar saldo (admin) |
+| `add_credits(p_organization_id, p_amount_usd, p_plan_id, p_description, p_gateway_payment_id)` | SECURITY DEFINER | Agregar saldo + registra en `credit_transactions`. **Usar desde gateway/service key** |
+| `add_credits_admin(p_org_id, p_amount_usd)` | requiere `auth.uid()` superadmin | Agregar saldo desde UI. **NO funciona con service key** |
 | `approve_document_row(p_row_id bigint)` | — | Aprueba doc + incrementa `corrected_documents`; si todos ok → job a `done` |
 | `get_stuck_jobs()` | superadmin | Listar jobs atascados |
 | `fail_stuck_job(p_job_id)` | superadmin | Marcar job atascado como fallido |
@@ -289,4 +280,7 @@ Tres estados: skeleton (`creditsLoading`) → rojo "Sin saldo" (`balance <= 0`) 
 - **`set_pdf_jobs_counters` trigger**: incluye `status = 'done_with_warnings'` en cálculo de `has_warnings`.
 - **Login con Playwright/headless falla en prod** (Supabase bloquea REST login en CI). Testing manual vía browser.
 - **`MonitoringPage` no consume métricas del worker** (:9090) — solo datos de Supabase. Esto es deuda técnica (TASK-86).
-- **Todos los pagos MP están en `pending`** hasta implementar TASK-85 — no hay workaround manual que escale.
+- **`add_credits` vs `add_credits_admin`**: desde el gateway (service key) SIEMPRE usar `add_credits(p_organization_id, p_amount_usd, p_plan_id, p_description, p_gateway_payment_id)`. `add_credits_admin` requiere `auth.uid()` de superadmin activo — falla con service key.
+- **`external_reference` en preferencias MP**: desde commit f7a8649 es el UUID del payment de DB (pre-generado antes del insert). El webhook usa esto como fallback cuando `preference_id` viene null (sandbox). No cambiar a org_id.
+- **MP sandbox no envía IPNs automáticamente**: para tests manuales, buscar el payment_id en la API de MP y simularlo con `POST /api/mp/webhook {"type":"payment","data":{"id":"<id>"}}`.
+- **MP_ACCESS_TOKEN en el server**: actualmente apunta a producción (`seller_id 290523599`, restaurado 2026-06-15). Si se hace testing con sandbox, restaurar el token de prod antes de cerrar la sesión. Distinguir por seller_id: producción `290523599`, sandbox `3450456818`.
