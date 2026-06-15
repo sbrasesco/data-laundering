@@ -148,7 +148,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // IMPORTANTE: este callback debe ser SÍNCRONO.
+      // Supabase mantiene el session lock (_acquireLock) mientras ejecuta este callback.
+      // Si fuera async y esperara fetchProfile() (hasta 19.5s), el lock quedaría retenido
+      // bloqueando getSession() durante ese tiempo → spinner "Verificando..." durante 20s.
+      // Solución: retornar síncronamente y correr fetchProfile fuera del lock.
       if (!mounted) {
         clearTimeout(timeoutId);
         return;
@@ -159,17 +164,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
 
+      // Desbloquear UI inmediatamente — la sesión ya se conoce.
+      if (mounted) setLoading(false);
+
       if (session?.user) {
-        const existingProfile = await fetchProfile(session.user.id);
-        // Si el usuario confirmó el email y no tiene org todavía, crearla ahora
-        if (!existingProfile && event === 'SIGNED_IN') {
-          await createOrgPostConfirmation(session.user.id);
-        }
+        // Ejecutar fetchProfile FUERA del lock usando Promise.resolve().then()
+        // para que corra en el siguiente tick, después de que el lock se libere.
+        const userId = session.user.id;
+        Promise.resolve().then(async () => {
+          const existingProfile = await fetchProfile(userId);
+          // Si el usuario confirmó el email y no tiene org todavía, crearla ahora
+          if (!existingProfile && event === 'SIGNED_IN') {
+            await createOrgPostConfirmation(userId);
+          }
+        });
       } else {
         setProfile(null);
       }
-
-      if (mounted) setLoading(false);
     });
 
     return () => {

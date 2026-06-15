@@ -50,7 +50,7 @@ export function useClientJobs(filters?: DashboardFilters) {
     documentsWithWarnings: 0,
     jobsWithError: 0,
   });
-  const { organizationId } = useAuth();
+  const { organizationId, loading: authLoading } = useAuth();
   const subscriptionRef = useRef<any>(null);
   const hasLoadedOnce = useRef(false);
 
@@ -95,8 +95,10 @@ export function useClientJobs(filters?: DashboardFilters) {
   };
 
   useEffect(() => {
+    if (authLoading) return; // esperar a que auth resuelva antes de decidir
     if (!organizationId) {
-      setInitialLoading(false);
+      // authLoading=false pero organizationId=null: profile aún llega en background.
+      // Mantener loading=true para evitar flash de métricas en cero.
       return;
     }
 
@@ -258,7 +260,7 @@ export function useClientJobs(filters?: DashboardFilters) {
         subscriptionRef.current = null;
       }
     };
-  }, [organizationId, filters?.clientId, filters?.fechaDesde, filters?.fechaHasta]);
+  }, [organizationId, authLoading, filters?.clientId, filters?.fechaDesde, filters?.fechaHasta]);
 
   // ─── Polling de respaldo ─────────────────────────────────────────────────
   // Activo mientras haya jobs recientes (últimos 5 min) O en pending/processing.
@@ -312,5 +314,5 @@ export function useClientJobs(filters?: DashboardFilters) {
     return () => clearInterval(intervalId);
   }, [jobs, organizationId, filters?.clientId, filters?.fechaDesde, filters?.fechaHasta]);
 
-  return { jobs, loading: initialLoading, error, metrics };
+  return { jobs, loading: initialLoading || authLoading, error, metrics };
 }
