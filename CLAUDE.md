@@ -120,6 +120,7 @@ NODE_ENV=production
 | FIX-REG | Fix registro: `organization_name` en `signUp options.data` al trigger |
 | UX-BALANCE | Saldo sidebar clickeable abre modal recarga; modal título "Recargar saldo" + fix `credits` en custom preference (commit `47017bc`, 2026-06-15) |
 | FIX-AUTH-LOAD | `setLoading(false)` inmediato tras `getSession`; `fetchProfile` en background sin bloquear UI en F5 (commit `b7e6f9d`, 2026-06-15) |
+| FIX-AUTH-LOCK | Fix definitivo del spinner 20s en F5 y flash de métricas en cero (commit `972ab03`, 2026-06-15) |
 
 ---
 
@@ -221,6 +222,26 @@ Limpieza en prod: 3 orgs renombradas, 8 huérfanas eliminadas.
 
 ---
 
+## FIX-AUTH-LOCK — Fix spinner 20s en F5 y flash de métricas en cero (✅ Prod — 2026-06-15, commit `972ab03`)
+
+**Root cause**: `onAuthStateChange` callback era `async` y hacía `await fetchProfile()` (hasta 19.5s con reintentos). Supabase v2 mantiene el session lock interno (`_acquireLock`) durante toda la ejecución del callback. Esto bloqueaba `getSession()` el mismo tiempo → `loading` se quedaba `true` hasta que el timeout de 20s disparaba.
+
+**Fix `AuthContext`**:
+- Callback de `onAuthStateChange` es ahora **síncrono** (sin `async`/`await`).
+- `setLoading(false)` se llama inmediatamente al conocer la sesión.
+- `fetchProfile` corre en `Promise.resolve().then(async () => { ... })` — ejecuta en el siguiente tick, después de que el lock se libera.
+- Archivos: `src/contexts/AuthContext.tsx`
+
+**Fix `useClientJobs`** (flash de ceros en dashboard):
+- Agrega guard `if (authLoading) return` — espera a que auth resuelva antes de decidir.
+- Si `authLoading=false` pero `organizationId=null`: mantener `loading=true` (profile aún llega en background).
+- `authLoading` incluido en deps del `useEffect` y en el `loading` retornado.
+- Archivo: `src/hooks/useClientJobs.ts`
+
+**Regla permanente**: el callback de `onAuthStateChange` **nunca puede ser async ni hacer await**. Cualquier trabajo async post-auth va en `Promise.resolve().then()` fuera del callback.
+
+---
+
 ## Patrones clave del frontend
 
 ### `src/lib/supabase.ts`
@@ -238,10 +259,20 @@ El estado "sin saldo" es un `<button>` clickeable que abre `InsufficientCreditsM
 - `return { balance, loading: loading || authLoading }`
 
 ### `AuthContext`
-- `setLoading(false)` se llama **inmediatamente** tras `getSession` (la sesión viene de localStorage, disponible al instante). `fetchProfile` corre en background sin bloquear la UI — **no usar `await`**.
+- **`onAuthStateChange` callback es SÍNCRONO** — no `async`, no `await` dentro. Supabase v2 mantiene el session lock (`_acquireLock`) durante la ejecución del callback. Si el callback es async y espera `fetchProfile()` (~19.5s), `getSession()` queda bloqueado igual tiempo → spinner 20s. Fix: callback síncrono + `Promise.resolve().then(async () => fetchProfile(...))` para correr fuera del lock.
+- `setLoading(false)` se llama **inmediatamente** en `onAuthStateChange` y en `getSession().then()` — antes de cualquier fetch. No bloquear la UI esperando el profile.
+- `fetchProfile` corre siempre en background (fire-and-forget) — **nunca `await` en los handlers de auth**.
 - `fetchProfile` NO llama `setProfile(null)` en error — preserva el profile cargado
-- Reintenta 3 veces (espera 1.5s y 3s). Timeout 20s
+- Reintenta 3 veces (espera 1.5s y 3s). Timeout 5s por intento
 - Solo `signOut` y `onAuthStateChange` con session=null limpian el profile
+
+### Hooks con `authLoading` guard (evitar flash de ceros)
+Los hooks `useTenantCredits` y `useClientJobs` tienen este patrón:
+```ts
+if (authLoading) return;           // esperar a que auth resuelva
+if (!organizationId) return;       // profile aún carga en background — mantener loading=true
+```
+El `loading` que retornan incluye `|| authLoading`. **No romper este patrón** — sin él, los componentes renderizan con datos vacíos/cero y luego parpadean cuando llegan los datos reales.
 
 ### Rutas protegidas
 - Layout route con `<Outlet />` en `App.tsx` — `AppShell` se monta una sola vez
