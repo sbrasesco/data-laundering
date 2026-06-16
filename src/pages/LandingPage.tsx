@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import auroraLogo from '@/assets/aurora-logo.svg';
+import { applyTheme, getStoredTheme } from '@/lib/themes';
 
 const C = {
   amarillo: '#FED210',
@@ -106,11 +108,9 @@ function CheckIcon({ color }: { color: string }) {
 
 function Navbar() {
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b-2" style={{ borderBottomColor: C.verde }}>
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-card border-b-2" style={{ borderBottomColor: C.verde }}>
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-0.5 font-black text-xl tracking-tight">
-          <span style={{ color: C.negro }}>Data</span><span style={{ color: C.verde }}>Land</span>
-        </div>
+        <img src={auroraLogo} alt="Aurora" style={{ height: '52px', width: 'auto' }} />
         <div className="flex items-center gap-6">
           <a href="#features" className="text-sm font-semibold hidden sm:block" style={{ color: C.grisTexto }}>Características</a>
           <a href="#precios"  className="text-sm font-semibold hidden sm:block" style={{ color: C.grisTexto }}>Planes</a>
@@ -125,7 +125,7 @@ function Navbar() {
 
 function Hero() {
   return (
-    <section className="pt-36 pb-20 px-6 text-center bg-white">
+    <section className="pt-36 pb-20 px-6 text-center bg-transparent">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-5xl lg:text-6xl font-black leading-tight mb-6" style={{ color: C.negro }}>
           Extrae datos de facturas{" "}
@@ -158,7 +158,7 @@ function Hero() {
 
 function Features() {
   return (
-    <section id="features" className="py-20 px-6" style={{ background: C.grisSuave }}>
+    <section id="features" className="py-20 px-6">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-14">
           <h2 className="text-3xl font-black mb-3" style={{ color: C.negro }}>Funcionalidades que transforman tu negocio</h2>
@@ -166,7 +166,7 @@ function Features() {
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {FEATURES.map((f) => (
-            <div key={f.titulo} className="bg-white rounded-2xl p-6 border-2 text-center" style={{ borderColor: f.color }}>
+            <div key={f.titulo} className="bg-transparent rounded-2xl p-6 border-2 text-center" style={{ borderColor: f.color }}>
               <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl mb-4" style={{ background: f.color }}>
                 {FEATURE_ICONS[f.iconKey]}
               </div>
@@ -182,7 +182,7 @@ function Features() {
 
 function ComoFunciona() {
   return (
-    <section className="py-20 px-6 bg-white">
+    <section className="py-20 px-6 bg-transparent">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-14">
           <h2 className="text-3xl font-black mb-3" style={{ color: C.negro }}>Cómo funciona</h2>
@@ -277,7 +277,7 @@ function Precios() {
   }, [navigate]);
 
   return (
-    <section id="precios" className="py-24 px-6" style={{ background: C.grisSuave }}>
+    <section id="precios" className="py-24 px-6">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-6">
           <h2 className="text-3xl font-black mb-3" style={{ color: C.negro }}>Planes para cada necesidad</h2>
@@ -347,7 +347,7 @@ function Precios() {
 
 function FAQ() {
   return (
-    <section className="py-20 px-6 bg-white">
+    <section className="py-20 px-6 bg-transparent">
       <div className="max-w-3xl mx-auto">
         <h2 className="text-3xl font-black text-center mb-12" style={{ color: C.negro }}>Preguntas frecuentes</h2>
         <div className="space-y-3">
@@ -383,12 +383,12 @@ function CTA() {
 
 function Footer() {
   return (
-    <footer className="py-12 px-6 bg-white border-t-4" style={{ borderTopColor: C.verde }}>
+    <footer className="py-12 px-6 bg-transparent border-t-4" style={{ borderTopColor: C.verde }}>
       <div className="max-w-6xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
           <div>
-            <div className="font-black text-lg mb-2"><span style={{ color: C.negro }}>Data</span><span style={{ color: C.verde }}>Land</span></div>
-            <p className="text-sm leading-relaxed" style={{ color: C.grisTexto }}>Automatización inteligente de facturas con tecnología de IA avanzada.</p>
+            <img src={auroraLogo} alt="Aurora" style={{ height: '48px', width: 'auto' }} />
+            <p className="text-sm leading-relaxed" style={{ color: C.grisTexto }}>Extracción de datos de facturas con tecnología de IA avanzada.</p>
             <p className="text-xs mt-2" style={{ color: C.gris }}>by Aignition</p>
           </div>
           <div>
@@ -427,10 +427,15 @@ function Footer() {
 
 export function LandingPage() {
   const { session, loading } = useAuth();
+
+  useEffect(() => {
+    applyTheme(getStoredTheme());
+  }, []);
+
   if (loading) return null;
   if (session) return <Navigate to="/dashboard" replace />;
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-card">
       <Navbar />
       <main>
         <Hero />
