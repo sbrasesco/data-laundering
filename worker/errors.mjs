@@ -12,7 +12,7 @@ import { UnrecoverableError } from 'bullmq';
  * Errores transitorios — BullMQ reintentará con backoff exponencial (2s, 4s, 8s)
  *
  * Casos: timeout OCR, rate limit IA (HTTP 429), ECONNRESET,
- *        n8n no disponible (502/503/504), Redis timeout
+ *        servicio externo no disponible (502/503/504), Redis timeout
  */
 export class RetryableError extends Error {
   constructor(message, cause) {
@@ -38,7 +38,7 @@ export class TerminalError extends Error {
 }
 
 /**
- * Clasifica un error HTTP de n8n o servicios externos.
+ * Clasifica un error HTTP de servicios externos.
  * Devuelve RetryableError o TerminalError según el código de estado.
  */
 export function classifyHttpError(status, message) {

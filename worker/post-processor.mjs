@@ -7,8 +7,7 @@
  * 2. Escribir audit log por documento en pdf_document_audit_log
  * 3. Finalizar el job en pdf_jobs (done / done_with_warnings / error)
  *
- * Toda esta lógica vivía en múltiples nodos de n8n. Ahora está aquí:
- * testeable, observable y versionada.
+ * Testeable, observable y versionada (DEC-011: N8N eliminado).
  */
 
 import { depositOutputIfConfigured } from './output-depositor.mjs';
@@ -67,7 +66,7 @@ function evaluateExtraction(result) {
 // ─── 2. Proceso de un documento individual post-extracción ────────────────────
 
 /**
- * Procesa el resultado de un documento después del sub-workflow n8n.
+ * Procesa el resultado de un documento después de document-processor.
  * - Evalúa confianza
  * - Marca el row en pdf_job_rows si es LOW_CONFIDENCE o INCOMPLETE
  * - Escribe audit log

@@ -1,7 +1,7 @@
 /**
  * document-processor.mjs — DEC-011
  * OCR (Mistral) + Extracción (OpenAI GPT-4.1-mini) directo en el Worker.
- * Drop-in replacement del sub-workflow n8n.
+ * Procesamiento de documentos en el Worker (DEC-011: N8N eliminado).
  *
  * Data Laundering V2.0 — v1.1.0
  *
@@ -9,9 +9,6 @@
  *            client_cuit, client_name, oc_entries, input_source }
  * Output: { success, row_id, confidence_score, tipo_documento,
  *            numero_comprobante, total }
- *
- * Mismo contrato de retorno que el sub-workflow n8n → post-processor.mjs
- * funciona sin modificaciones.
  */
 
 const MISTRAL_API_KEY      = process.env.MISTRAL_API_KEY;
@@ -298,11 +295,8 @@ async function insertOcEntries(rowId, ocEntries) {
 
 /**
  * Procesa un documento individual.
- * Reemplaza la llamada a N8N_SUB_WORKFLOW_URL en worker.mjs.
  *
- * Retorna el mismo contrato que retornaba n8n para que post-processor.mjs
- * funcione sin cambios:
- *   { success, row_id, confidence_score, tipo_documento, numero_comprobante, total }
+ * Retorna: { success, row_id, confidence_score, tipo_documento, numero_comprobante, total }
  */
 export async function processDocument(docData, log) {
   const {
@@ -360,7 +354,6 @@ export async function processDocument(docData, log) {
     oc_nums:  oc_entries.map(e => e.numero_oc),
   });
 
-  // Mismo contrato de retorno que el sub-workflow n8n
   return {
     success:            true,
     row_id:             rowId,

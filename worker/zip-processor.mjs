@@ -2,7 +2,7 @@
  * zip-processor.mjs — TASK-35: Descompresión ZIP + split por documento
  * Data Laundering V2.0 — Fase 2
  *
- * Mueve al Worker la lógica que hoy hace el nodo "Descomprimir ZIP2" de n8n:
+ * Lógica de descompresión ZIP en el Worker (DEC-011: N8N eliminado):
  * 1. Descargar ZIP desde file_url
  * 2. Extraer y aplanar estructura de carpetas
  * 3. Extraer adjuntos PDF embebidos (pdfdetach) — OCs
