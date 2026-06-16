@@ -200,7 +200,7 @@ export function LoginPage() {
             </>
           ) : (
             <div className="flex justify-center">
-              <img src={auroraLogo} alt="Aurora" className="h-10 w-auto" />
+              <img src={auroraLogo} alt="Aurora" className="h-14 w-auto" />
             </div>
           )}
         </CardHeader>

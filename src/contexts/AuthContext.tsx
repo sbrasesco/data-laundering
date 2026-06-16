@@ -204,7 +204,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('signOut server call failed (non-critical):', err);
+    }
+    // Limpiar storage explícitamente como safeguard:
+    // si el server call falla, Supabase puede no limpiar localStorage
+    // y el token persiste → al recargar la página el usuario sigue autenticado.
+    Object.keys(localStorage)
+      .filter(key => key.startsWith('sb-'))
+      .forEach(key => localStorage.removeItem(key));
+    setSession(null);
     setProfile(null);
     setUser(null);
     Sentry.setUser(null);

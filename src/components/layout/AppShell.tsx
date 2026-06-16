@@ -77,7 +77,9 @@ export function AppShell({ children }: AppShellProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/login');
+    // Full reload: garantiza que Supabase reinicialice desde storage limpio.
+    // navigate() hace navegación client-side sin reload — puede ver state stale.
+    window.location.replace('/login');
   };
 
   const initials = (user?.email ?? 'U')
