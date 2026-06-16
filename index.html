@@ -16,7 +16,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:wght@600;700&display=swap" rel="stylesheet">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DataLand</title>
+    <title>Aurora</title>
     <style>
       #root-fallback {
         position: fixed; inset: 0;
@@ -26,9 +26,8 @@
         font-family: Inter, system-ui, sans-serif;
       }
       #root-fallback .dl-logo {
-        font-size: 22px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 4px;
+        margin-bottom: 12px;
       }
-      #root-fallback .dl-logo span { color: #22C365; }
       #root-fallback .spinner {
         width: 28px; height: 28px;
         border: 3px solid #e5e7eb; border-top-color: #111827;
@@ -51,7 +50,7 @@
   <body>
     <div id="root">
       <div id="root-fallback">
-        <div class="dl-logo">Data<span>Land</span></div>
+        <img src="/aurora-logo.svg" alt="Aurora" class="dl-logo" style="height: 72px; width: auto;" />
         <div class="spinner"></div>
         <p class="msg">Cargando...</p>
         <p class="msg-slow">

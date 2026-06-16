@@ -1,4 +1,5 @@
 import { useState, FormEvent, useEffect } from 'react';
+import auroraLogo from '@/assets/aurora-logo.svg';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -198,7 +199,9 @@ export function LoginPage() {
               </p>
             </>
           ) : (
-            <CardTitle className="text-2xl font-semibold tracking-tight">DataLand</CardTitle>
+            <div className="flex justify-center">
+              <img src={auroraLogo} alt="Aurora" className="h-10 w-auto" />
+            </div>
           )}
         </CardHeader>
         <CardContent>

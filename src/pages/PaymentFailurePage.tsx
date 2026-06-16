@@ -1,4 +1,5 @@
 import { useSearchParams, Link } from 'react-router-dom';
+import auroraLogo from '@/assets/aurora-logo.svg';
 
 export function PaymentFailurePage() {
   const [searchParams] = useSearchParams();
@@ -10,8 +11,8 @@ export function PaymentFailurePage() {
     <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4">
       {/* Logo */}
       <div className="mb-8">
-        <Link to="/" className="text-2xl font-black text-[#22C365]">
-          DataLand
+        <Link to="/">
+          <img src={auroraLogo} alt="Aurora" className="h-9 w-auto" />
         </Link>
       </div>
 

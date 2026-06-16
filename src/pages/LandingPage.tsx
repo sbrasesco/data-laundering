@@ -132,7 +132,7 @@ function Hero() {
           <span className="inline-block px-3 py-1 rounded-xl" style={{ background: C.amarillo, color: C.negro }}>en segundos</span>
         </h1>
         <p className="text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-medium" style={{ color: C.grisTexto }}>
-          DataLand utiliza inteligencia artificial avanzada para extraer, validar y analizar
+          Aurora utiliza inteligencia artificial avanzada para extraer, validar y analizar
           facturas automáticamente. Ahorrá tiempo, costos, minimiza errores y aumenta la productividad de tu equipo.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">

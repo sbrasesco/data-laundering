@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
+import auroraLogo from '@/assets/aurora-logo.svg';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenantCredits } from '@/hooks/useTenantCredits';
@@ -42,15 +43,15 @@ function SidebarNavItem({ item, active }: { item: NavItem; active: boolean }) {
       className={cn(
         'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
         active
-          ? 'bg-accent text-accent-foreground font-medium'
-          : 'text-muted-foreground hover:text-accent-foreground hover:bg-accent'
+          ? 'bg-[#ff3131] text-white font-medium'
+          : 'text-muted-foreground hover:text-white hover:bg-[#ff3131]'
       )}
     >
       <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
         <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
       </svg>
       {item.label}
-      {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-foreground opacity-40" />}
+      {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white opacity-50" />}
     </Link>
   );
 }
@@ -88,18 +89,11 @@ export function AppShell({ children }: AppShellProps) {
     <div className="flex h-screen overflow-hidden bg-background">
 
       {/* ── Sidebar ───────────────────────────────────────────────────────── */}
-      <aside className="flex flex-col w-[220px] flex-shrink-0 border-r-2 bg-card overflow-y-auto" style={{ borderRightColor: '#22C365' }}>
+      <aside className="flex flex-col w-[220px] flex-shrink-0 border-r-2 bg-card overflow-y-auto" style={{ borderRightColor: '#ff3131' }}>
 
         {/* Logo */}
-        <div className="flex items-center gap-2.5 px-4 py-5 border-b border-border">
-          <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: '#22C365' }}>
-            <svg className="w-3.5 h-3.5" style={{ color: '#ffffff' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
-            </svg>
-          </div>
-          <span className="font-black text-xl tracking-tight leading-none">
-            <span style={{ color: '#000000' }}>Data</span><span style={{ color: '#22C365' }}>Land</span>
-          </span>
+        <div className="flex items-center justify-center px-4 py-4 border-b border-border">
+          <img src={auroraLogo} alt="Aurora" className="h-16 w-auto" />
         </div>
 
         {/* Nav */}
@@ -144,12 +138,12 @@ export function AppShell({ children }: AppShellProps) {
           ) : (
             <button
               onClick={() => setShowRecharge(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-muted hover:bg-accent transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-muted hover:bg-[#ff3131] hover:text-white transition-colors text-left group/credits"
             >
-              <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <svg className="w-3.5 h-3.5 text-muted-foreground group-hover/credits:text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground group-hover/credits:text-white">
                 {balance !== null ? `$${balance.toFixed(2)} disponibles` : '···'}
               </span>
             </button>
@@ -161,8 +155,8 @@ export function AppShell({ children }: AppShellProps) {
             className={cn(
               'flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors',
               isActive('/settings')
-                ? 'bg-accent text-accent-foreground font-medium'
-                : 'text-muted-foreground hover:text-accent-foreground hover:bg-accent'
+                ? 'bg-[#ff3131] text-white font-medium'
+                : 'text-muted-foreground hover:text-white hover:bg-[#ff3131]'
             )}
           >
             <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -173,22 +167,22 @@ export function AppShell({ children }: AppShellProps) {
           </Link>
 
           {/* Usuario */}
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-accent transition-colors group">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-[#ff3131] transition-colors group">
             <div className="w-6 h-6 rounded-full bg-foreground flex items-center justify-center text-xs font-semibold text-background flex-shrink-0">
               {initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground group-hover:text-accent-foreground truncate transition-colors">
+              <p className="text-xs font-medium text-foreground group-hover:text-white truncate transition-colors">
                 {user?.email?.split('@')[0] ?? 'Usuario'}
               </p>
-              <p className="text-xs text-muted-foreground group-hover:text-accent-foreground/70 truncate transition-colors">
+              <p className="text-xs text-muted-foreground group-hover:text-white/70 truncate transition-colors">
                 {user?.email ?? ''}
               </p>
             </div>
             <button
               onClick={handleSignOut}
               title="Cerrar sesión"
-              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+              className="flex-shrink-0 text-white/70 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
