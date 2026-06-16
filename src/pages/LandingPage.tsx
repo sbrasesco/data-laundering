@@ -84,7 +84,7 @@ const PASOS = [
 const PLANES = [
   { nombre: 'Gratuito',    slug: 'free',         creditos: '20 créditos',    precio: '$0',       porCredito: null,                 destacado: false, acento: C.gris,     acentoText: '#444',   fondo: C.blanco, ctaLabel: 'Empezar gratis', ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: '/login',                    features: ['20 documentos', 'PDF, JPG, PNG', 'Exportación CSV', 'Soporte por email'] },
   { nombre: 'Básico',      slug: 'basico',       creditos: '200 créditos',   precio: 'USD 60',   porCredito: 'USD 0,30 / crédito', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['200 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Créditos acumulativos'] },
-  { nombre: 'Profesional', slug: 'profesional',  creditos: '600 créditos',   precio: 'USD 162',  porCredito: 'USD 0,27 / crédito', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['600 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Créditos acumulativos'] },
+  { nombre: 'Profesional', slug: 'profesional',  creditos: '600 créditos',   precio: 'USD 162',  porCredito: 'USD 0,27 / crédito', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.amarillo, ctaTexto: C.negro, ctaHref: null,                        features: ['600 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Créditos acumulativos'] },
   { nombre: 'Business',    slug: 'business',     creditos: '1.000 créditos', precio: 'USD 220',  porCredito: 'USD 0,22 / crédito', destacado: false, acento: C.lila,     acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.lila,   ctaTexto: C.blanco, ctaHref: null,                        features: ['1.000 documentos', 'Google Drive / FTP / SFTP', 'API access', 'Soporte prioritario', 'Créditos acumulativos'] },
   { nombre: 'Enterprise',  slug: null,           creditos: 'Personalizado',  precio: 'A medida', porCredito: null,                 destacado: false, acento: C.negro,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contactar',      ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: 'mailto:hola@aignition.net', features: ['Volumen a medida', 'Integraciones específicas', 'SLA garantizado', 'Onboarding dedicado'] },
 ];
@@ -293,7 +293,8 @@ function Precios() {
           </div>
         )}
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mt-10">
+        <div className="overflow-x-auto mt-10">
+        <div className="grid grid-cols-5 gap-4 min-w-[900px] pt-5">
           {PLANES.map((plan) => {
             const isLoading = loadingSlug === plan.slug;
 
@@ -339,6 +340,7 @@ function Precios() {
               </div>
             );
           })}
+        </div>
         </div>
       </div>
     </section>
