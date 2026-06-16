@@ -391,7 +391,7 @@ function Footer() {
           <div>
             <img src={auroraLogo} alt="Aurora" style={{ height: '48px', width: 'auto' }} />
             <p className="text-sm leading-relaxed" style={{ color: C.grisTexto }}>Extracción de datos de facturas con tecnología de IA avanzada.</p>
-            <p className="text-xs mt-2" style={{ color: C.gris }}>by Aignition</p>
+            <a href="https://aignition.net" target="_blank" rel="noopener noreferrer" className="text-xs mt-2 hover:underline" style={{ color: C.gris }}>by Aignition</a>
           </div>
           <div>
             <h4 className="font-black text-sm mb-3" style={{ color: C.negro }}>Producto</h4>
@@ -416,7 +416,7 @@ function Footer() {
           </div>
         </div>
         <div className="border-t pt-6 flex flex-col sm:flex-row justify-between items-center gap-3" style={{ borderColor: '#EEEEEE' }}>
-          <p className="text-xs font-medium" style={{ color: C.gris }}>© {new Date().getFullYear()} Aignition. Todos los derechos reservados.</p>
+          <p className="text-xs font-medium" style={{ color: C.gris }}>© {new Date().getFullYear()} <a href="https://aignition.net" target="_blank" rel="noopener noreferrer" className="hover:underline">Aignition</a>. Todos los derechos reservados.</p>
           <div className="flex gap-6 text-xs font-medium" style={{ color: C.grisTexto }}>
             <a href="#" className="hover:underline">Privacidad</a>
             <a href="#" className="hover:underline">Términos</a>
