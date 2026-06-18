@@ -27,8 +27,8 @@ interface PollingIntervalTier {
   cost_per_doc: number;
 }
 
-type IntegrationType = 'frontend_only' | 'google_drive' | 'ftp' | 'sftp' | 'remote_folder' | 'firebase_storage';
-const SELECTABLE_TYPES: IntegrationType[] = ['google_drive', 'ftp', 'sftp', 'remote_folder', 'firebase_storage'];
+type IntegrationType = 'frontend_only' | 'google_drive' | 'ftp' | 'sftp' | 'remote_folder' | 'firebase_storage' | 'supabase_storage';
+const SELECTABLE_TYPES: IntegrationType[] = ['google_drive', 'ftp', 'sftp', 'remote_folder', 'firebase_storage', 'supabase_storage'];
 
 interface TenantIntegration {
   id: string;
@@ -51,19 +51,19 @@ type CredentialFields = Record<string, string>;
 // ─── Static config ────────────────────────────────────────────────────────────
 const TYPE_LABELS: Record<IntegrationType, string> = {
   frontend_only: 'Subida manual', google_drive: 'Google Drive',
-  ftp: 'FTP', sftp: 'SFTP', remote_folder: 'Carpeta de red', firebase_storage: 'Firebase Storage',
+  ftp: 'FTP', sftp: 'SFTP', remote_folder: 'Carpeta de red', firebase_storage: 'Firebase Storage', supabase_storage: 'Supabase Storage',
 };
 const TYPE_ACCENTS: Record<IntegrationType, string> = {
   frontend_only: '#000000', google_drive: '#22C365', ftp: '#000000',
-  sftp: '#A347D1', remote_folder: '#FED210', firebase_storage: '#e11d48',
+  sftp: '#A347D1', remote_folder: '#FED210', firebase_storage: '#e11d48', supabase_storage: '#3ECF8E',
 };
 const TYPE_ICON_FG: Record<IntegrationType, string> = {
   frontend_only: '#fff', google_drive: '#fff', ftp: '#fff',
-  sftp: '#fff', remote_folder: '#000', firebase_storage: '#fff',
+  sftp: '#fff', remote_folder: '#000', firebase_storage: '#fff', supabase_storage: '#000',
 };
 const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
   frontend_only: 'available', google_drive: 'available', ftp: 'available', sftp: 'available',
-  remote_folder: 'available', firebase_storage: 'available',
+  remote_folder: 'available', firebase_storage: 'available', supabase_storage: 'available',
 };
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only:    [],
@@ -72,6 +72,7 @@ const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; t
   sftp:             [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
   remote_folder:    [{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\\\\\servidor\\\\compartido\\\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password', required: true }],
   firebase_storage: [{ key: 'service_account_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'mi-proyecto.appspot.com', required: true }],
+  supabase_storage: [{ key: 'project_url', label: 'URL del proyecto', placeholder: 'https://xxxxx.supabase.co', required: true }, { key: 'service_role_key', label: 'Service Role Key', type: 'password', placeholder: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'facturas', required: true }, { key: 'folder_path', label: 'Carpeta (opcional)', placeholder: 'entrantes/' }],
 };
 const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
   frontend_only: {}, google_drive: {},
@@ -79,6 +80,7 @@ const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
   sftp: { host: '', port: '22', username: '', password: '', private_key: '' },
   remote_folder: { server_path: '', domain: '', username: '', password: '' },
   firebase_storage: { service_account_json: '', bucket_name: '' },
+  supabase_storage: { project_url: '', service_role_key: '', bucket_name: '', folder_path: '' },
 };
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -95,6 +97,8 @@ function IntegTypeIcon({ type, size = 18 }: { type: IntegrationType; size?: numb
       return <svg {...p}><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="13" x2="12" y2="17"/><polyline points="9 15 12 12 15 15"/></svg>;
     case 'firebase_storage':
       return <svg {...p}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>;
+    case 'supabase_storage':
+      return <svg {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>;
     default:
       return <svg {...p}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>;
   }

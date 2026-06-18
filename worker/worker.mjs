@@ -23,6 +23,7 @@ import { processDocument } from './document-processor.mjs';
 import { pollGoogleDriveIntegrations }      from './integration-poller.mjs';
 import { pollFtpSftpIntegrations }          from './ftp-sftp-poller.mjs';
 import { pollFirebaseStorageIntegrations }  from './firebase-storage-poller.mjs';
+import { pollSupabaseStorageIntegrations } from './supabase-storage-poller.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
@@ -335,6 +336,11 @@ async function runIntegrationPoller() {
     await pollFirebaseStorageIntegrations(ctx);
   } catch (err) {
     log('error', 'integration.cron_error', { protocol: 'firebase_storage', error: err.message });
+  }
+  try {
+    await pollSupabaseStorageIntegrations(ctx);
+  } catch (err) {
+    log('error', 'integration.cron_error', { protocol: 'supabase_storage', error: err.message });
   }
 }
 
