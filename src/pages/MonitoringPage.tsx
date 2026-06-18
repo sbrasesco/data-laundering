@@ -37,11 +37,13 @@ interface DocsStats     { total_processed: number; processed_24h: number; }
 interface AdminUser     { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
 interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
 interface WorkerHealth  { status: 'ok' | 'error' | 'timeout' | 'checking'; worker_version?: string; google_oauth?: boolean; latency_ms?: number; }
+interface WorkerMetrics { timestamp: string; worker_version: string; queue_depth: { waiting: number; active: number; delayed: number }; totals: { completed: number; failed: number }; latency_ms: { p50: number | null; p95: number | null; avg: number | null; sample_size: number }; error_rate_pct: number; }
 interface TenantJob     { id: string; status: string; error_type: string | null; created_at: string; finished_at: string | null; total_documents: number | null; processed_documents: number | null; failed_documents: number | null; input_source: string | null; }
-interface PricingPlan   { name: string; display_name: string; price_per_doc: number; balance_usd: number; docs_included: number; }
-interface PricingFeature{ feature_key: string; label: string; cost_usd: number; }
+interface PricingPlan     { name: string; display_name: string; price_per_doc: number; balance_usd: number; docs_included: number; }
+interface PricingFeature  { feature_key: string; label: string; cost_usd: number; }
+interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | null;
 
 // ─── FeatureRow ───────────────────────────────────────────────────────────────
 function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
@@ -138,6 +140,7 @@ function MonitorCard({
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 const IconJobs    = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>;
+const IconQueue   = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="3.5" rx="1" strokeLinecap="round"/><rect x="3" y="10" width="13" height="3.5" rx="1" strokeLinecap="round"/><rect x="3" y="16" width="8" height="3.5" rx="1" strokeLinecap="round"/></svg>;
 const IconDocs    = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>;
 const IconErrors  = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>;
 const IconTenants = () => <svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
@@ -156,6 +159,8 @@ export function MonitoringPage() {
   const [usersError,     setUsersError]     = useState<string | null>(null);
   const [stuckJobs,      setStuckJobs]      = useState<StuckJob[]>([]);
   const [workerHealth,   setWorkerHealth]   = useState<WorkerHealth>({ status: 'checking' });
+  const [workerMetrics,  setWorkerMetrics]  = useState<WorkerMetrics | null>(null);
+  const [metricsError,   setMetricsError]   = useState<string | null>(null);
   const [failingJob,     setFailingJob]     = useState<string | null>(null);
   const [rechargeTarget, setRechargeTarget] = useState<TenantBalance | null>(null);
   const [rechargeAmount, setRechargeAmount] = useState('');
@@ -168,12 +173,16 @@ export function MonitoringPage() {
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
   const [togglingUser,   setTogglingUser]   = useState<string | null>(null);
-  const [pricingPlans,   setPricingPlans]   = useState<PricingPlan[]>([]);
-  const [pricingFeatures,setPricingFeatures]= useState<PricingFeature[]>([]);
-  const [editPrices,     setEditPrices]     = useState<Record<string, string>>({});
-  const [savingPrice,    setSavingPrice]    = useState<string | null>(null);
+  const [pricingPlans,        setPricingPlans]        = useState<PricingPlan[]>([]);
+  const [pricingFeatures,     setPricingFeatures]     = useState<PricingFeature[]>([]);
+  const [editPrices,          setEditPrices]          = useState<Record<string, string>>({});
+  const [savingPrice,         setSavingPrice]         = useState<string | null>(null);
+  const [pollingTiers,        setPollingTiers]        = useState<PollingTierAdmin[]>([]);
+  const [editPollingTiers,    setEditPollingTiers]    = useState<Record<string, string>>({});
+  const [savingPollingTier,   setSavingPollingTier]   = useState<number | null>(null);
+  const [togglingPollingTier, setTogglingPollingTier] = useState<number | null>(null);
 
-  const GATEWAY_BASE = (import.meta.env.VITE_GATEWAY_BASE_URL as string) ?? '';
+  const GATEWAY_BASE = (import.meta.env.VITE_WORKER_GATEWAY_URL as string ?? '');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -257,6 +266,12 @@ export function MonitoringPage() {
         .order('feature_key');
       setPricingFeatures((featuresData ?? []) as PricingFeature[]);
 
+      const { data: pollingTiersData } = await supabase
+        .from('polling_interval_tiers')
+        .select('interval_minutes, label, cost_per_doc, active, sort_order')
+        .order('sort_order', { ascending: true });
+      setPollingTiers((pollingTiersData ?? []) as PollingTierAdmin[]);
+
       setLastUpdated(new Date());
     } finally {
       setLoading(false);
@@ -288,7 +303,33 @@ export function MonitoringPage() {
     }
   }, [GATEWAY_BASE]);
 
-  useEffect(() => { fetchData(); checkWorkerHealth(); }, [fetchData, checkWorkerHealth]);
+  const fetchWorkerMetrics = useCallback(async () => {
+    try {
+      const controller = new AbortController();
+      const timeout    = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${GATEWAY_BASE}/api/metrics`, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${GATEWAY_API_KEY}` },
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const data = await res.json();
+        setWorkerMetrics(data as WorkerMetrics);
+        setMetricsError(null);
+      } else {
+        setMetricsError(`HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setMetricsError(err instanceof Error ? err.message : 'Error');
+    }
+  }, [GATEWAY_BASE]);
+
+  useEffect(() => { fetchData(); checkWorkerHealth(); fetchWorkerMetrics(); }, [fetchData, checkWorkerHealth, fetchWorkerMetrics]);
+
+  useEffect(() => {
+    const interval = setInterval(fetchWorkerMetrics, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchWorkerMetrics]);
 
   const handleViewActivity = async (t: TenantBalance) => {
     setActivityTarget(t);
@@ -394,6 +435,42 @@ export function MonitoringPage() {
     }
   };
 
+  const handleSavePollingTierCost = async (intervalMinutes: number) => {
+    const key = `poll_${intervalMinutes}`;
+    const val = parseFloat(editPollingTiers[key] ?? '');
+    if (isNaN(val) || val < 0) return;
+    setSavingPollingTier(intervalMinutes);
+    try {
+      const { error } = await supabase.rpc('update_polling_tier', {
+        p_interval_minutes: intervalMinutes,
+        p_cost_per_doc: val,
+      });
+      if (error) throw error;
+      setPollingTiers(prev => prev.map(t => t.interval_minutes === intervalMinutes ? { ...t, cost_per_doc: val } : t));
+      setEditPollingTiers(prev => { const n = { ...prev }; delete n[key]; return n; });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setSavingPollingTier(null);
+    }
+  };
+
+  const handleTogglePollingTier = async (intervalMinutes: number, currentActive: boolean) => {
+    setTogglingPollingTier(intervalMinutes);
+    try {
+      const { error } = await supabase.rpc('update_polling_tier', {
+        p_interval_minutes: intervalMinutes,
+        p_active: !currentActive,
+      });
+      if (error) throw error;
+      setPollingTiers(prev => prev.map(t => t.interval_minutes === intervalMinutes ? { ...t, active: !currentActive } : t));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al cambiar estado');
+    } finally {
+      setTogglingPollingTier(null);
+    }
+  };
+
   // Métricas derivadas
   const totalJobs     = jobSummary.reduce((s, r) => s + r.count, 0);
   const completedJobs = jobSummary.filter(r => r.status === 'done' || r.status === 'done_with_warnings').reduce((s, r) => s + r.count, 0);
@@ -476,6 +553,20 @@ export function MonitoringPage() {
               metric={stuckJobs.length}
               sub=">20 min en processing"
               onClick={() => setModal('stuck')}
+            />
+            <MonitorCard
+              title="Cola"
+              accent={
+                metricsError ? '#94a3b8'
+                : workerMetrics && workerMetrics.error_rate_pct > 5 ? '#e11d48'
+                : workerMetrics && workerMetrics.queue_depth.waiting > 10 ? '#f59e0b'
+                : workerMetrics ? '#22C365'
+                : '#94a3b8'
+              }
+              icon={<IconQueue />}
+              metric={workerMetrics ? workerMetrics.queue_depth.waiting : '—'}
+              sub={workerMetrics ? `${workerMetrics.queue_depth.active} activos · ${workerMetrics.error_rate_pct}% err` : metricsError ? 'sin datos' : 'cargando…'}
+              onClick={() => setModal('queue')}
             />
             <MonitorCard
               title="Precios" accent="#f97316"
@@ -841,9 +932,86 @@ export function MonitoringPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Cola — métricas BullMQ */}
+      <Dialog open={modal === 'queue'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Cola — métricas</span>
+              <button
+                type="button"
+                onClick={fetchWorkerMetrics}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >↻ Actualizar</button>
+            </DialogTitle>
+          </DialogHeader>
+          {metricsError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 mt-2">
+              Error al obtener métricas: {metricsError}
+            </div>
+          ) : !workerMetrics ? (
+            <div className="py-8 flex justify-center"><LoadingSpinner /></div>
+          ) : (
+            <div className="space-y-4 mt-2">
+              {/* Queue depth */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Estado de la cola</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Waiting',  value: workerMetrics.queue_depth.waiting,  color: workerMetrics.queue_depth.waiting > 10 ? '#f59e0b' : '#22C365' },
+                    { label: 'Active',   value: workerMetrics.queue_depth.active,   color: '#22C365' },
+                    { label: 'Delayed',  value: workerMetrics.queue_depth.delayed,  color: '#94a3b8' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="rounded-lg border p-3 flex flex-col items-center text-center overflow-hidden relative">
+                      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: color }} />
+                      <div className="text-2xl font-black font-lora mt-1">{value}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Latency */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Latencia (últimos {workerMetrics.latency_ms.sample_size} jobs)</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'p50', value: workerMetrics.latency_ms.p50 },
+                    { label: 'p95', value: workerMetrics.latency_ms.p95 },
+                    { label: 'avg', value: workerMetrics.latency_ms.avg },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="rounded-lg border p-3 flex flex-col items-center text-center">
+                      <div className="text-xl font-black font-lora">{value != null ? `${value}ms` : '—'}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Totals + error rate */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg border p-3 flex flex-col items-center text-center">
+                  <div className="text-xl font-black font-lora">{workerMetrics.totals.completed}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Completados</div>
+                </div>
+                <div className="rounded-lg border p-3 flex flex-col items-center text-center">
+                  <div className="text-xl font-black font-lora">{workerMetrics.totals.failed}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Fallidos</div>
+                </div>
+                <div className={`rounded-lg border p-3 flex flex-col items-center text-center ${workerMetrics.error_rate_pct > 5 ? 'border-red-200 bg-red-50' : ''}`}>
+                  <div className={`text-xl font-black font-lora ${workerMetrics.error_rate_pct > 5 ? 'text-red-700' : ''}`}>{workerMetrics.error_rate_pct}%</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Error rate</div>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground text-right">
+                Actualizado: {new Date(workerMetrics.timestamp).toLocaleTimeString('es-AR')} · {workerMetrics.worker_version}
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Precios */}
       <Dialog open={modal === 'prices'} onOpenChange={() => setModal(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Editor de precios</DialogTitle></DialogHeader>
 
           <div className="space-y-6 mt-2">
@@ -885,7 +1053,6 @@ export function MonitoringPage() {
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Integraciones (USD adicional/doc)</p>
               <div className="space-y-3">
 
-                {/* Google Drive — agrupado con sub-configs */}
                 {/* Google Drive agrupado */}
                 {(() => {
                   const driveFeats = pricingFeatures.filter(f => f.feature_key.startsWith('integration_drive'));
@@ -964,6 +1131,76 @@ export function MonitoringPage() {
                 </div>
               );
             })()}
+
+            {/* Intervalos de polling */}
+            {pollingTiers.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Intervalos de escucha (USD adicional/doc)</p>
+                <div className="rounded-md border overflow-hidden">
+                  {/* Header */}
+                  <div className="grid grid-cols-2 divide-x border-b bg-muted/40">
+                    {[0, 1].map(col => (
+                      <div key={col} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-1.5">
+                        <p className="text-xs font-semibold text-muted-foreground">Intervalo</p>
+                        <p className="text-xs font-semibold text-muted-foreground w-9 text-center">Activo</p>
+                        <p className="text-xs font-semibold text-muted-foreground w-24 text-right">+$/doc</p>
+                        <p className="text-xs font-semibold text-muted-foreground w-16"></p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Rows — 2 columns */}
+                  {Array.from({ length: Math.ceil(pollingTiers.length / 2) }, (_, rowIdx) => (
+                    <div key={rowIdx} className={`grid grid-cols-2 divide-x ${rowIdx < Math.ceil(pollingTiers.length / 2) - 1 ? 'border-b' : ''}`}>
+                      {[0, 1].map(col => {
+                        const tier = pollingTiers[rowIdx * 2 + col];
+                        if (!tier) return <div key={col} className="px-3 py-2" />;
+                        const key = `poll_${tier.interval_minutes}`;
+                        const editVal = editPollingTiers[key];
+                        const isDirty = editVal !== undefined;
+                        return (
+                          <div key={tier.interval_minutes} className={`grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-2 ${!tier.active ? 'opacity-50' : ''}`}>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{tier.label}</p>
+                            </div>
+                            {/* Toggle */}
+                            <button
+                              type="button"
+                              disabled={togglingPollingTier === tier.interval_minutes}
+                              onClick={() => handleTogglePollingTier(tier.interval_minutes, tier.active)}
+                              title={tier.active ? 'Desactivar' : 'Activar'}
+                              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+                                tier.active ? 'bg-[#22C365]' : 'bg-slate-300'
+                              } ${togglingPollingTier === tier.interval_minutes ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${tier.active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                            </button>
+                            {/* Input */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground">$</span>
+                              <input
+                                type="number" step="0.0001" min="0"
+                                value={editVal ?? Number(tier.cost_per_doc).toFixed(4)}
+                                onChange={e => setEditPollingTiers(prev => ({ ...prev, [key]: e.target.value }))}
+                                className="w-20 h-7 rounded-md border border-input bg-background px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              />
+                            </div>
+                            {/* Save */}
+                            <Button
+                              size="sm" className="h-7 px-2.5 text-xs w-16"
+                              disabled={!isDirty || savingPollingTier === tier.interval_minutes}
+                              onClick={() => handleSavePollingTierCost(tier.interval_minutes)}
+                            >
+                              {savingPollingTier === tier.interval_minutes ? '...' : 'Guardar'}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">Toggle para mostrar/ocultar el tramo en la UI del tenant. El costo se suma al total del job solo si el tenant usa ese intervalo.</p>
+              </div>
+            )}
 
           </div>
         </DialogContent>

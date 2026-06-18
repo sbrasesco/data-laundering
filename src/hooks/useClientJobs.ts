@@ -54,7 +54,7 @@ export function useClientJobs(filters?: DashboardFilters) {
   const subscriptionRef = useRef<any>(null);
   const hasLoadedOnce = useRef(false);
 
-  // Métricas leídas directamente de los campos que escribe n8n en pdf_jobs
+  // Métricas leídas de pdf_jobs (escritas por el worker/document-processor)
   const calculateMetrics = (jobsData: PdfJob[]): ClientJobsMetrics => {
     const jobsCount = jobsData.length;
 
@@ -62,7 +62,7 @@ export function useClientJobs(filters?: DashboardFilters) {
       (sum, job) => sum + (job.total_documents ?? 0),
       0
     );
-    // processed_documents = documentos OK (n8n los clasifica por completitud de campos)
+    // processed_documents = documentos OK (clasificados por completitud de campos)
     const processedDocuments = jobsData.reduce(
       (sum, job) => sum + (job.processed_documents ?? 0),
       0

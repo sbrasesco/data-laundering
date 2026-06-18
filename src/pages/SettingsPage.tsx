@@ -2,6 +2,26 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { THEMES, applyTheme, getStoredTheme } from '@/lib/themes';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
+
+interface PriceFeature {
+  key: string;
+  label: string;
+  cost: number;
+}
+
+interface PricePolling {
+  interval_minutes: number;
+  label: string;
+  cost: number;
+}
+
+interface PriceBreakdown {
+  base_price: number;
+  features: PriceFeature[];
+  polling: PricePolling | null;
+  total_per_doc: number;
+}
 
 function SettingsSection({ title, description, children }: {
   title: string;
@@ -19,12 +39,49 @@ function SettingsSection({ title, description, children }: {
   );
 }
 
+function PriceRow({ label, cost, highlight = false }: { label: string; cost: number; highlight?: boolean }) {
+  return (
+    <div className={cn(
+      'flex items-center justify-between py-2',
+      highlight && 'font-semibold'
+    )}>
+      <span className={cn('text-sm', highlight ? 'text-foreground' : 'text-muted-foreground')}>{label}</span>
+      <span className={cn(
+        'text-sm font-mono tabular-nums',
+        highlight ? 'text-foreground' : 'text-foreground/80'
+      )}>
+        ${cost.toFixed(4)}<span className="text-xs text-muted-foreground font-sans">/doc</span>
+      </span>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const [activeTheme, setActiveTheme] = useState(getStoredTheme);
+  const [breakdown, setBreakdown] = useState<PriceBreakdown | null>(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(true);
 
   useEffect(() => {
     applyTheme(activeTheme);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchBreakdown() {
+      try {
+        const { data, error } = await supabase.rpc('get_price_breakdown');
+        if (!cancelled && !error && data) {
+          setBreakdown(data as PriceBreakdown);
+        }
+      } catch {
+        // silencioso
+      } finally {
+        if (!cancelled) setBreakdownLoading(false);
+      }
+    }
+    fetchBreakdown();
+    return () => { cancelled = true; };
   }, []);
 
   const handleThemeSelect = (themeName: string) => {
@@ -32,18 +89,65 @@ export function SettingsPage() {
     setActiveTheme(themeName);
   };
 
+  const hasExtras = breakdown && (breakdown.features.length > 0 || breakdown.polling !== null);
+
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto space-y-8">
 
       <div className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight">
-          <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#22C365', color: '#ffffff' }}>Configuración</span>
+          <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#22C365', color: '#ffffff' }}>Configuracion</span>
         </h1>
         <p className="text-sm text-muted-foreground">
           Preferencias de apariencia y comportamiento del sistema.
         </p>
       </div>
 
+      {/* Costo por documento */}
+      <SettingsSection
+        title="Costo por documento"
+        description="Composicion del precio segun las integraciones y configuraciones activas de tu cuenta."
+      >
+        {breakdownLoading ? (
+          <div className="space-y-2 animate-pulse">
+            <div className="h-4 bg-muted rounded w-3/4" />
+            <div className="h-4 bg-muted rounded w-1/2" />
+            <div className="h-px bg-border my-2" />
+            <div className="h-4 bg-muted rounded w-1/3" />
+          </div>
+        ) : breakdown ? (
+          <div className="divide-y divide-border">
+            <PriceRow label="Precio base (plan basico)" cost={breakdown.base_price} />
+
+            {breakdown.features.map(f => (
+              <PriceRow key={f.key} label={f.label} cost={f.cost} />
+            ))}
+
+            {breakdown.polling && (
+              <PriceRow
+                label={`Intervalo de escucha - ${breakdown.polling.label}`}
+                cost={breakdown.polling.cost}
+              />
+            )}
+
+            {hasExtras && (
+              <div className="pt-1">
+                <PriceRow label="Total estimado" cost={breakdown.total_per_doc} highlight />
+              </div>
+            )}
+
+            {!hasExtras && (
+              <p className="pt-2 text-xs text-muted-foreground">
+                Sin integraciones activas. El costo base aplica para cargas manuales.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No se pudo cargar el desglose de precios.</p>
+        )}
+      </SettingsSection>
+
+      {/* Apariencia */}
       <SettingsSection
         title="Apariencia"
         description="Elige el color primario de la interfaz. El cambio se aplica de inmediato."
@@ -60,7 +164,6 @@ export function SettingsPage() {
                   : 'border-border hover:border-muted-foreground/30 hover:bg-muted/50'
               )}
             >
-              {/* Preview swatch — usa previewPrimary directamente, sin wrapper hsl() */}
               <div className="w-full h-10 rounded-md overflow-hidden flex">
                 <div className="w-1/3 h-full bg-foreground" />
                 <div className="flex-1 h-full flex flex-col gap-0.5 p-1" style={{ background: theme.previewBg }}>
@@ -84,11 +187,11 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Próximamente"
-        description="Más opciones de configuración estarán disponibles aquí."
+        title="Proximamente"
+        description="Mas opciones de configuracion estaran disponibles aqui."
       >
         <p className="text-sm text-muted-foreground">
-          Notificaciones, preferencias de exportación, configuración de cuenta y más.
+          Notificaciones, preferencias de exportacion, configuracion de cuenta y mas.
         </p>
       </SettingsSection>
 

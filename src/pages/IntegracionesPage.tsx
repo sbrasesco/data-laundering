@@ -17,12 +17,16 @@ const GOOGLE_REDIRECT_URI = import.meta.env.VITE_GOOGLE_REDIRECT_URI
   ?? 'http://localhost:3001/api/auth/google/callback';
 const GOOGLE_SCOPE        = 'https://www.googleapis.com/auth/drive';
 
-const GATEWAY_BASE_URL = (import.meta.env.VITE_GATEWAY_BASE_URL as string)
-  ?? (import.meta.env.VITE_WORKER_GATEWAY_URL as string ?? '').replace('/api/enqueue', '')
-  ?? 'http://localhost:3001';
+const GATEWAY_BASE_URL = (import.meta.env.VITE_WORKER_GATEWAY_URL as string ?? '');
 const GATEWAY_API_KEY  = import.meta.env.VITE_WORKER_API_KEY as string ?? '';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+interface PollingIntervalTier {
+  interval_minutes: number;
+  label: string;
+  cost_per_doc: number;
+}
+
 type IntegrationType = 'frontend_only' | 'google_drive' | 'ftp' | 'sftp' | 'remote_folder' | 'firebase_storage';
 const SELECTABLE_TYPES: IntegrationType[] = ['google_drive', 'ftp', 'sftp', 'remote_folder', 'firebase_storage'];
 
@@ -64,9 +68,9 @@ const WORKER_STATUS: Record<IntegrationType, 'available' | 'coming_soon'> = {
 const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; type?: string; placeholder?: string; required?: boolean; }>> = {
   frontend_only:    [],
   google_drive:     [],
-  ftp:              [{ key: 'host', label: 'Host', placeholder: 'ftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '21' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
-  sftp:             [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
-  remote_folder:    [{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\servidor\\compartido\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contraseña', type: 'password', required: true }],
+  ftp:              [{ key: 'host', label: 'Host', placeholder: 'ftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '21' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password', required: true }],
+  sftp:             [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
+  remote_folder:    [{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\\\\\servidor\\\\compartido\\\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password', required: true }],
   firebase_storage: [{ key: 'service_account_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'mi-proyecto.appspot.com', required: true }],
 };
 const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
@@ -123,7 +127,7 @@ function buildGoogleOAuthUrl(orgId: string, integrationId: string): string {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI,
     response_type: 'code', scope: GOOGLE_SCOPE,
-    access_type: 'offline', prompt: 'consent', state,
+    access_type: 'offline', prompt: 'select_account consent', state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
@@ -157,6 +161,8 @@ export function IntegracionesPage() {
   const [outputFormat, setOutputFormat]           = useState<'csv' | 'xlsx' | 'json'>('csv');
   const [showXlsxDisclosure, setShowXlsxDisclosure] = useState(false);
 
+  const [pollingTiers, setPollingTiers] = useState<PollingIntervalTier[]>([]);
+
   const [driveFolders, setDriveFolders]     = useState<Record<string, DriveFolder[]>>({});
   const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
   const [folderError, setFolderError]       = useState<Record<string, string>>({});
@@ -175,6 +181,15 @@ export function IntegracionesPage() {
   }, []);
 
   useEffect(() => { loadIntegrations(); }, [loadIntegrations]);
+
+  useEffect(() => {
+    supabase
+      .from('polling_interval_tiers')
+      .select('interval_minutes, label, cost_per_doc')
+      .eq('active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => { if (data) setPollingTiers(data as PollingIntervalTier[]); });
+  }, []);
 
   useEffect(() => {
     const connected     = searchParams.get('google_connected');
@@ -235,7 +250,7 @@ export function IntegracionesPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error guardando carpeta');
-      setSuccessMsg(`Carpeta "${folder?.name}" configurada. La integración está lista.`);
+      setSuccessMsg(`Carpeta "${folder?.name}" configurada. La integracion esta lista.`);
       await loadIntegrations();
     } catch (e: unknown) {
       setFolderError(prev => ({ ...prev, [integration.id]: e instanceof Error ? e.message : 'Error' }));
@@ -283,8 +298,8 @@ export function IntegracionesPage() {
   };
 
   const handleConnectGoogleDrive = async () => {
-    if (!organizationId) { setSaveError('No se pudo obtener el ID de organización.'); return; }
-    if (!GOOGLE_CLIENT_ID) { setSaveError('VITE_GOOGLE_CLIENT_ID no está configurado.'); return; }
+    if (!organizationId) { setSaveError('No se pudo obtener el ID de organizacion.'); return; }
+    if (!GOOGLE_CLIENT_ID) { setSaveError('VITE_GOOGLE_CLIENT_ID no esta configurado.'); return; }
     setSaving(true); setSaveError(null);
     try {
       const { data: integrationId, error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
@@ -297,13 +312,14 @@ export function IntegracionesPage() {
       if (rpcError) throw rpcError;
       window.location.href = buildGoogleOAuthUrl(organizationId, integrationId as string);
     } catch (e: unknown) {
-      setSaveError(e instanceof Error ? e.message : 'Error al iniciar conexión');
+      setSaveError(e instanceof Error ? e.message : 'Error al iniciar conexion');
       setSaving(false);
     }
   };
 
   const handleReconnectGoogle = (integration: TenantIntegration) => {
-    if (!organizationId || !GOOGLE_CLIENT_ID) return;
+    if (!organizationId) { setSaveError('No se pudo obtener el ID de organizacion.'); return; }
+    if (!GOOGLE_CLIENT_ID) { setSaveError('VITE_GOOGLE_CLIENT_ID no esta configurado en el frontend.'); return; }
     window.location.href = buildGoogleOAuthUrl(organizationId, integration.id);
   };
 
@@ -349,7 +365,7 @@ export function IntegracionesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar esta integración?')) return;
+    if (!confirm('Eliminar esta integracion?')) return;
     try {
       const { error: rpcError } = await supabase.rpc('delete_tenant_integration', { p_integration_id: id });
       if (rpcError) throw rpcError;
@@ -364,21 +380,20 @@ export function IntegracionesPage() {
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
 
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">
             <span className="inline-block px-2 py-0.5 rounded-lg" style={{ background: '#A347D1', color: '#ffffff' }}>Integraciones</span>
           </h1>
-          <p className="text-sm text-muted-foreground">Configurá desde dónde el sistema busca archivos para procesar automáticamente.</p>
+          <p className="text-sm text-muted-foreground">Configura desde donde el sistema busca archivos para procesar automaticamente.</p>
         </div>
-        {/* sin botón global — cada tarjeta tiene su propio CTA */}
       </div>
 
       {error      && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       {successMsg && <Alert><AlertDescription>{successMsg}</AlertDescription></Alert>}
 
-      {/* ── Layout: activa (izq) + resto (der) ─────────────────────────────── */}
+      {/* Layout: activa (izq) + resto (der) */}
       {(() => {
         const activeType   = SELECTABLE_TYPES.find(t => integrations.find(i => i.integration_type === t && i.is_active)) ?? null;
         const activeInteg  = activeType ? integrations.find(i => i.integration_type === activeType && i.is_active)! : null;
@@ -387,7 +402,7 @@ export function IntegracionesPage() {
         return (
           <div className="flex gap-5 items-start">
 
-            {/* ── Columna izquierda: integración activa ─────────────────── */}
+            {/* Columna izquierda: integración activa */}
             <div className="w-[340px] flex-shrink-0">
               {activeInteg && activeType ? (
                 <Card className="overflow-hidden ring-2 ring-[#22C365]">
@@ -432,12 +447,12 @@ export function IntegracionesPage() {
                           <>
                             <div className="flex items-start gap-1.5 text-xs">
                               <span className="text-muted-foreground flex-shrink-0 mt-px"><IconUpload /></span>
-                              <span>Formato <strong>{activeInteg.output_format?.toUpperCase()}</strong> → carpeta <span className="font-mono">{activeInteg.output_folder_path ?? 'extracciones'}</span></span>
+                              <span>Formato <strong>{activeInteg.output_format?.toUpperCase()}</strong> carpeta <span className="font-mono">{activeInteg.output_folder_path ?? 'extracciones'}</span></span>
                             </div>
-                            <p className="text-xs text-muted-foreground">Salida automática habilitada</p>
+                            <p className="text-xs text-muted-foreground">Salida automatica habilitada</p>
                           </>
                         ) : (
-                          <p className="text-xs text-muted-foreground italic">Salida automática deshabilitada</p>
+                          <p className="text-xs text-muted-foreground italic">Salida automatica deshabilitada</p>
                         )}
                       </div>
                     </div>
@@ -445,13 +460,13 @@ export function IntegracionesPage() {
                     {/* Drive folder picker */}
                     {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && !hasDriveFolder(activeInteg) && (
                       <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
-                        <p className="text-xs font-medium text-muted-foreground">Seleccioná la carpeta de Drive a monitorear</p>
+                        <p className="text-xs font-medium text-muted-foreground">Selecciona la carpeta de Drive a monitorear</p>
                         {loadingFolders[activeInteg.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
                         {folderError[activeInteg.id] && <p className="text-xs text-destructive">{folderError[activeInteg.id]}</p>}
                         {!loadingFolders[activeInteg.id] && driveFolders[activeInteg.id] && (
                           <div className="flex gap-2 items-center">
                             <select value={selectedFolder[activeInteg.id] ?? ''} onChange={(e) => setSelectedFolder(prev => ({ ...prev, [activeInteg.id]: e.target.value }))} className={`${selectCls} flex-1`}>
-                              <option value="">— Elegí una carpeta —</option>
+                              <option value="">Elegi una carpeta</option>
                               {driveFolders[activeInteg.id].map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                             </select>
                             <Button size="sm" disabled={!selectedFolder[activeInteg.id] || savingFolder[activeInteg.id]} onClick={() => handleSetFolder(activeInteg)}>
@@ -507,14 +522,14 @@ export function IntegracionesPage() {
                 <Card className="overflow-hidden border-dashed">
                   <CardContent className="py-10 text-center space-y-2">
                     <div className="flex justify-center text-muted-foreground/30"><IconPlug size={36} /></div>
-                    <p className="text-sm font-medium">Sin integración activa</p>
-                    <p className="text-xs text-muted-foreground">Activá una de las integraciones de la derecha.</p>
+                    <p className="text-sm font-medium">Sin integracion activa</p>
+                    <p className="text-xs text-muted-foreground">Activa una de las integraciones de la derecha.</p>
                   </CardContent>
                 </Card>
               )}
             </div>
 
-            {/* ── Columna derecha: resto en grid 2x2 ────────────────────── */}
+            {/* Columna derecha: resto en grid 2x2 */}
             <div className="flex-1 grid grid-cols-2 gap-3 min-w-0 content-start">
               {otherTypes.map((type) => {
                 const integration = integrations.find(i => i.integration_type === type) ?? null;
@@ -531,13 +546,12 @@ export function IntegracionesPage() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium leading-tight truncate">{TYPE_LABELS[type]}</p>
                           <p className="text-xs text-muted-foreground">
-                            {comingSoon ? 'Próximamente' : integration ? 'Configurada' : 'Sin configurar'}
+                            {comingSoon ? 'Proximamente' : integration ? 'Configurada' : 'Sin configurar'}
                           </p>
                         </div>
                       </div>
                       {/* Acciones */}
                       <div className="border-t border-border px-4 py-2.5 flex items-center gap-2 bg-muted/20 mt-auto">
-                        {/* Toggle — siempre visible, deshabilitado si no configurada o coming soon */}
                         <button
                           type="button"
                           disabled={!integration || comingSoon}
@@ -566,7 +580,7 @@ export function IntegracionesPage() {
         );
       })()}
 
-      {/* ── Modal: formulario nueva/editar integración ──────────────────────── */}
+      {/* Modal: formulario nueva/editar integracion */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); resetForm(); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -576,9 +590,9 @@ export function IntegracionesPage() {
                 <IntegTypeIcon type={selectedType} size={18} />
               </div>
               <div>
-                <DialogTitle>{editingId ? `Editar — ${TYPE_LABELS[selectedType]}` : `Configurar — ${TYPE_LABELS[selectedType]}`}</DialogTitle>
+                <DialogTitle>{editingId ? `Editar - ${TYPE_LABELS[selectedType]}` : `Configurar - ${TYPE_LABELS[selectedType]}`}</DialogTitle>
                 <DialogDescription>
-                  {editingId ? 'Modificá la configuración de esta integración.' : 'Configurá los accesos para esta fuente.'}
+                  {editingId ? 'Modifica la configuracion de esta integracion.' : 'Configura los accesos para esta fuente.'}
                 </DialogDescription>
               </div>
             </div>
@@ -590,7 +604,7 @@ export function IntegracionesPage() {
             {selectedType === 'google_drive' && (
               <Alert>
                 <AlertDescription className="text-sm">
-                  Configurá el intervalo y luego hacé click en <strong>"Conectar con Google Drive"</strong>. Después de autorizar, podrás seleccionar la carpeta a monitorear.
+                  Configura el intervalo y luego hace click en <strong>"Conectar con Google Drive"</strong>. Despues de autorizar, podras seleccionar la carpeta a monitorear.
                 </AlertDescription>
               </Alert>
             )}
@@ -627,18 +641,31 @@ export function IntegracionesPage() {
                   <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
                 </div>
               )}
-              <div className={`space-y-1.5 ${selectedType === 'google_drive' ? 'col-span-2 max-w-[200px]' : ''}`}>
-                <Label>Intervalo (min)</Label>
-                <Input type="number" value={pollingInterval} onChange={(e) => setPollingInterval(Number(e.target.value))} min={5} max={1440} />
+              <div className={`space-y-1.5 ${selectedType === 'google_drive' ? 'col-span-2 max-w-[240px]' : ''}`}>
+                <Label>Intervalo de escucha</Label>
+                <select
+                  value={pollingInterval}
+                  onChange={(e) => setPollingInterval(Number(e.target.value))}
+                  className={selectCls}
+                >
+                  {pollingTiers.length > 0
+                    ? pollingTiers.map((t) => (
+                        <option key={t.interval_minutes} value={t.interval_minutes}>
+                          {t.label}{t.cost_per_doc > 0 ? ` (+$${t.cost_per_doc.toFixed(2)}/doc)` : ''}
+                        </option>
+                      ))
+                    : <option value={pollingInterval}>{pollingInterval} min</option>
+                  }
+                </select>
               </div>
             </div>
 
-            {/* Salida automática */}
+            {/* Salida automatica */}
             <div className="space-y-3 border-t pt-4">
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-sm font-medium flex items-center gap-1.5">
-                    <IconUpload size={13} /> Salida automática
+                    <IconUpload size={13} /> Salida automatica
                   </Label>
                   <p className="text-xs text-muted-foreground mt-0.5">Depositar el resultado al terminar el procesamiento.</p>
                 </div>
@@ -694,7 +721,7 @@ export function IntegracionesPage() {
                     </div>
                     {!outputFolderLocked && (
                       <p className="text-xs text-muted-foreground">
-                        {selectedType === 'google_drive' ? 'Seleccioná la carpeta destino en tu Drive.' : 'Ingresá el nombre de la carpeta de salida.'}
+                        {selectedType === 'google_drive' ? 'Selecciona la carpeta destino en tu Drive.' : 'Ingresa el nombre de la carpeta de salida.'}
                       </p>
                     )}
                   </div>
@@ -714,7 +741,7 @@ export function IntegracionesPage() {
                     >
                       <option value="csv">CSV</option>
                       <option value="xlsx">Excel (.xlsx)</option>
-                      <option value="json">JSON (próximamente)</option>
+                      <option value="json">JSON (proximamente)</option>
                     </select>
                   </div>
                 </div>
@@ -738,15 +765,15 @@ export function IntegracionesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Modal: confirmar cambio de integración activa ──────────────────── */}
+      {/* Modal: confirmar cambio de integracion activa */}
       {confirmActivate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-background rounded-xl shadow-lg p-6 max-w-sm w-full mx-4 space-y-4">
-            <h2 className="font-semibold text-base">Cambiar integración activa</h2>
+            <h2 className="font-semibold text-base">Cambiar integracion activa</h2>
             <p className="text-sm text-muted-foreground">
-              Tenés <strong>{confirmActivate.currentType}</strong> activa. Si continuás, se desactivará y se activará <strong>{confirmActivate.newType}</strong>.
+              Tenes <strong>{confirmActivate.currentType}</strong> activa. Si continuas, se desactivara y se activara <strong>{confirmActivate.newType}</strong>.
             </p>
-            <p className="text-xs text-muted-foreground">Solo puede haber una integración activa a la vez.</p>
+            <p className="text-xs text-muted-foreground">Solo puede haber una integracion activa a la vez.</p>
             <div className="flex gap-3 justify-end pt-2">
               <Button variant="outline" onClick={() => setConfirmActivate(null)}>Cancelar</Button>
               <Button onClick={async () => {
@@ -759,14 +786,14 @@ export function IntegracionesPage() {
         </div>
       )}
 
-      {/* ── Disclosure: costo incremental Excel ───────────────────────────── */}
+      {/* Disclosure: costo incremental Excel */}
       <Dialog open={showXlsxDisclosure} onOpenChange={(open) => { if (!open) setShowXlsxDisclosure(false); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Formato Excel — costo incremental</DialogTitle>
+            <DialogTitle>Formato Excel costo incremental</DialogTitle>
             <DialogDescription>
               Exportar en formato <strong>Excel (.xlsx)</strong> tiene un costo ligeramente mayor por documento procesado.
-              El incremento exacto se aplica según la tabla de precios vigente. Podés volver a CSV en cualquier momento.
+              El incremento exacto se aplica segun la tabla de precios vigente. Podes volver a CSV en cualquier momento.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">

@@ -92,20 +92,21 @@ function sanitizeStorageKey(filename) {
     .replace(/[\s$&+,/:;=?@"<>{}|\\^~[\]`]/g, '_');
 }
 
-async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId, clientId = null) {
-  const res = await fetch(gatewayUrl, {
+async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId, clientId = null, pollingIntervalMinutes = null) {
+  const res = await fetch(`${gatewayUrl}/api/enqueue`, {
     method:  'POST',
     headers: {
       'Content-Type':  'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      organization_id:   orgId,
-      file_url:          fileUrl,
-      file_type:         fileType,
-      original_filename: filename,
-      input_source:      'integration_drive',
-      client_id:         clientId,
+      organization_id:          orgId,
+      file_url:                 fileUrl,
+      file_type:                fileType,
+      original_filename:        filename,
+      input_source:             'integration_drive',
+      client_id:                clientId,
+      polling_interval_minutes: pollingIntervalMinutes,
       metadata: {
         source:         'integration_drive',
         integration_id: integrationId,
@@ -286,7 +287,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
   log('info', 'integration.poll_start', { type: 'google_drive', count: integrations.length });
 
   for (const integration of integrations) {
-    const { id: integrationId, organization_id: orgId, credentials } = integration;
+    const { id: integrationId, organization_id: orgId, credentials, polling_interval_minutes: pollingIntervalMinutes } = integration;
 
     log('info', 'integration.tenant_start', { integration_id: integrationId, organization_id: orgId });
 
@@ -405,9 +406,9 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
               orgId, uniqueName, buffer, file.mimeType
             );
 
-            // Encolar en Input Gateway (con client_id)
+            // Encolar en Input Gateway (con client_id e intervalo de escucha)
             const fileType = SUPPORTED_MIME_TYPES[file.mimeType].file_type;
-            await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId, clientId);
+            await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId, clientId, pollingIntervalMinutes);
 
             // Registrar drive_file_id como procesado
             await registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, file.id, file.name);

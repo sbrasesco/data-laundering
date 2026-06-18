@@ -1,5 +1,56 @@
 # DataLand V2.0 — Contexto del proyecto
 
+---
+
+## 🔒 ZONA CERRADA — NO TOCAR SIN RAZÓN EXPLÍCITA
+
+Estos sistemas están validados en producción. No modificar ninguno de estos archivos, tablas ni flujos salvo que haya una tarea nueva que lo justifique explícitamente. Si algo nuevo los afecta, señalarlo primero y confirmar antes de tocar.
+
+### Auth / Frontend loading
+- `src/contexts/AuthContext.tsx` — callback `onAuthStateChange` **SÍNCRONO**. No `async`, no `await` dentro. Supabase v2 retiene el session lock (`_acquireLock`) durante toda la ejecución del callback: si es async y espera `fetchProfile()` (~19.5s), `getSession()` queda bloqueado el mismo tiempo → spinner 20s.
+  - `setLoading(false)` se llama **inmediatamente** al conocer la sesión, antes de cualquier fetch.
+  - `fetchProfile` corre en `Promise.resolve().then(async () => { ... })` — fuera del lock, en el siguiente tick.
+  - `fetchProfile` **NO** llama `setProfile(null)` en error — preserva el profile cargado. Solo `signOut` y sesión nula limpian el profile.
+  - Reintenta 3 veces (1.5s y 3s entre intentos). Timeout 5s por intento.
+- `src/hooks/useTenantCredits.ts` — early return `if (authLoading) return`. Si `authLoading=false` pero `organizationId=null`: no limpiar balance ni bajar `loading` — el profile aún llega en background. `return { balance, loading: loading || authLoading }`. Realtime subscription + polling fallback `setInterval(15_000)`.
+- `src/hooks/useClientJobs.ts` — guard `if (authLoading) return`. Si `authLoading=false` y `organizationId=null`: mantener `loading=true`. `authLoading` en deps del `useEffect`.
+- **Patrón hooks con guard** (no romper): `if (authLoading) return` → `if (!organizationId) return`. El `loading` retornado incluye `|| authLoading`. Sin esto, los componentes renderizan con datos vacíos/cero y parpadean.
+- `src/lib/supabase.ts` — usa `window.__nativeFetch`. SDKs como Amplitude parchean `window.fetch`; si fallan con 401, el fetch parcheado queda roto. No reemplazar por `fetch` directo.
+- `index.html` — spinner inline + script guard `__nativeFetch` en `<head>` antes de cualquier recurso externo. No mover ni eliminar. Mensaje CSS "Tardando demasiado" a los 8s. `<ErrorBoundary>` en `main.tsx` + handler `unhandledrejection`.
+- `AppShell.tsx` sidebar balance — tres estados: skeleton (`creditsLoading`) → rojo "Sin saldo" (`balance <= 0`) → verde con monto. El "sin saldo" es un `<button>` que abre `InsufficientCreditsModal`. No convertir en `div` estático.
+
+### Billing / Pagos
+- `POST /api/mp/webhook` en `gateway.mjs` — flujo IPN validado e2e. No tocar la lógica de lookup `preference_id` / `external_reference` ni la idempotencia por `gateway_payment_id`.
+- `POST /api/mp/create-preference` y `create-custom-preference` — generan UUID antes del INSERT, pasan `external_reference`. No cambiar este orden.
+- RPC `add_credits(...)` — SECURITY DEFINER, usarla siempre desde gateway con service key. No llamarla desde frontend.
+- `MP_ACCESS_TOKEN` — producción (`seller_id 290523599`). No reemplazar por sandbox.
+- RPC `charge_credit(...)` — **precio base hardcodeado en $0.30/doc** (TASK-90, 2026-06-17). NO leer `price_per_doc` de `billing_plans` — ese campo existía pero causaba que todos pagaran $0.00 (plan "free" asignado por trigger). El `plan_id` en `organization_credits` es solo para trazabilidad/logging. Costo total = `($0.30 + suma_features_activas + polling_cost) × cant_docs`. Acepta `p_polling_interval_minutes INTEGER DEFAULT NULL` — lookup a `polling_interval_tiers.cost_per_doc` (TASK-104, 2026-06-17).
+- `polling_interval_tiers` — tabla con 12 tramos (1 a 120 min). `active` controla visibilidad en UI del tenant. Editable desde MonitoringPage > Precios vía RPC `update_polling_tier` (SECURITY DEFINER, solo superadmin). NO hardcodear costos de polling.
+
+### Google Drive OAuth
+- `VITE_GOOGLE_CLIENT_ID=59795666065-qhm5r5p4q9rj8glpauhir6a6r4uen4sj.apps.googleusercontent.com` — identifica la app DataLand, no al tenant.
+- `VITE_GOOGLE_REDIRECT_URI=https://dataland.aignition.net/worker/api/auth/google/callback` — debe coincidir exactamente con el valor en el `.env` del worker y con lo registrado en Google Cloud Console. NO usar `automation.aignition.net`.
+- `integration-poller.mjs` — encola con `${gatewayUrl}/api/enqueue`. No pasar `gatewayUrl` directo como URL de POST.
+- `worker.mjs:GATEWAY_URL` — URL base sin path (`https://automation.aignition.net/worker`). No agregar `/api/enqueue` al valor de la variable.
+
+### Seguridad / Base de datos
+- `integration_processed_files` — RLS habilitado (TASK-87, 2026-06-15). Políticas: `tenant_select_own`, `tenant_insert_own`. No deshabilitar.
+- Trigger `on_auth_user_created → handle_new_user()` — crea org + profile automáticamente. El frontend **nunca** inserta org/profile manualmente.
+- RPCs con SECURITY DEFINER (`charge_credit`, `add_credits`, `get_all_tenants_admin`, `get_tenant_jobs_admin`, `approve_document_row`) — no eliminar ni modificar sin evaluar impacto en RLS.
+
+### Observabilidad
+- Sentry — `@sentry/react` + `vite-plugin`, source maps subidos. `SENTRY_AUTH_TOKEN` debe ser env var real al buildear, no solo en `.env`.
+- `GET /api/metrics` en `gateway.mjs` — proxy a `metrics.mjs:9090`, consumido por `MonitoringPage`. No cambiar la ruta ni el auth Bearer.
+
+### Deploy
+- Worker: SIEMPRE `docker compose build && docker compose up -d --force-recreate` desde `/root/worker/`. NUNCA `docker run` manual.
+- Frontend: `npm run build` → `rm -rf /var/www/dataland/assets` → `scp -r dist/.`. NUNCA Netlify ni git pull en servidor.
+
+### Variable crítica
+- `VITE_WORKER_GATEWAY_URL` = URL base SIN path. Cada archivo appenda su endpoint. No incluir `/api/enqueue` ni ningún path en esta variable.
+
+---
+
 ## Stack
 
 - **Frontend**: React 18 + TypeScript + Vite, shadcn/ui, Tailwind CSS
@@ -65,11 +116,12 @@ Supabase (resultados)  +  Drive / Firebase / SFTP (outputs)
 | `GET /api/drive/folders` | Bearer | Listar carpetas Drive |
 | `POST /api/drive/set-folder` | Bearer | Guardar carpeta Drive seleccionada |
 | `GET /api/auth/google/callback` | Sin auth | OAuth callback Google |
+| `GET /api/metrics` | Bearer | Proxy métricas cola → :9090 ✅ TASK-85 |
 | `GET /health` | Bearer | Estado del gateway |
 
 ### metrics.mjs — puerto 9090
 
-Expone métricas de la cola (aún NO consumidas por MonitoringPage — TASK-86):
+Expone métricas de la cola (✅ consumidas por MonitoringPage vía `GET /api/metrics` en gateway — TASK-85):
 - `queue_depth`: waiting / active / delayed
 - `latency_ms`: p50, p95, avg, sample_size
 - `error_rate_pct`
@@ -96,16 +148,29 @@ NODE_ENV=production
 ## Tareas — estado actual
 
 ### 🟡 Backlog activo
-| Task | Descripción | Notion |
-|------|-------------|--------|
-| **TASK-86** | Worker metrics en MonitoringPage (:9090) | [ver](https://app.notion.com/p/37fe32b060fc81bca166f25545469a82) |
-| **SEC-01** | RLS en `integration_processed_files` | [ver](https://app.notion.com/p/37fe32b060fc81d89699eedab89f268f) |
-| **FIX-CLEANUP** | Limpiar refs n8n restantes (parcial hecho) | [ver](https://app.notion.com/p/37fe32b060fc8125af48d38e39ff98b8) |
+| Task | Descripción | Prioridad |
+|------|-------------|-----------|
+| **TASK-91** | FIX-CLIENT-VALIDATION: Validar email y CUIT duplicados al crear cliente | 🔴 Crítica |
+| **TASK-92** | FIX-STATUS-TERMINOLOGY: Estandarizar estados de documentos | 🟠 Alta |
+| **TASK-93** | FIX-FILE-COUNT-NOTIFICATION: Notificar discrepancia archivos subidos vs procesados | 🟠 Alta |
+| **TASK-94** | FIX-DRIVE-DATES: Fecha de período en docs cargados desde Google Drive | 🟠 Alta |
+| **TASK-95** | FIX-MONITORING-ACTIVITY: Pestaña Activity vacía en MonitoringPage | 🟠 Alta |
+| **TASK-96** | FIX-DRIVE-ERROR-FOLDER: Carpeta de errores en integración Google Drive | 🟠 Alta |
+| **TASK-97** | UX-REMOVE-DATE-FIELD | 🟡 Media |
+| **TASK-98** | UX-DOCTYPE-DROPDOWN | 🟡 Media |
+| **TASK-99** | UX-CLARIFY-UPLOADER | 🟡 Media |
+| **TASK-100** | UX-DRAG-DROP | 🟡 Media |
+| **TASK-101** | UX-REMOVE-REDUNDANT-BUTTON | 🟡 Media |
+| **TASK-102** | AI-REFINE-PROMPT: Ajustar prompt para facturas de servicios | 🟡 Media |
+| **TASK-103** | RESEARCH-AFIP: Investigar integración validación AFIP | 🟢 Baja |
+| **TASK-86** | FIX-CLEANUP: Limpiar refs n8n restantes | 🟡 Media |
 | **TASK-66** | Landing visual refinement — dejar para el final | — |
+| **TASK-105** | UX-OUTPUT-FORMAT: Selector CSV/Excel en tarjeta Google Drive (IntegracionesPage). Ver spec abajo. | 🟡 Media |
 
 ### ✅ Completadas y en prod
 | Task | Descripción |
 |------|-------------|
+| TASK-85 (Notion) | Worker metrics en MonitoringPage: `GET /api/metrics` en gateway (proxy Bearer → :9090), tarjeta "Cola" + modal (queue_depth, p50/p95, error_rate). Polling 30s. Build main-BAo2rvH3.js / commit 2ffba1d (2026-06-15). `VITE_WORKER_API_KEY=staging-key-2026` requerida en `.env` del frontend. `VITE_WORKER_GATEWAY_URL` debe ser la URL base SIN `/api/enqueue` — los archivos del codebase appendean el endpoint específico. |
 | Sentry (OBS) | Error monitoring en prod: @sentry/react + vite-plugin, source maps → aignition/javascript-react, setUser/setTag por tenant, filtro extensiones. Build main-Cjx7Trrf.js (commit fb6c5af, 2026-06-15) |
 | TASK-73 | Excel acumulativo Drive |
 | TASK-78 | Drive por cliente (carpetas `{cliente}/{extracciones,procesados}`) |
@@ -121,6 +186,11 @@ NODE_ENV=production
 | UX-BALANCE | Saldo sidebar clickeable abre modal recarga; modal título "Recargar saldo" + fix `credits` en custom preference (commit `47017bc`, 2026-06-15) |
 | FIX-AUTH-LOAD | `setLoading(false)` inmediato tras `getSession`; `fetchProfile` en background sin bloquear UI en F5 (commit `b7e6f9d`, 2026-06-15) |
 | FIX-AUTH-LOCK | Fix definitivo del spinner 20s en F5 y flash de métricas en cero (commit `972ab03`, 2026-06-15) |
+| TASK-87 | SEC-01: RLS en `integration_processed_files` — políticas `tenant_select_own` + `tenant_insert_own` (2026-06-15) |
+| TASK-90 | FIX-BILLING: `charge_credit` hardcodeado a $0.30/doc base. Eliminado lookup `billing_plans.price_per_doc`. Migración `fix_charge_credit_flat_price` aplicada en prod (2026-06-17) |
+| TASK-104 | BILLING-POLLING: Tabla `polling_interval_tiers` (12 tramos 1-120 min), RPC `update_polling_tier`, `charge_credit` con `p_polling_interval_minutes`, worker chain wired, IntegracionesPage con dropdown, MonitoringPage panel superadmin (2026-06-17) — build main-DhKkH-eP.js, worker v1.9.9 — validado e2e (2026-06-18) |
+| UX-PRICE-BREAKDOWN | Sección "Costo por documento" en SettingsPage. RPC `get_price_breakdown()` (SECURITY DEFINER) lee billing_plans + tenant_integrations + feature_pricing_multipliers + polling_interval_tiers → jsonb `{base_price, features, polling, total_per_doc}`. `charge_credit` migrado para leer `base_price` de `billing_plans WHERE name='basico'` con COALESCE($0.30) fallback. MonitoringPage tarjeta "Precios" con editor completo de planes, features y polling tiers. Build main-BR-UIiPb.js (2026-06-17). |
+| FIX-PRICE-BREAKDOWN-MASTER | `get_price_breakdown()` no incluía `master_file`. Fix: migración `fix_get_price_breakdown_master_file` — detecta `output_enabled=true` en cualquier `tenant_integration` activa → agrega `master_file` leyendo costo de `feature_pricing_multipliers` (sin hardcodear). Verificado: Aignition retorna $0.30 + $0.20 (drive) + $0.05 (master_file) + $0.20 (polling) = $0.75 — coincide con cobro real del worker (2026-06-17). |
 
 ---
 
@@ -142,28 +212,67 @@ NODE_ENV=production
 
 ---
 
+## TASK-90 — FIX-BILLING: Cobro correcto por documento (✅ Hecho — 2026-06-17, pendiente validación con job real)
+
+**Root cause**: `charge_credit` RPC leía `price_per_doc` de `billing_plans` via `organization_credits.plan_id`. Todas las orgs nuevas reciben el plan "free" (trigger `trg_assign_free_plan`), cuyo `price_per_doc = $0.00`. Resultado: cobro base = $0, solo se descontaban features activas ($0.03 cada una).
+
+**Fix**: Migración `fix_charge_credit_flat_price` aplicada en Supabase (`klhbgsiatzbmxbkzpbzv`):
+- `v_base_price := 0.3000` hardcodeado — sin lookup a `billing_plans`
+- El `plan_id` se sigue leyendo de `organization_credits` pero solo se graba en `credit_transactions` para trazabilidad
+- Costo real: `($0.30 + feature_costs) × doc_count`
+- Ejemplo: 5 docs sin features = $1.50; 5 docs con Drive = `(0.30 + 0.03) × 5 = $1.65`
+
+**Validación pendiente**: procesar un job real y verificar que `organization_credits.balance` baje `$0.30 × n` + features.
+
+---
+
 ## Arquitectura de créditos / billing
 
 - `organization_credits.balance` → `numeric(12,4)` en USD
-- `charge_credit(p_org_id, p_amount_usd)` — SECURITY DEFINER: descuenta USD exacto por doc procesado
+- `charge_credit(p_org_id, p_job_id, p_amount, p_description, p_features[])` — SECURITY DEFINER: descuenta `($0.30 + suma_feature_costs) × doc_count`. **Precio base hardcodeado: $0.30/doc** (no leer de `billing_plans`). Ver TASK-90.
 - `feature_pricing_multipliers`: costo adicional por feature (`cost_usd`); tiene RLS con SELECT policy `authenticated_read_feature_pricing`
-- `credit_price_tiers`: precios por volumen (5 tramos, $0.20–$0.30/doc)
-- `billing_plans`: planes con `price` (lo que paga el user) y `balance_usd` (crédito que recibe — puede diferir)
+- `billing_plans`: planes con `price` (lo que paga el user) y `balance_usd` (crédito que recibe). El campo `price_per_doc` **ya NO se usa** para cobrar — solo referencia histórica.
+- `organization_credits.plan_id` — solo para logging/trazabilidad. No afecta el precio cobrado.
+- `trg_assign_free_plan` — trigger: asigna plan "free" + $20 balance a toda org nueva. El balance $20 es intencional (trial gratuito). El plan "free" tenía `price_per_doc = $0.00` — era el root cause del bug de $0 cobrado (TASK-90, resuelto).
+- **Modelo de paquetes (a implementar)**: recarga con bonus. Ej: pagar $19 → recibir $20 en balance. El bonus % varía por tramo. Pendiente de implementación formal.
 - `payments`: `gateway_preference_id` (al crear preferencia), `gateway_payment_id` (al recibir IPN), `status` default `'pending'`
 
 ## Features en `feature_pricing_multipliers`
 
-| feature_key | label | cost_usd |
-|---|---|---|
-| integration_drive | Google Drive | $0.03 |
-| integration_firebase | Firebase Storage | $0.03 |
-| integration_sftp | SFTP | $0.03 |
-| integration_ftp | FTP | $0.03 |
-| xlsx_output | Formato Excel (.xlsx) | $0.03 |
-| master_file | Archivo maestro acumulativo | $0.03 |
-| human_review | Revisión humana | $0.03 |
-| integration_drive_multiclient | Multi-cliente | $0.05 |
-| polling_interval_1min | Intervalo de escucha (1 min) | $0.15 |
+Costos reales en prod (2026-06-17):
+
+| feature_key | label | cost_usd | active |
+|---|---|---|---|
+| integration_drive | Google Drive | $0.20 | true |
+| integration_firebase | Firebase Storage | $0.15 | true |
+| integration_sftp | SFTP | $0.03 | true |
+| integration_ftp | FTP | $0.03 | true |
+| master_file | Excel acumulativo | $0.05 | true |
+| xlsx_output | Formato Excel (.xlsx) | $0.00 | false |
+| human_review | Revisión humana | $0.00 | true |
+| integration_drive_multiclient | Multi-cliente | $0.00 | false |
+| polling_interval_1min | Intervalo de escucha (1 min) | $0.00 | true |
+
+Editable desde MonitoringPage → Precios (solo superadmin) vía RPC `update_feature_cost`.
+
+---
+
+## TASK-105 — UX-OUTPUT-FORMAT: Selector de formato en tarjeta Google Drive
+
+**Estado:** TODO — 🟡 Media
+
+**Spec:**
+- La tarjeta de Google Drive en `IntegracionesPage.tsx` agrega un toggle/selector "Archivo acumulativo (Excel)"
+- **OFF (default):** `output_format='csv'`, `output_enabled=false` — devuelve 1 CSV por proceso, sin costo extra
+- **ON:** `output_format='xlsx'`, `output_enabled=true` — genera archivo Excel acumulativo (master_file), se cobra el costo de `master_file` en `feature_pricing_multipliers`
+- El precio se muestra dinámicamente desde `get_price_breakdown()` — **nunca hardcodeado**
+- Al cambiar el toggle → UPDATE en `tenant_integrations` (columnas `output_format` + `output_enabled`)
+- `get_price_breakdown()` ya detecta `output_enabled=true` → `master_file` automáticamente
+- `xlsx_output` feature: activar con costo cuando se quiera cobrar por formato xlsx además del master_file (actualmente `active=false`, no cobra)
+
+**Archivos a modificar:**
+- `src/pages/IntegracionesPage.tsx` — agregar toggle en la tarjeta Drive
+- No requiere cambios en worker ni en RPCs de billing
 
 ---
 

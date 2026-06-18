@@ -377,6 +377,7 @@ async function handleEnqueue(body, queue, log) {
     organization_id, file_url, file_type, original_filename,
     client_cuit = null, client_name = null, client_id = null, input_source,
     job_id: provided_job_id = null,
+    polling_interval_minutes = null,
   } = body;
 
   if (!organization_id || !file_url || !file_type || !original_filename || !input_source) {
@@ -411,6 +412,7 @@ async function handleEnqueue(body, queue, log) {
     job_id, organization_id, file_url, file_type,
     file_hash: 'pending', original_filename, file_size_bytes: 0,
     client_cuit, client_name, client_id, oc_entries: [], priority: 5,
+    polling_interval_minutes,
     metadata: { source: input_source, worker_version: process.env.WORKER_VERSION ?? 'unknown' },
   };
 
@@ -761,6 +763,25 @@ export function startGateway(queue, log) {
       return json(res, 200, { status: 'ok', gateway: true, worker_version: process.env.WORKER_VERSION, google_oauth: !!GOOGLE_CLIENT_ID });
     }
 
+    // Proxy de métricas de la cola (TASK-85) — proxy interno a metrics.mjs:9090
+    if (req.method === 'GET' && req.url === '/api/metrics') {
+      try {
+        const metricsPort = Number(process.env.METRICS_PORT ?? 9090);
+        const controller  = new AbortController();
+        const timeout     = setTimeout(() => controller.abort(), 5000);
+        const metricsRes  = await fetch(`http://localhost:${metricsPort}/metrics`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!metricsRes.ok) {
+          return json(res, 502, { error: 'metrics_unavailable', status: metricsRes.status });
+        }
+        const data = await metricsRes.json();
+        return json(res, 200, data);
+      } catch (err) {
+        log('warn', 'gateway.metrics_proxy.error', { error: err.message });
+        return json(res, 502, { error: 'metrics_unavailable', detail: err.message });
+      }
+    }
+
     if (req.method === 'POST' && req.url === '/api/enqueue') {
       try {
         const body = await readBody(req);
@@ -840,6 +861,7 @@ export function startGateway(queue, log) {
         'GET  /api/auth/google/callback',
         'GET  /api/drive/folders',
         'POST /api/drive/set-folder',
+        'GET  /api/metrics',
         'GET  /health',
       ],
     });
@@ -849,7 +871,7 @@ export function startGateway(queue, log) {
     log('info', 'gateway.started', {
       port:      GATEWAY_PORT,
       auth:      GATEWAY_API_KEY ? 'Bearer token' : 'NONE (staging)',
-      endpoints: ['enqueue', 'mp/create-preference', 'mp/create-custom-preference', 'mp/webhook', 'deposit-row', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'health'],
+      endpoints: ['enqueue', 'mp/create-preference', 'mp/create-custom-preference', 'mp/webhook', 'deposit-row', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'metrics', 'health'],
     });
   });
 

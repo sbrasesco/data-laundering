@@ -6,7 +6,7 @@ services:
     image: data-laundering-worker:${WORKER_VERSION:-v1.0.0}
     container_name: dl-worker
     restart: unless-stopped
-    network_mode: host          # igual que extractor — accede a localhost:PORT de n8n
+    network_mode: host          # accede a Redis, gateway y servicios en localhost del VPS
     env_file:
       - .env
     environment:

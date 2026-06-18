@@ -163,7 +163,7 @@ const worker = new Worker(
 
         // Finalizar job en pdf_jobs
         const totalAttempted = documents.length + failedUploads;
-        await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence }, log);
+        await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence, pollingIntervalMinutes: job.data.polling_interval_minutes ?? null }, log);
 
         const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, failedUploads, lowConfidence, total: totalAttempted, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
@@ -222,10 +222,11 @@ const worker = new Worker(
           await processDocumentResult(data, jobId, job.data.organization_id, log);
         }
         await finalizeJob(jobId, job.data.organization_id, {
-          total:         1,
-          successful:    data.success ? 1 : 0,
-          failed:        data.success ? 0 : 1,
-          lowConfidence: (data.confidence_score ?? 1) < 0.8 ? 1 : 0,
+          total:                   1,
+          successful:              data.success ? 1 : 0,
+          failed:                  data.success ? 0 : 1,
+          lowConfidence:           (data.confidence_score ?? 1) < 0.8 ? 1 : 0,
+          pollingIntervalMinutes:  job.data.polling_interval_minutes ?? null,
         }, log);
 
         const result = { ...data, worker_version: WORKER_VERSION };

@@ -127,7 +127,7 @@ export async function processDocumentResult(result, jobId, orgId, log) {
  *
  * Best-effort: si falla el UPDATE, loguea pero no relanza.
  */
-export async function finalizeJob(jobId, orgId, { total, successful, failed, lowConfidence }, log) {
+export async function finalizeJob(jobId, orgId, { total, successful, failed, lowConfidence, pollingIntervalMinutes = null }, log) {
   if (!SUPABASE_URL || !SUPABASE_KEY) return;
 
   // Los contadores in-memory (failed, successful) solo reflejan errores de API.
@@ -213,11 +213,12 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
         method: 'POST',
         headers: supabaseHeaders(),
         body: JSON.stringify({
-          p_organization_id: orgId,
-          p_job_id: jobId,
-          p_amount: docsToCharge,
-          p_description: `Job procesado: ${successful} facturas + ${ocRelations} OCs`,
-          p_features: activeFeatures,
+          p_organization_id:          orgId,
+          p_job_id:                   jobId,
+          p_amount:                   docsToCharge,
+          p_description:              `Job procesado: ${successful} facturas + ${ocRelations} OCs`,
+          p_features:                 activeFeatures,
+          p_polling_interval_minutes: pollingIntervalMinutes,
         }),
       });
       const charged = await chargeRes.json();
