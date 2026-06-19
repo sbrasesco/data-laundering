@@ -52,6 +52,18 @@ export function useClients() {
     external_code?: string;
     email?: string;
   }) => {
+    // Validar duplicados contra el listado ya cargado
+    const taxIdTrim = clientData.tax_id?.trim();
+    const emailTrim = clientData.email?.trim().toLowerCase();
+    if (taxIdTrim) {
+      const dup = clients.find(c => c.tax_id?.trim() === taxIdTrim);
+      if (dup) return { data: null, error: `Ya existe un cliente con el CUIT ${taxIdTrim} (${dup.name}).` };
+    }
+    if (emailTrim) {
+      const dup = clients.find(c => c.email?.trim().toLowerCase() === emailTrim);
+      if (dup) return { data: null, error: `Ya existe un cliente con el email ${clientData.email} (${dup.name}).` };
+    }
+
     try {
       const { data, error: createError } = await supabase
         .from('clients')
@@ -67,10 +79,14 @@ export function useClients() {
         .single();
 
       if (createError) {
+        // Convertir errores de constraint a mensajes amigables
+        if (createError.code === '23505') {
+          if (createError.message.includes('tax_id')) return { data: null, error: 'Ya existe un cliente con ese CUIT.' };
+          if (createError.message.includes('email')) return { data: null, error: 'Ya existe un cliente con ese email.' };
+        }
         throw createError;
       }
 
-      // Refrescar listado
       await fetchClients();
       return { data, error: null };
     } catch (err) {
@@ -83,6 +99,18 @@ export function useClients() {
     id: string,
     data: Partial<Pick<Client, 'name' | 'tax_id' | 'external_code' | 'email' | 'is_active'>>
   ) => {
+    // Validar duplicados excluyendo el cliente que se está editando
+    const taxIdTrim = data.tax_id?.trim();
+    const emailTrim = data.email?.trim().toLowerCase();
+    if (taxIdTrim) {
+      const dup = clients.find(c => c.id !== id && c.tax_id?.trim() === taxIdTrim);
+      if (dup) return { error: `Ya existe un cliente con el CUIT ${taxIdTrim} (${dup.name}).` };
+    }
+    if (emailTrim) {
+      const dup = clients.find(c => c.id !== id && c.email?.trim().toLowerCase() === emailTrim);
+      if (dup) return { error: `Ya existe un cliente con el email ${data.email} (${dup.name}).` };
+    }
+
     setLoading(true);
     setError(null);
     const { error } = await supabase
@@ -90,11 +118,16 @@ export function useClients() {
       .update(data)
       .eq('id', id);
     if (error) {
-      setError(error.message);
-    } else {
-      await fetchClients();
+      setLoading(false);
+      if (error.code === '23505') {
+        if (error.message.includes('tax_id')) return { error: 'Ya existe un cliente con ese CUIT.' };
+        if (error.message.includes('email')) return { error: 'Ya existe un cliente con ese email.' };
+      }
+      return { error: error.message };
     }
+    await fetchClients();
     setLoading(false);
+    return { error: null };
   };
 
   const toggleClientActive = async (id: string, current: boolean) => {

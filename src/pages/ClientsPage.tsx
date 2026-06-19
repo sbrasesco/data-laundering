@@ -56,10 +56,9 @@ export function ClientsPage() {
     if (!editForm.tax_id.trim()) { setEditError('El CUIT es obligatorio'); return; }
     if (!editForm.email.trim()) { setEditError('El email es obligatorio'); return; }
     setEditSubmitting(true); setEditError(null);
-    try {
-      await updateClient(editingClient.id, { name: editForm.name.trim(), tax_id: editForm.tax_id.trim(), external_code: editForm.external_code.trim() || null, email: editForm.email.trim() });
-      setEditingClient(null);
-    } catch (err) { console.error(err); } finally { setEditSubmitting(false); }
+    const { error: updateError } = await updateClient(editingClient.id, { name: editForm.name.trim(), tax_id: editForm.tax_id.trim(), external_code: editForm.external_code.trim() || null, email: editForm.email.trim() });
+    if (updateError) { setEditError(updateError); } else { setEditingClient(null); }
+    setEditSubmitting(false);
   };
 
   const handleToggleActive = async (client: Client) => {
