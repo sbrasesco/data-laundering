@@ -357,6 +357,16 @@ export function IntegracionesPage() {
 
   const handleTestConnection = () => runConnTest(selectedType, credentials);
 
+  // Confirmar el nombre de una carpeta nueva: la fija y la agrega al dropdown como seleccionada.
+  // No la crea todavía — eso ocurre al Guardar (init/migrate la materializa en el bucket).
+  const confirmNewFolder = () => {
+    const name = folderPath.trim().replace(/^\/+|\/+$/g, '');
+    if (!name) { setCreatingFolder(false); setFolderPath(''); return; }
+    if (!folderOptions.includes(name)) setFolderOptions(opts => [...opts, name]);
+    setFolderPath(name);
+    setCreatingFolder(false);
+  };
+
   const handleSave = async () => {
     setSaving(true); setSaveError(null);
     try {
@@ -773,10 +783,15 @@ export function IntegracionesPage() {
                   {supportsConnTest(selectedType) && testStatus === 'ok' ? (
                     creatingFolder ? (
                       <div className="flex gap-1.5 items-center">
-                        <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="nombre-de-carpeta" autoFocus />
-                        <button type="button" title="Volver a la lista"
+                        <Input type="text" value={folderPath} autoFocus placeholder="nombre-de-carpeta"
+                          onChange={(e) => setFolderPath(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmNewFolder(); } }} />
+                        <button type="button" title="Confirmar nombre" disabled={!folderPath.trim()}
+                          onClick={confirmNewFolder}
+                          className="h-9 w-9 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40">✓</button>
+                        <button type="button" title="Cancelar"
                           onClick={() => { setCreatingFolder(false); setFolderPath(''); }}
-                          className="h-9 px-2 text-xs rounded-md border border-input bg-background hover:bg-muted text-muted-foreground whitespace-nowrap">Lista</button>
+                          className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted text-muted-foreground">✕</button>
                       </div>
                     ) : (
                       <select className={selectCls}
