@@ -110,7 +110,7 @@ function Navbar() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-card border-b-2" style={{ borderBottomColor: C.verde }}>
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <img src={auroraLogo} alt="Aurora" style={{ height: '52px', width: 'auto' }} />
+        <img src={auroraLogo} alt="Agora" style={{ height: '52px', width: 'auto' }} />
         <div className="flex items-center gap-6">
           <a href="#features" className="text-sm font-semibold hidden sm:block" style={{ color: C.grisTexto }}>Características</a>
           <a href="#precios"  className="text-sm font-semibold hidden sm:block" style={{ color: C.grisTexto }}>Planes</a>
@@ -132,7 +132,7 @@ function Hero() {
           <span className="inline-block px-3 py-1 rounded-xl" style={{ background: C.amarillo, color: C.negro }}>en segundos</span>
         </h1>
         <p className="text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-medium" style={{ color: C.grisTexto }}>
-          Aurora utiliza inteligencia artificial avanzada para extraer, validar y analizar
+          Agora utiliza inteligencia artificial avanzada para extraer, validar y analizar
           facturas automáticamente. Ahorrá tiempo, costos, minimiza errores y aumenta la productividad de tu equipo.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
@@ -389,7 +389,7 @@ function Footer() {
       <div className="max-w-6xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
           <div>
-            <img src={auroraLogo} alt="Aurora" style={{ height: '48px', width: 'auto' }} />
+            <img src={auroraLogo} alt="Agora" style={{ height: '48px', width: 'auto' }} />
             <p className="text-sm leading-relaxed" style={{ color: C.grisTexto }}>Extracción de datos de facturas con tecnología de IA avanzada.</p>
             <a href="https://aignition.net" target="_blank" rel="noopener noreferrer" className="text-xs mt-2 hover:underline" style={{ color: C.gris }}>by Aignition</a>
           </div>

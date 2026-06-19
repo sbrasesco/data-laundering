@@ -335,6 +335,41 @@ async function depositToFirebaseStorage(credentials, outputFolderName, filename,
   }
 }
 
+async function depositToSupabaseStorage(credentials, outputConfig, filename, fileContent, log) {
+  const { project_url: projectUrl, service_role_key: serviceRoleKey, bucket_name: bucketName } = credentials ?? {};
+
+  if (!projectUrl || !serviceRoleKey || !bucketName) {
+    throw new Error('Supabase Storage output: project_url, service_role_key y bucket_name son requeridos');
+  }
+
+  // folder_path puede estar en outputConfig (columna top-level) o en credentials (legacy)
+  const rawFolder = (outputConfig.folder_path ?? credentials.folder_path ?? '').trim().replace(/^\/+/, '');
+  const prefix    = rawFolder ? (rawFolder.endsWith('/') ? rawFolder : `${rawFolder}/`) : '';
+  const destPath  = `${prefix}extracciones/${filename}`;
+
+  const buf = Buffer.isBuffer(fileContent) ? fileContent : Buffer.from(fileContent, 'utf-8');
+  const res = await fetch(`${projectUrl}/storage/v1/object/${bucketName}/${destPath}`, {
+    method:  'POST',
+    headers: {
+      'Authorization': `Bearer ${serviceRoleKey}`,
+      'apikey':        serviceRoleKey,
+      'Content-Type':  filename.endsWith('.xlsx')
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'text/csv',
+      'x-upsert': 'true', // sobrescribir si existe (múltiples jobs del mismo día)
+    },
+    body: buf,
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Supabase Storage upload failed (${res.status}): ${txt}`);
+  }
+
+  log('info', 'output.supabase_upload_done', { bucket: bucketName, path: destPath });
+  return destPath;
+}
+
 async function depositToFtp(credentials, baseFolderPath, outputFolderPath, filename, fileContent, log) {
   const { ftp: ftpLib } = await import('basic-ftp');
   const { Readable }    = await import('node:stream');
@@ -543,6 +578,20 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       log('info', 'output.deposited', {
         job_id: jobId, organization_id: orgId,
         integration_type: 'firebase_storage', filename, format: outputFormat,
+        dest_path: destPath,
+      });
+
+    } else if (outputConfig.integration_type === 'supabase_storage') {
+      const destPath = await depositToSupabaseStorage(
+        outputConfig.credentials,
+        outputConfig,
+        filename,
+        fileContent,
+        log
+      );
+      log('info', 'output.deposited', {
+        job_id: jobId, organization_id: orgId,
+        integration_type: 'supabase_storage', filename, format: outputFormat,
         dest_path: destPath,
       });
 

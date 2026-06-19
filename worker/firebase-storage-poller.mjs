@@ -1,278 +1,156 @@
 /**
  * firebase-storage-poller.mjs — Poller de integraciones Firebase Storage
- * Data Laundering V2.0 — TASK-71
+ * Data Laundering V2.0 — TASK-106
  *
- * Flujo por integración activa:
- *   1. Obtiene integraciones "due" via admin_get_active_integrations()
- *   2. Inicializa firebase-admin con service_account_json de las credenciales
- *   3. Lista archivos en bucket/folder_path (excluye /procesados/)
- *   4. Descarga → SHA256 → dedup → Supabase Storage → Input Gateway
- *   5. Actualiza last_polled_at
+ * Adaptador delgado: solo sabe cómo listar, descargar y mover en Firebase.
+ * La lógica de dedup, upload a Aurora y enqueue vive en poller-handoff.mjs.
  *
- * Credenciales esperadas en tenant_integrations.credentials:
- *   { service_account_json: Object|String, bucket_name: String, folder_path: String }
+ * Estructura de carpetas en bucket del cliente (Firebase Storage):
+ *   raíz/                → usuario suelta archivos acá
+ *   {prefix}en_proceso/  → poller mueve acá al levantar
+ *   {prefix}procesados/  → worker mueve acá si procesó OK (integration-file-mover.mjs)
+ *   {prefix}fallidos/    → worker mueve acá si falló   (integration-file-mover.mjs)
+ *   {prefix}extracciones/→ worker deposita CSV resultante (output-depositor.mjs)
+ *
+ * Credenciales en tenant_integrations.credentials:
+ *   { service_account_json, bucket_name }
+ *
+ * folder_path viene de integration.folder_path (columna top-level), NO de credentials.
  */
 
-import crypto from 'node:crypto';
-import path   from 'node:path';
+import path from 'node:path';
+import {
+  SUPPORTED_EXTENSIONS,
+  checkAndRegisterFile,
+  uploadAndEnqueue,
+  runIntegrationPoller,
+} from './poller-handoff.mjs';
 
-const SUPPORTED_EXTENSIONS = {
-  '.pdf':  { file_type: 'pdf', mime: 'application/pdf' },
-  '.jpg':  { file_type: 'jpg', mime: 'image/jpeg' },
-  '.jpeg': { file_type: 'jpg', mime: 'image/jpeg' },
-  '.png':  { file_type: 'png', mime: 'image/png' },
-  '.zip':  { file_type: 'zip', mime: 'application/zip' },
-  '.rar':  { file_type: 'rar', mime: 'application/x-rar-compressed' },
-};
+// Carpetas de sistema — nunca se procesan como archivos entrantes
+const SYSTEM_FOLDERS = new Set(['en_proceso', 'procesados', 'fallidos', 'extracciones']);
 
-// ─── Supabase helpers ────────────────────────────────────────────────────────
+// ─── Poller específico ────────────────────────────────────────────────────────
 
-async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
-  const res = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
-    method: 'POST',
-    headers: {
-      'apikey':        supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`RPC ${rpcName} failed (${res.status}): ${text}`);
-  }
-  if (res.status === 204) return null;
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
+async function pollFirebaseStorage(integration, ctx) {
+  const { id: integrationId, organization_id: orgId, credentials, folder_path: folderPath } = integration;
+  const { log } = ctx;
 
-async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer, mimeType) {
-  const storagePath = `${orgId}/integrations/${filename}`;
-  const res = await fetch(
-    `${supabaseUrl}/storage/v1/object/documents/${storagePath}`,
-    {
-      method: 'POST',
-      headers: {
-        'apikey':        supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type':  mimeType,
-        'x-upsert':      'false',
-      },
-      body: buffer,
-    }
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Storage upload failed (${res.status}): ${text}`);
-  }
-  return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
-}
-
-async function enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, filename, integrationId) {
-  const res = await fetch(gatewayUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${gatewayApiKey}`,
-    },
-    body: JSON.stringify({
-      organization_id:   orgId,
-      file_url:          fileUrl,
-      file_type:         fileType,
-      original_filename: filename,
-      input_source:      'integration_remote',
-      metadata: {
-        source:         'integration_remote',
-        integration_id: integrationId,
-        protocol:       'firebase_storage',
-      },
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gateway enqueue failed (${res.status}): ${text}`);
-  }
-  return res.json();
-}
-
-// ─── Firebase Storage poller ─────────────────────────────────────────────────
-
-async function pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
-  const { id: integrationId, organization_id: orgId, credentials } = integration;
-
-  // Parsear credenciales
-  const serviceAccount = typeof credentials.service_account_json === 'string'
-    ? JSON.parse(credentials.service_account_json)
-    : credentials.service_account_json;
-
-  const bucketName = credentials.bucket_name;
-  const folderPath = credentials.folder_path || '';
-
-  if (!serviceAccount || !bucketName) {
+  const { service_account_json, bucket_name: bucketName } = credentials ?? {};
+  if (!service_account_json || !bucketName) {
     throw new Error('Firebase Storage: service_account_json y bucket_name son requeridos');
   }
 
-  // Inicializar app de Firebase con nombre único por integración
-  // (firebase-admin permite múltiples apps nombradas)
+  const serviceAccount = typeof service_account_json === 'string'
+    ? JSON.parse(service_account_json)
+    : service_account_json;
+
+  // Prefix normalizado
+  const rawFolder = (folderPath ?? '').trim().replace(/^\/+/, '');
+  const prefix    = rawFolder ? (rawFolder.endsWith('/') ? rawFolder : `${rawFolder}/`) : '';
+
+  // Importar Firebase Admin dinámicamente para evitar conflictos entre instancias
   const { initializeApp, deleteApp, cert } = await import('firebase-admin/app');
   const { getStorage } = await import('firebase-admin/storage');
 
-  const appName = `dl_integration_${integrationId}`;
-  const app = initializeApp({
-    credential: cert(serviceAccount),
-    storageBucket: bucketName,
-  }, appName);
+  const appName = `dl_firebase_poller_${integrationId}_${Date.now()}`;
+  const app = initializeApp(
+    { credential: cert(serviceAccount), storageBucket: bucketName },
+    appName,
+  );
 
   try {
     const bucket = getStorage(app).bucket();
 
-    // Prefix = folder_path normalizado (con / al final)
-    const prefix = folderPath
-      ? (folderPath.endsWith('/') ? folderPath : `${folderPath}/`)
-      : '';
+    // Listar archivos en raíz del prefix (no recursivo hacia carpetas de sistema)
+    const [allFiles] = await bucket.getFiles({ prefix: prefix || undefined });
 
-    // Listar archivos — delimiter='/' lista solo el nivel inmediato del prefix
-    const [files] = await bucket.getFiles({ prefix });
-
-    // Filtrar: solo archivos con extensión soportada, excluir /procesados/
-    const candidates = files.filter(f => {
-      if (f.name.endsWith('/')) return false;                    // directorio placeholder
-      if (f.name.includes('/procesados/')) return false;         // archivos originales procesados
-      if (f.name.includes('/extracciones/')) return false;      // resultados extraídos
-      const ext = path.extname(f.name).toLowerCase();
-      return !!SUPPORTED_EXTENSIONS[ext];
+    // Filtrar archivos en el nivel raíz del prefix — excluir subcarpetas de sistema
+    const candidates = allFiles.filter(file => {
+      const relPath = prefix ? file.name.slice(prefix.length) : file.name;
+      if (!relPath || relPath.endsWith('/')) return false;         // es carpeta
+      const topSegment = relPath.split('/')[0];
+      if (SYSTEM_FOLDERS.has(topSegment)) return false;            // carpeta de sistema
+      if (relPath.includes('/')) return false;                     // subcarpeta no-sistema
+      return !!SUPPORTED_EXTENSIONS[path.extname(file.name).toLowerCase()];
     });
 
     log('info', 'integration.files_found', {
-      integration_id: integrationId,
-      protocol:       'firebase_storage',
-      count:          candidates.length,
+      integration_id: integrationId, protocol: 'firebase_storage', count: candidates.length,
     });
 
     let enqueued = 0, skipped = 0, failed = 0;
 
     for (const file of candidates) {
-      const filename = path.basename(file.name);
-      try {
-        // Descargar a Buffer
-        const [buffer] = await file.download();
+      const filename      = path.basename(file.name);
+      const enProcesoPath = `${prefix}en_proceso/${filename}`;
 
-        // SHA256 + deduplicación
-        const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-        const isNew = await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
-          p_integration_id:  integrationId,
-          p_organization_id: orgId,
-          p_file_hash:       fileHash,
-          p_filename:        filename,
-        });
+      try {
+        // 1. Descargar buffer desde raíz
+        const [bufferArr] = await file.download();
+        const buffer = Buffer.from(bufferArr);
+
+        // 2. Dedup check
+        const { isNew } = await checkAndRegisterFile({ buffer, filename, orgId, integrationId, ctx });
 
         if (!isNew) {
-          log('debug', 'integration.file_skipped_duplicate', {
-            integration_id: integrationId,
-            filename,
-          });
+          // Ya fue procesado — mover directo a procesados/ para limpiar raíz
+          try {
+            await file.copy(bucket.file(`${prefix}procesados/${filename}`));
+            await file.delete();
+            log('info', 'integration.file_moved', {
+              protocol: 'firebase_storage', from: file.name, to: `${prefix}procesados/${filename}`, context: 'already_processed',
+            });
+          } catch (moveErr) {
+            log('warn', 'integration.file_move_failed', {
+              protocol: 'firebase_storage', filename, error: moveErr.message, context: 'already_processed',
+            });
+          }
           skipped++;
           continue;
         }
 
-        // Subir a Supabase Storage
-        const ext        = path.extname(filename).toLowerCase();
-        const { file_type, mime } = SUPPORTED_EXTENSIONS[ext];
-        const uniqueName = `${Date.now()}_${filename}`;
-        const fileUrl    = await uploadToStorage(supabaseUrl, supabaseKey, orgId, uniqueName, buffer, mime);
+        // 3. Nuevo: mover a en_proceso/ ANTES de encolar (no encolar si falla el move)
+        try {
+          await file.copy(bucket.file(enProcesoPath));
+          await file.delete();
+          log('info', 'integration.file_moved', {
+            protocol: 'firebase_storage', from: file.name, to: enProcesoPath, context: 'to_en_proceso',
+          });
+        } catch (moveErr) {
+          log('error', 'integration.file_move_failed', {
+            protocol: 'firebase_storage', filename, error: moveErr.message, context: 'to_en_proceso',
+          });
+          failed++;
+          continue;
+        }
 
-        // Encolar en Input Gateway
-        await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, filename, integrationId);
-
-        log('info', 'integration.file_enqueued', {
-          integration_id: integrationId,
-          filename,
-          file_type,
-          protocol: 'firebase_storage',
+        // 4. Upload a Aurora + enqueue — fileMeta permite que el worker mueva después
+        await uploadAndEnqueue({
+          buffer, filename, orgId, integrationId, protocol: 'firebase_storage',
+          fileMeta: { original_path: enProcesoPath, bucket_name: bucketName },
+          ctx,
         });
         enqueued++;
 
-        // Mover original a procesados/ (best-effort — copy + delete)
-        try {
-          const destPath = `${prefix}procesados/${filename}`;
-          await file.copy(bucket.file(destPath));
-          await file.delete();
-          log('info', 'integration.file_moved_to_procesados', {
-            integration_id: integrationId, filename, protocol: 'firebase_storage', dest: destPath,
-          });
-        } catch (moveErr) {
-          log('warn', 'integration.file_move_failed', {
-            integration_id: integrationId, filename, protocol: 'firebase_storage', error: moveErr.message,
-          });
-        }
-
       } catch (fileErr) {
         log('error', 'integration.file_error', {
-          integration_id: integrationId,
-          filename,
-          protocol: 'firebase_storage',
-          error: fileErr.message,
+          integration_id: integrationId, filename, protocol: 'firebase_storage', error: fileErr.message,
         });
         failed++;
       }
     }
 
     log('info', 'integration.tenant_done', {
-      integration_id:  integrationId,
-      organization_id: orgId,
-      protocol:        'firebase_storage',
-      enqueued,
-      skipped,
-      failed,
+      integration_id: integrationId, organization_id: orgId, protocol: 'firebase_storage', enqueued, skipped, failed,
     });
 
   } finally {
-    // Liberar la app para evitar memory leaks
     await deleteApp(app);
   }
 }
 
-// ─── Orquestador ─────────────────────────────────────────────────────────────
+// ─── Export ───────────────────────────────────────────────────────────────────
 
-export async function pollFirebaseStorageIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
-  let integrations;
-  try {
-    integrations = await callRpc(supabaseUrl, supabaseKey, 'admin_get_active_integrations', {
-      p_type: 'firebase_storage',
-    });
-  } catch (err) {
-    log('error', 'integration.rpc_error', { type: 'firebase_storage', error: err.message });
-    return;
-  }
-
-  if (!integrations?.length) {
-    log('debug', 'integration.no_due_integrations', { type: 'firebase_storage' });
-    return;
-  }
-
-  log('info', 'integration.poll_start', { type: 'firebase_storage', count: integrations.length });
-
-  for (const integration of integrations) {
-    const { id: integrationId, organization_id: orgId } = integration;
-    try {
-      await pollFirebaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
-      await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', {
-        p_integration_id: integrationId,
-      });
-    } catch (tenantErr) {
-      log('error', 'integration.tenant_error', {
-        integration_id:  integrationId,
-        organization_id: orgId,
-        protocol:        'firebase_storage',
-        error:           tenantErr.message,
-      });
-      try {
-        await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', {
-          p_integration_id: integrationId,
-        });
-      } catch (_) {}
-    }
-  }
-
-  log('info', 'integration.poll_done', { type: 'firebase_storage' });
+export async function pollFirebaseStorageIntegrations(ctx) {
+  await runIntegrationPoller({ type: 'firebase_storage', pollFn: pollFirebaseStorage, ctx });
 }

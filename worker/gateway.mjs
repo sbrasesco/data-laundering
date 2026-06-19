@@ -28,7 +28,7 @@ const GOOGLE_REDIRECT_URI  = process.env.GOOGLE_REDIRECT_URI
   ?? 'http://localhost:3001/api/auth/google/callback';
 
 const VALID_FILE_TYPES = ['zip', 'rar', 'pdf', 'jpg', 'jpeg', 'png'];
-const VALID_SOURCES    = ['frontend_upload', 'integration_drive', 'integration_remote', 'api_direct'];
+const VALID_SOURCES    = ['frontend_upload', 'integration_drive', 'integration_remote', 'api_direct', 'supabase_storage', 'firebase_storage'];
 const UUID_RE          = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUUID(v) { return UUID_RE.test(v); }
 
@@ -353,6 +353,132 @@ async function handleSetDriveFolder(body, log) {
   return { status: 200, body: { ok: true } };
 }
 
+// ─── Handler: init folders de integración (TASK-107) ─────────────────────────
+
+const SYSTEM_INIT_FOLDERS = ['en_proceso', 'procesados', 'fallidos', 'extracciones'];
+
+async function initSupabaseFolders({ projectUrl, serviceRoleKey, bucketName, prefix }, log) {
+  for (const folder of SYSTEM_INIT_FOLDERS) {
+    const objectPath = `${prefix}${folder}/.keep`;
+    const res = await fetch(`${projectUrl}/storage/v1/object/${bucketName}/${objectPath}`, {
+      method:  'POST',
+      headers: {
+        Authorization:  `Bearer ${serviceRoleKey}`,
+        apikey:         serviceRoleKey,
+        'Content-Type': 'application/octet-stream',
+        'x-upsert':     'true',
+      },
+      body: Buffer.alloc(0),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      log('warn', 'init_folders.supabase_put_failed', { folder, objectPath, status: res.status, error: t });
+    }
+  }
+}
+
+async function initFirebaseFolders({ serviceAccount, bucketName, prefix }, log) {
+  const { initializeApp, deleteApp, cert } = await import('firebase-admin/app');
+  const { getStorage } = await import('firebase-admin/storage');
+  const app = initializeApp(
+    { credential: cert(serviceAccount), storageBucket: bucketName },
+    `dl_init_${Date.now()}`,
+  );
+  try {
+    const bucket = getStorage(app).bucket();
+    for (const folder of SYSTEM_INIT_FOLDERS) {
+      await bucket.file(`${prefix}${folder}/.keep`).save(Buffer.alloc(0), {
+        metadata: { contentType: 'application/octet-stream' },
+      });
+    }
+    log('info', 'init_folders.firebase_done', { prefix });
+  } finally {
+    await deleteApp(app);
+  }
+}
+
+async function handleInitFolders(body, log) {
+  const { integration_id, org_id } = body ?? {};
+  if (!integration_id || !org_id) {
+    return { status: 400, body: { error: 'integration_id y org_id requeridos' } };
+  }
+
+  // Fetch integration — mismo patrón que integration-file-mover.mjs
+  let integration;
+  try {
+    // credentials no es columna top-level — está encriptada. Usamos RPC para desencriptar.
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/tenant_integrations?id=eq.${encodeURIComponent(integration_id)}&select=integration_type,folder_path,organization_id&limit=1`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } },
+    );
+    if (!res.ok) {
+      const txt = await res.text();
+      log('error', 'init_folders.fetch_error', { integration_id, status: res.status, body: txt });
+      return { status: 502, body: { error: `Error consultando integración (${res.status})` } };
+    }
+    const data = await res.json();
+    const row = data?.[0];
+    if (!row) {
+      return { status: 404, body: { error: 'Integración no encontrada' } };
+    }
+
+    // Obtener credenciales desencriptadas vía RPC
+    try {
+      const credentials = await callSupabaseRpc('admin_get_integration_credentials', {
+        p_integration_id: integration_id,
+        p_org_id:         row.organization_id,
+      });
+      row.credentials = credentials ?? {};
+    } catch (credErr) {
+      log('error', 'init_folders.cred_error', { integration_id, error: credErr.message });
+      return { status: 502, body: { error: 'Error obteniendo credenciales' } };
+    }
+
+    integration = row;
+  } catch (err) {
+    log('error', 'init_folders.fetch_throw', { integration_id, error: err.message });
+    return { status: 502, body: { error: `Error consultando integración: ${err.message}` } };
+  }
+
+  if (!integration) {
+    return { status: 404, body: { error: 'Integración no encontrada' } };
+  }
+
+  const { integration_type: type, credentials, folder_path: folderPath } = integration;
+  const rawFolder = (folderPath ?? '').trim().replace(/^\/+/, '');
+  const prefix    = rawFolder ? (rawFolder.endsWith('/') ? rawFolder : `${rawFolder}/`) : '';
+
+  try {
+    if (type === 'supabase_storage') {
+      const { project_url: projectUrl, service_role_key: serviceRoleKey, bucket_name: bucketName } = credentials ?? {};
+      if (!projectUrl || !serviceRoleKey || !bucketName) {
+        return { status: 400, body: { error: 'Faltan credenciales: project_url, service_role_key, bucket_name' } };
+      }
+      await initSupabaseFolders({ projectUrl, serviceRoleKey, bucketName, prefix }, log);
+    } else if (type === 'firebase_storage') {
+      const { service_account_json, bucket_name: bucketName } = credentials ?? {};
+      if (!service_account_json || !bucketName) {
+        return { status: 400, body: { error: 'Faltan credenciales: service_account_json, bucket_name' } };
+      }
+      const serviceAccount = typeof service_account_json === 'string'
+        ? JSON.parse(service_account_json)
+        : service_account_json;
+      await initFirebaseFolders({ serviceAccount, bucketName, prefix }, log);
+    } else {
+      // google_drive: carpetas gestionadas por integration-poller.mjs vía getOrCreateFolder
+      // ftp/sftp/otros: no aplica
+      log('info', 'init_folders.protocol_skip', { integration_id, type });
+      return { status: 200, body: { ok: true, type, skipped: true } };
+    }
+  } catch (err) {
+    log('error', 'init_folders.error', { integration_id, type, error: err.message });
+    return { status: 500, body: { error: `Error creando carpetas: ${err.message}` } };
+  }
+
+  log('info', 'init_folders.done', { integration_id, type, prefix });
+  return { status: 200, body: { ok: true, type } };
+}
+
 // ─── Handler: depositar fila aprobada (TASK-80) ──────────────────────────────
 
 async function handleDepositRow(body, log) {
@@ -413,7 +539,7 @@ async function handleEnqueue(body, queue, log) {
     file_hash: 'pending', original_filename, file_size_bytes: 0,
     client_cuit, client_name, client_id, oc_entries: [], priority: 5,
     polling_interval_minutes,
-    metadata: { source: input_source, worker_version: process.env.WORKER_VERSION ?? 'unknown' },
+    metadata: { ...(body?.metadata ?? {}), source: input_source, worker_version: process.env.WORKER_VERSION ?? 'unknown' },
   };
 
   // Crear pdf_jobs si no existe (integration sources). Para frontend_upload el frontend
@@ -838,6 +964,18 @@ export function startGateway(queue, log) {
       }
     }
 
+    // Init folders de integración (TASK-107)
+    if (req.method === 'POST' && req.url === '/api/integrations/init-folders') {
+      try {
+        const body = await readBody(req);
+        const result = await handleInitFolders(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'init_folders.request_error', { error: err.message });
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     // Drive: guardar carpeta seleccionada
     if (req.method === 'POST' && req.url === '/api/drive/set-folder') {
       try {
@@ -858,6 +996,7 @@ export function startGateway(queue, log) {
         'POST /api/mp/create-custom-preference',
         'POST /api/mp/webhook',
         'POST /api/deposit-row',
+        'POST /api/integrations/init-folders',
         'GET  /api/auth/google/callback',
         'GET  /api/drive/folders',
         'POST /api/drive/set-folder',

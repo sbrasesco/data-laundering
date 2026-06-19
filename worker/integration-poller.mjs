@@ -92,7 +92,7 @@ function sanitizeStorageKey(filename) {
     .replace(/[\s$&+,/:;=?@"<>{}|\\^~[\]`]/g, '_');
 }
 
-async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId, clientId = null, pollingIntervalMinutes = null) {
+async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename, integrationId, clientId = null, pollingIntervalMinutes = null, fileMeta = {}) {
   const res = await fetch(`${gatewayUrl}/api/enqueue`, {
     method:  'POST',
     headers: {
@@ -110,6 +110,8 @@ async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename
       metadata: {
         source:         'integration_drive',
         integration_id: integrationId,
+        protocol:       'integration_drive',
+        ...fileMeta,
       },
     }),
   });
@@ -235,7 +237,9 @@ async function syncClientFolders(drive, rootFolderId, clients, integrationId, lo
     try {
       const folderName     = sanitizeFolderName(`${client.name} — ${client.tax_id}`);
       const clientFolderId = await getOrCreateFolder(drive, rootFolderId, folderName);
+      await getOrCreateFolder(drive, clientFolderId, 'en_proceso');
       await getOrCreateFolder(drive, clientFolderId, 'procesados');
+      await getOrCreateFolder(drive, clientFolderId, 'fallidos');
       await getOrCreateFolder(drive, clientFolderId, 'extracciones');
     } catch (err) {
       log('warn', 'integration.sync_client_folder_failed', {
@@ -406,9 +410,34 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
               orgId, uniqueName, buffer, file.mimeType
             );
 
-            // Encolar en Input Gateway (con client_id e intervalo de escucha)
+            // Mover archivo a en_proceso/ (antes de encolar — best-effort)
+            const enProcesoId = await getOrCreateFolder(drive, subfolder.id, 'en_proceso');
+            try {
+              await drive.files.update({
+                fileId:        file.id,
+                addParents:    enProcesoId,
+                removeParents: subfolder.id,
+                fields:        'id, parents',
+              });
+              log('info', 'integration.file_moved', {
+                integration_id: integrationId, filename: file.name,
+                drive_file_id: file.id, context: 'to_en_proceso',
+              });
+            } catch (moveErr) {
+              log('warn', 'integration.file_move_failed', {
+                integration_id: integrationId, filename: file.name,
+                drive_file_id: file.id, context: 'to_en_proceso', error: moveErr.message,
+              });
+              // Continuar igual: el mover es best-effort, el procesamiento no depende de ello
+            }
+
+            // Encolar en Input Gateway con fileMeta para que integration-file-mover pueda moverlo después
             const fileType = SUPPORTED_MIME_TYPES[file.mimeType].file_type;
-            await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId, clientId, pollingIntervalMinutes);
+            await enqueueJob(
+              gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, file.name, integrationId,
+              clientId, pollingIntervalMinutes,
+              { drive_file_id: file.id, en_proceso_folder_id: enProcesoId, client_folder_id: subfolder.id }
+            );
 
             // Registrar drive_file_id como procesado
             await registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, file.id, file.name);
@@ -421,9 +450,6 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
               client_id:      clientId,
             });
             enqueued++;
-
-            // Mover original a {cliente}/procesados/ (best-effort)
-            await moveFileToProcesados(drive, file.id, subfolder.id, file.name, integrationId, log);
 
           } catch (fileErr) {
             log('error', 'integration.file_error', {

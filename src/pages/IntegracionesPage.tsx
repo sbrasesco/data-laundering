@@ -72,7 +72,7 @@ const CRED_FIELDS: Record<IntegrationType, Array<{ key: string; label: string; t
   sftp:             [{ key: 'host', label: 'Host', placeholder: 'sftp.servidor.com', required: true }, { key: 'port', label: 'Puerto', placeholder: '22' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password' }, { key: 'private_key', label: 'Clave privada (SSH)', type: 'textarea', placeholder: '-----BEGIN RSA PRIVATE KEY-----\n...' }],
   remote_folder:    [{ key: 'server_path', label: 'Ruta del servidor', placeholder: '\\\\\\\\servidor\\\\compartido\\\\facturas', required: true }, { key: 'domain', label: 'Dominio (opcional)', placeholder: 'WORKGROUP' }, { key: 'username', label: 'Usuario', required: true }, { key: 'password', label: 'Contrasena', type: 'password', required: true }],
   firebase_storage: [{ key: 'service_account_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'mi-proyecto.appspot.com', required: true }],
-  supabase_storage: [{ key: 'project_url', label: 'URL del proyecto', placeholder: 'https://xxxxx.supabase.co', required: true }, { key: 'service_role_key', label: 'Service Role Key', type: 'password', placeholder: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'facturas', required: true }, { key: 'folder_path', label: 'Carpeta (opcional)', placeholder: 'entrantes/' }],
+  supabase_storage: [{ key: 'project_url', label: 'URL del proyecto', placeholder: 'https://xxxxx.supabase.co', required: true }, { key: 'service_role_key', label: 'Service Role Key', type: 'password', placeholder: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', required: true }, { key: 'bucket_name', label: 'Nombre del bucket', placeholder: 'facturas', required: true }],
 };
 const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
   frontend_only: {}, google_drive: {},
@@ -80,7 +80,7 @@ const EMPTY_CREDS: Record<IntegrationType, CredentialFields> = {
   sftp: { host: '', port: '22', username: '', password: '', private_key: '' },
   remote_folder: { server_path: '', domain: '', username: '', password: '' },
   firebase_storage: { service_account_json: '', bucket_name: '' },
-  supabase_storage: { project_url: '', service_role_key: '', bucket_name: '', folder_path: '' },
+  supabase_storage: { project_url: '', service_role_key: '', bucket_name: '' },
 };
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -147,6 +147,7 @@ export function IntegracionesPage() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [reinitMsg, setReinitMsg]   = useState<string | null>(null);
   const [showForm, setShowForm]     = useState(false);
   const [editingId, setEditingId]   = useState<string | null>(null);
   const [saving, setSaving]         = useState(false);
@@ -284,10 +285,22 @@ export function IntegracionesPage() {
     setSaveError(null); setShowForm(true);
   };
 
+  // Init folders en el storage del cliente — best-effort, no bloquea el flujo
+  const callInitFolders = async (integrationId: string) => {
+    if (!organizationId || !integrationId) return;
+    try {
+      await fetch(`${GATEWAY_BASE_URL}/api/integrations/init-folders`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_API_KEY}` },
+        body:    JSON.stringify({ integration_id: integrationId, org_id: organizationId }),
+      });
+    } catch (_) { /* best-effort — no bloquear al usuario */ }
+  };
+
   const handleSave = async () => {
     setSaving(true); setSaveError(null);
     try {
-      const { error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
+      const { data: integrationId, error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
         p_type: selectedType, p_config: {}, p_credentials: credentials,
         p_folder_path: folderPath || null, p_interval: pollingInterval,
         p_output_enabled: outputEnabled,
@@ -295,10 +308,32 @@ export function IntegracionesPage() {
         p_output_format: outputFormat,
       });
       if (rpcError) throw rpcError;
+      // Crear carpetas de sistema en el storage del cliente (supabase_storage, firebase_storage)
+      if (integrationId) await callInitFolders(integrationId as string);
       setShowForm(false); await loadIntegrations();
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : 'Error al guardar');
     } finally { setSaving(false); }
+  };
+
+  // Re-inicializar carpetas sin re-guardar (botón en tarjeta activa)
+  const handleReinitFolders = async (integration: TenantIntegration) => {
+    if (!organizationId) return;
+    setReinitMsg(null);
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/integrations/init-folders`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_API_KEY}` },
+        body:    JSON.stringify({ integration_id: integration.id, org_id: organizationId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+      setReinitMsg('Carpetas inicializadas correctamente.');
+      setTimeout(() => setReinitMsg(null), 4000);
+    } catch (e: unknown) {
+      setReinitMsg(e instanceof Error ? e.message : 'Error al inicializar carpetas');
+      setTimeout(() => setReinitMsg(null), 5000);
+    }
   };
 
   const handleConnectGoogleDrive = async () => {
@@ -515,6 +550,14 @@ export function IntegracionesPage() {
                           <button type="button" onClick={() => handleReconnectGoogle(activeInteg)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
                             <IconRefresh size={12} /> Reconectar
                           </button>
+                        )}
+                        {(activeType === 'supabase_storage' || activeType === 'firebase_storage') && (
+                          <button type="button" onClick={() => handleReinitFolders(activeInteg)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                            <IconRefresh size={12} /> Inicializar carpetas
+                          </button>
+                        )}
+                        {reinitMsg && (
+                          <span className="text-xs text-muted-foreground">{reinitMsg}</span>
                         )}
                         <Button size="sm" variant="outline" onClick={() => openEditForm(activeInteg)}>Editar</Button>
                       </div>

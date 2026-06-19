@@ -2,103 +2,35 @@
  * supabase-storage-poller.mjs — Poller de integraciones Supabase Storage
  * Data Laundering V2.0 — TASK-106
  *
- * Flujo por integración activa:
- *   1. Obtiene integraciones "due" via admin_get_active_integrations()
- *   2. Lista archivos en bucket/folder_path via Supabase Storage REST API
- *   3. Descarga → SHA256 → dedup → Aurora Storage (documents) → Input Gateway
- *   4. Mueve original a /procesados/ en el bucket del cliente (best-effort)
- *   5. Actualiza last_polled_at
+ * Este archivo solo contiene lógica específica de Supabase Storage:
+ *   - listar archivos en raíz del bucket del cliente (excluye carpetas de sistema)
+ *   - descargar archivos
+ *   - mover a en_proceso/ cuando se levanta
+ *   - el worker mueve a procesados/ o fallidos/ cuando termina (integration-file-mover.mjs)
  *
- * Credenciales esperadas en tenant_integrations.credentials:
- *   {
- *     project_url:      String  — ej: https://xxxxx.supabase.co
- *     service_role_key: String  — clave service_role del proyecto del cliente
- *     bucket_name:      String  — nombre del bucket donde sueltan los archivos
- *     folder_path?:     String  — carpeta dentro del bucket (opcional)
- *   }
+ * Estructura de carpetas en bucket del cliente:
+ *   raíz/            → usuario suelta archivos acá
+ *   en_proceso/      → poller mueve acá al levantar
+ *   procesados/      → worker mueve acá si procesó OK
+ *   fallidos/        → worker mueve acá si falló
+ *   extracciones/    → worker deposita CSV resultante (output-depositor.mjs)
+ *
+ * Credenciales en tenant_integrations.credentials:
+ *   { project_url, service_role_key, bucket_name }
+ *
+ * folder_path viene de integration.folder_path (columna top-level), NO de credentials.
  */
 
-import crypto from 'node:crypto';
-import path   from 'node:path';
+import path from 'node:path';
+import {
+  SUPPORTED_EXTENSIONS,
+  checkAndRegisterFile,
+  uploadAndEnqueue,
+  runIntegrationPoller,
+} from './poller-handoff.mjs';
 
-const SUPPORTED_EXTENSIONS = {
-  '.pdf':  { file_type: 'pdf', mime: 'application/pdf' },
-  '.jpg':  { file_type: 'jpg', mime: 'image/jpeg' },
-  '.jpeg': { file_type: 'jpg', mime: 'image/jpeg' },
-  '.png':  { file_type: 'png', mime: 'image/png' },
-  '.zip':  { file_type: 'zip', mime: 'application/zip' },
-  '.rar':  { file_type: 'rar', mime: 'application/x-rar-compressed' },
-};
-
-// ─── Aurora helpers (Supabase interno de Aurora) ─────────────────────────────
-
-async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
-  const res = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
-    method: 'POST',
-    headers: {
-      'apikey':        supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`RPC ${rpcName} failed (${res.status}): ${text}`);
-  }
-  if (res.status === 204) return null;
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
-
-async function uploadToAuroraStorage(supabaseUrl, supabaseKey, orgId, filename, buffer, mimeType) {
-  const storagePath = `${orgId}/integrations/${filename}`;
-  const res = await fetch(
-    `${supabaseUrl}/storage/v1/object/documents/${storagePath}`,
-    {
-      method: 'POST',
-      headers: {
-        'apikey':        supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type':  mimeType,
-        'x-upsert':      'false',
-      },
-      body: buffer,
-    }
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Aurora storage upload failed (${res.status}): ${text}`);
-  }
-  return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
-}
-
-async function enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, fileType, filename, integrationId) {
-  const res = await fetch(`${gatewayUrl}/api/enqueue`, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${gatewayApiKey}`,
-    },
-    body: JSON.stringify({
-      organization_id:   orgId,
-      file_url:          fileUrl,
-      file_type:         fileType,
-      original_filename: filename,
-      input_source:      'integration_remote',
-      metadata: {
-        source:         'integration_remote',
-        integration_id: integrationId,
-        protocol:       'supabase_storage',
-      },
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gateway enqueue failed (${res.status}): ${text}`);
-  }
-  return res.json();
-}
+// Carpetas de sistema — nunca se procesan como archivos entrantes
+const SYSTEM_FOLDERS = new Set(['en_proceso', 'procesados', 'fallidos', 'extracciones']);
 
 // ─── Cliente Supabase Storage del tenant ─────────────────────────────────────
 
@@ -110,249 +42,131 @@ function clientHeaders(serviceRoleKey) {
   };
 }
 
-/**
- * Lista archivos en el bucket del cliente.
- * Retorna items con { name, id, metadata } donde name es el filename relativo al prefix.
- * Directorios/folders vienen con id=null y metadata=null.
- */
 async function listBucketFiles(projectUrl, serviceRoleKey, bucketName, prefix) {
-  const res = await fetch(
-    `${projectUrl}/storage/v1/object/list/${bucketName}`,
-    {
-      method: 'POST',
-      headers: clientHeaders(serviceRoleKey),
-      body: JSON.stringify({
-        prefix: prefix || '',
-        limit:  200,
-        offset: 0,
-        sortBy: { column: 'name', order: 'asc' },
-      }),
-    }
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase Storage list failed (${res.status}): ${text}`);
-  }
+  const res = await fetch(`${projectUrl}/storage/v1/object/list/${bucketName}`, {
+    method: 'POST',
+    headers: clientHeaders(serviceRoleKey),
+    body: JSON.stringify({ prefix: prefix || '', limit: 200, offset: 0, sortBy: { column: 'name', order: 'asc' } }),
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`Supabase list failed (${res.status}): ${t}`); }
   return res.json();
 }
 
-/**
- * Descarga un archivo del bucket del cliente.
- * fullPath = prefix + filename, ej: "facturas/invoice.pdf"
- */
 async function downloadBucketFile(projectUrl, serviceRoleKey, bucketName, fullPath) {
   const res = await fetch(
     `${projectUrl}/storage/v1/object/authenticated/${bucketName}/${fullPath}`,
-    {
-      headers: {
-        'Authorization': `Bearer ${serviceRoleKey}`,
-        'apikey':        serviceRoleKey,
-      },
-    }
+    { headers: { 'Authorization': `Bearer ${serviceRoleKey}`, 'apikey': serviceRoleKey } },
   );
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase Storage download failed (${res.status}): ${text}`);
-  }
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  if (!res.ok) { const t = await res.text(); throw new Error(`Supabase download failed (${res.status}): ${t}`); }
+  return Buffer.from(await res.arrayBuffer());
 }
 
 /**
- * Mueve un archivo a la subcarpeta /procesados/ usando la API de move de Supabase Storage.
- * Best-effort: loguea warn pero no lanza excepción.
+ * Mueve un archivo dentro del mismo bucket. Best-effort: loguea warn si falla.
  */
-async function moveToProcessed(projectUrl, serviceRoleKey, bucketName, sourceKey, destKey, integrationId, filename, log) {
+async function moveFile(projectUrl, serviceRoleKey, bucketName, sourceKey, destKey, log, context = '') {
   try {
-    const res = await fetch(
-      `${projectUrl}/storage/v1/object/move`,
-      {
-        method: 'POST',
-        headers: clientHeaders(serviceRoleKey),
-        body: JSON.stringify({
-          bucketId:          bucketName,
-          sourceKey,
-          destinationBucket: bucketName,
-          destinationKey:    destKey,
-        }),
-      }
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Move failed (${res.status}): ${text}`);
-    }
-    log('info', 'integration.file_moved_to_procesados', {
-      integration_id: integrationId,
-      filename,
-      protocol:       'supabase_storage',
-      dest:           destKey,
+    const res = await fetch(`${projectUrl}/storage/v1/object/move`, {
+      method:  'POST',
+      headers: clientHeaders(serviceRoleKey),
+      body: JSON.stringify({ bucketId: bucketName, sourceKey, destinationBucket: bucketName, destinationKey: destKey }),
     });
-  } catch (moveErr) {
-    log('warn', 'integration.file_move_failed', {
-      integration_id: integrationId,
-      filename,
-      protocol:       'supabase_storage',
-      error:          moveErr.message,
-    });
+    if (!res.ok) { const t = await res.text(); throw new Error(`Move failed (${res.status}): ${t}`); }
+    log('info', 'integration.file_moved', { protocol: 'supabase_storage', from: sourceKey, to: destKey, context });
+  } catch (err) {
+    log('warn', 'integration.file_move_failed', { protocol: 'supabase_storage', from: sourceKey, to: destKey, error: err.message });
   }
 }
 
-// ─── Poller principal ─────────────────────────────────────────────────────────
+// ─── Poller específico ────────────────────────────────────────────────────────
 
-async function pollSupabaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
-  const { id: integrationId, organization_id: orgId, credentials } = integration;
+async function pollSupabaseStorage(integration, ctx) {
+  const { id: integrationId, organization_id: orgId, credentials, folder_path: folderPath } = integration;
+  const { log } = ctx;
 
-  const {
-    project_url:      projectUrl,
-    service_role_key: serviceRoleKey,
-    bucket_name:      bucketName,
-    folder_path:      folderPath,
-  } = credentials ?? {};
-
+  const { project_url: projectUrl, service_role_key: serviceRoleKey, bucket_name: bucketName } = credentials ?? {};
   if (!projectUrl || !serviceRoleKey || !bucketName) {
     throw new Error('Supabase Storage: project_url, service_role_key y bucket_name son requeridos');
   }
 
-  // Prefix normalizado (con / al final si existe)
-  const prefix = folderPath
-    ? (folderPath.endsWith('/') ? folderPath : `${folderPath}/`)
-    : '';
+  // Prefix normalizado: strip leading slash — Supabase Storage no usa leading slash
+  const rawFolder = (folderPath ?? '').trim().replace(/^\/+/, '');
+  const prefix    = rawFolder ? (rawFolder.endsWith('/') ? rawFolder : `${rawFolder}/`) : '';
 
-  // Listar archivos del bucket del cliente
   const allFiles = await listBucketFiles(projectUrl, serviceRoleKey, bucketName, prefix);
 
-  // Filtrar: solo extensiones soportadas, excluir directorios y /procesados/
+  // Filtrar: solo archivos reales con extensión soportada, excluir carpetas de sistema
   const candidates = allFiles.filter(f => {
-    if (!f.name) return false;
-    if (f.metadata === null) return false;          // directorio/folder placeholder
-    if (f.name.includes('procesados')) return false; // ya procesados
-    const ext = path.extname(f.name).toLowerCase();
-    return !!SUPPORTED_EXTENSIONS[ext];
+    if (!f.name || f.metadata === null) return false; // directorio placeholder
+    const topLevel = f.name.split('/')[0];
+    if (SYSTEM_FOLDERS.has(topLevel)) return false;   // carpeta de sistema
+    return !!SUPPORTED_EXTENSIONS[path.extname(f.name).toLowerCase()];
   });
 
   log('info', 'integration.files_found', {
-    integration_id: integrationId,
-    protocol:       'supabase_storage',
-    count:          candidates.length,
+    integration_id: integrationId, protocol: 'supabase_storage', count: candidates.length,
   });
 
   let enqueued = 0, skipped = 0, failed = 0;
 
   for (const file of candidates) {
-    // fullPath = path completo dentro del bucket (prefix + filename)
-    const fullPath = prefix ? `${prefix}${file.name}` : file.name;
-    const filename = path.basename(file.name);
+    const fullPath     = prefix ? `${prefix}${file.name}` : file.name;
+    const filename     = path.basename(file.name);
+    const enProcesoKey = `${prefix}en_proceso/${filename}`;
 
     try {
-      // Descargar a Buffer
+      // 1. Descargar desde raíz
       const buffer = await downloadBucketFile(projectUrl, serviceRoleKey, bucketName, fullPath);
 
-      // SHA256 + deduplicación via Aurora
-      const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-      const isNew = await callRpc(supabaseUrl, supabaseKey, 'admin_register_processed_file', {
-        p_integration_id:  integrationId,
-        p_organization_id: orgId,
-        p_file_hash:       fileHash,
-        p_filename:        filename,
-      });
+      // 2. Dedup check
+      const { isNew } = await checkAndRegisterFile({ buffer, filename, orgId, integrationId, ctx });
 
       if (!isNew) {
-        log('debug', 'integration.file_skipped_duplicate', {
-          integration_id: integrationId,
-          filename,
-          protocol:       'supabase_storage',
-        });
+        // Duplicado — borrar de raíz (ya existe en procesados/ del ciclo anterior, move daría 409)
+        try {
+          const delRes = await fetch(
+            `${projectUrl}/storage/v1/object/${bucketName}/${encodeURIComponent(fullPath)}`,
+            { method: 'DELETE', headers: { 'Authorization': `Bearer ${serviceRoleKey}`, 'apikey': serviceRoleKey } },
+          );
+          if (!delRes.ok) throw new Error(`${delRes.status}`);
+          log('info', 'integration.duplicate_deleted_from_root', {
+            integration_id: integrationId, filename, protocol: 'supabase_storage',
+          });
+        } catch (err) {
+          log('warn', 'integration.duplicate_delete_failed', {
+            integration_id: integrationId, filename, protocol: 'supabase_storage', error: err.message,
+          });
+        }
         skipped++;
         continue;
       }
 
-      // Subir a Aurora Storage (bucket documents)
-      const ext = path.extname(filename).toLowerCase();
-      const { file_type, mime } = SUPPORTED_EXTENSIONS[ext];
-      const uniqueName = `${Date.now()}_${filename}`;
-      const fileUrl = await uploadToAuroraStorage(supabaseUrl, supabaseKey, orgId, uniqueName, buffer, mime);
+      // 3. Nuevo: mover a en_proceso/
+      await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, enProcesoKey, log, 'to_en_proceso');
 
-      // Encolar en Input Gateway
-      await enqueueJob(gatewayUrl, gatewayApiKey, orgId, fileUrl, file_type, filename, integrationId);
-
-      log('info', 'integration.file_enqueued', {
-        integration_id: integrationId,
-        filename,
-        file_type,
-        protocol:       'supabase_storage',
+      // 4. Upload a Aurora + enqueue — fileMeta permite que el worker lo mueva después
+      await uploadAndEnqueue({
+        buffer, filename, orgId, integrationId, protocol: 'supabase_storage',
+        fileMeta: { original_path: enProcesoKey, bucket_name: bucketName },
+        ctx,
       });
       enqueued++;
 
-      // Mover original a /procesados/ en el bucket del cliente (best-effort)
-      const destKey = `${prefix}procesados/${filename}`;
-      await moveToProcessed(
-        projectUrl, serviceRoleKey, bucketName,
-        fullPath, destKey,
-        integrationId, filename, log
-      );
-
     } catch (fileErr) {
       log('error', 'integration.file_error', {
-        integration_id: integrationId,
-        filename,
-        protocol:       'supabase_storage',
-        error:          fileErr.message,
+        integration_id: integrationId, filename, protocol: 'supabase_storage', error: fileErr.message,
       });
       failed++;
     }
   }
 
   log('info', 'integration.tenant_done', {
-    integration_id:  integrationId,
-    organization_id: orgId,
-    protocol:        'supabase_storage',
-    enqueued,
-    skipped,
-    failed,
+    integration_id: integrationId, organization_id: orgId, protocol: 'supabase_storage', enqueued, skipped, failed,
   });
 }
 
-// ─── Orquestador ─────────────────────────────────────────────────────────────
+// ─── Export ───────────────────────────────────────────────────────────────────
 
-export async function pollSupabaseStorageIntegrations({ supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log }) {
-  let integrations;
-  try {
-    integrations = await callRpc(supabaseUrl, supabaseKey, 'admin_get_active_integrations', {
-      p_type: 'supabase_storage',
-    });
-  } catch (err) {
-    log('error', 'integration.rpc_error', { type: 'supabase_storage', error: err.message });
-    return;
-  }
-
-  if (!integrations?.length) {
-    log('debug', 'integration.no_due_integrations', { type: 'supabase_storage' });
-    return;
-  }
-
-  log('info', 'integration.poll_start', { type: 'supabase_storage', count: integrations.length });
-
-  for (const integration of integrations) {
-    const { id: integrationId, organization_id: orgId } = integration;
-    try {
-      await pollSupabaseStorage(integration, { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log });
-      await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', {
-        p_integration_id: integrationId,
-      });
-    } catch (tenantErr) {
-      log('error', 'integration.tenant_error', {
-        integration_id:  integrationId,
-        organization_id: orgId,
-        protocol:        'supabase_storage',
-        error:           tenantErr.message,
-      });
-      try {
-        await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', {
-          p_integration_id: integrationId,
-        });
-      } catch (_) {}
-    }
-  }
-
-  log('info', 'integration.poll_done', { type: 'supabase_storage' });
+export async function pollSupabaseStorageIntegrations(ctx) {
+  await runIntegrationPoller({ type: 'supabase_storage', pollFn: pollSupabaseStorage, ctx });
 }

@@ -24,6 +24,7 @@ import { pollGoogleDriveIntegrations }      from './integration-poller.mjs';
 import { pollFtpSftpIntegrations }          from './ftp-sftp-poller.mjs';
 import { pollFirebaseStorageIntegrations }  from './firebase-storage-poller.mjs';
 import { pollSupabaseStorageIntegrations } from './supabase-storage-poller.mjs';
+import { moveIntegrationFile }             from './integration-file-mover.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
@@ -166,6 +167,15 @@ const worker = new Worker(
         const totalAttempted = documents.length + failedUploads;
         await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence, pollingIntervalMinutes: job.data.polling_interval_minutes ?? null }, log);
 
+        // Mover archivo original a procesados/ en el storage del cliente (best-effort)
+        await moveIntegrationFile({
+          integrationId: job.data.metadata?.integration_id,
+          protocol:      job.data.metadata?.protocol,
+          fileMeta:      job.data.metadata,
+          success:       true,
+          log,
+        });
+
         const result = { status: failed > 0 ? 'done_with_warnings' : 'done', successful, failed, failedUploads, lowConfidence, total: totalAttempted, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
         return result;
@@ -230,6 +240,15 @@ const worker = new Worker(
           pollingIntervalMinutes:  job.data.polling_interval_minutes ?? null,
         }, log);
 
+        // Mover archivo original a procesados/ en el storage del cliente (best-effort)
+        await moveIntegrationFile({
+          integrationId: job.data.metadata?.integration_id,
+          protocol:      job.data.metadata?.protocol,
+          fileMeta:      job.data.metadata,
+          success:       true,
+          log,
+        });
+
         const result = { ...data, worker_version: WORKER_VERSION };
         await syncJobState(job, 'completed', { result }, log);
         return result;
@@ -258,6 +277,16 @@ const worker = new Worker(
         const errorType = err.code === 'INSUFFICIENT_CREDITS' ? 'credits' : 'processing';
         await syncJobState(job, 'dead', { error: err.message }, log);
         await failJob(jobId, err.message, log, errorType);
+
+        // Mover archivo original a fallidos/ en el storage del cliente (best-effort)
+        await moveIntegrationFile({
+          integrationId: job.data.metadata?.integration_id,
+          protocol:      job.data.metadata?.protocol,
+          fileMeta:      job.data.metadata,
+          success:       false,
+          log,
+        });
+
         throw toUnrecoverable(err);
       }
 

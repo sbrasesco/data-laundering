@@ -24,7 +24,7 @@ Estos sistemas están validados en producción. No modificar ninguno de estos ar
 - `POST /api/mp/create-preference` y `create-custom-preference` — generan UUID antes del INSERT, pasan `external_reference`. No cambiar este orden.
 - RPC `add_credits(...)` — SECURITY DEFINER, usarla siempre desde gateway con service key. No llamarla desde frontend.
 - `MP_ACCESS_TOKEN` — producción (`seller_id 290523599`). No reemplazar por sandbox.
-- RPC `charge_credit(...)` — **precio base hardcodeado en $0.30/doc** (TASK-90, 2026-06-17). NO leer `price_per_doc` de `billing_plans` — ese campo existía pero causaba que todos pagaran $0.00 (plan "free" asignado por trigger). El `plan_id` en `organization_credits` es solo para trazabilidad/logging. Costo total = `($0.30 + suma_features_activas + polling_cost) × cant_docs`. Acepta `p_polling_interval_minutes INTEGER DEFAULT NULL` — lookup a `polling_interval_tiers.cost_per_doc` (TASK-104, 2026-06-17).
+- RPC `charge_credit(...)` — precio base leído de `billing_plans WHERE name='basico' AND active=true` → columna `price_per_doc`, con `COALESCE($0.30)` como fallback si es NULL y `$0.30` hardcodeado si la fila no existe (UX-PRICE-BREAKDOWN, migración posterior a TASK-90). **Cambiar el precio base = editar `billing_plans.price_per_doc` del plan `basico` desde MonitoringPage → Precios** — toma efecto inmediato sin redeploy. El `plan_id` en `organization_credits` es solo para trazabilidad/logging. Costo total = `(base_price + suma_features_activas + polling_cost) × cant_docs`. Acepta `p_polling_interval_minutes INTEGER DEFAULT NULL` — lookup a `polling_interval_tiers.cost_per_doc` (TASK-104, 2026-06-17).
 - `polling_interval_tiers` — tabla con 12 tramos (1 a 120 min). `active` controla visibilidad en UI del tenant. Editable desde MonitoringPage > Precios vía RPC `update_polling_tier` (SECURITY DEFINER, solo superadmin). NO hardcodear costos de polling.
 
 ### Google Drive OAuth
@@ -34,6 +34,7 @@ Estos sistemas están validados en producción. No modificar ninguno de estos ar
 - `worker.mjs:GATEWAY_URL` — URL base sin path (`https://automation.aignition.net/worker`). No agregar `/api/enqueue` al valor de la variable.
 
 ### Seguridad / Base de datos
+- `tenant_integrations.credentials` — **NO EXISTE como columna top-level**. Las credenciales están en `credentials_encrypted` (bytea). Para leerlas siempre usar RPC `admin_get_integration_credentials(p_integration_id, p_org_id)`. Para queries REST, seleccionar `integration_type, folder_path, organization_id` (nunca `credentials`).
 - `integration_processed_files` — RLS habilitado (TASK-87, 2026-06-15). Políticas: `tenant_select_own`, `tenant_insert_own`. No deshabilitar.
 - Trigger `on_auth_user_created → handle_new_user()` — crea org + profile automáticamente. El frontend **nunca** inserta org/profile manualmente.
 - RPCs con SECURITY DEFINER (`charge_credit`, `add_credits`, `get_all_tenants_admin`, `get_tenant_jobs_admin`, `approve_document_row`) — no eliminar ni modificar sin evaluar impacto en RLS.
@@ -48,6 +49,27 @@ Estos sistemas están validados en producción. No modificar ninguno de estos ar
 
 ### Variable crítica
 - `VITE_WORKER_GATEWAY_URL` = URL base SIN path. Cada archivo appenda su endpoint. No incluir `/api/enqueue` ni ningún path en esta variable.
+
+### Pipeline de integración (worker) — CERRADO (2026-06-18)
+El pipeline de procesamiento está validado y estabilizado. No tocar sin tarea explícita que lo justifique.
+
+- `worker/poller-handoff.mjs` — módulo central compartido: SHA256, dedup via `admin_register_processed_file`, upload a Aurora Storage, enqueue en gateway. Exports: `checkAndRegisterFile`, `uploadAndEnqueue`, `handoffBuffer`, `runIntegrationPoller`. **Toda integración nueva usa este módulo — no duplicar esta lógica.**
+- `worker/integration-file-mover.mjs` — mueve archivos desde `en_proceso/` a `procesados/` o `fallidos/` post-worker. Soporta supabase_storage, firebase_storage, integration_drive. Se llama desde worker.mjs automáticamente — no duplicar. **Credenciales**: la columna `credentials` NO existe en `tenant_integrations` — están en `credentials_encrypted` (bytea). `fetchIntegration` selecciona `integration_type, folder_path, organization_id` y luego llama RPC `admin_get_integration_credentials` para desencriptar.
+- `worker/gateway.mjs` — rutas activas, billing, IPN MercadoPago, VALID_SOURCES. Cerrado. **FIX metadata passthrough (2026-06-18)**: `metadata: { ...(body?.metadata ?? {}), source: input_source, worker_version: ... }` — preserva campos `fileMeta` de pollers (`integration_id`, `original_path`, `bucket_name`, `drive_file_id`…) que `integration-file-mover.mjs` necesita. Antes los sobreescribía → `integration_id = undefined` → file-mover salía sin mover nada.
+- `worker/document-processor.mjs` — OCR + AI extraction. Cerrado.
+- `worker/worker.mjs` — BullMQ consumer, cron de integraciones. Cerrado.
+- `worker/supabase-storage-poller.mjs` — adaptador Supabase Storage (lista/descarga/mueve a en_proceso). Cerrado.
+- `worker/firebase-storage-poller.mjs` — adaptador Firebase Storage (lista/descarga/mueve a en_proceso). Cerrado.
+- `worker/integration-poller.mjs` — Google Drive (producción activa). Tocar SOLO para TASK-94 y TASK-96.
+- `worker/output-depositor.mjs` — deposita CSV/XLSX a extracciones/ del cliente. Soporta: google_drive, firebase_storage, supabase_storage, sftp, ftp. Cerrado.
+
+**Estructura de carpetas uniforme para TODAS las integraciones:**
+- Usuario suelta archivos en raíz / carpeta configurada
+- Poller mueve a `en_proceso/` al levantar (señal de "tomado")
+- Worker mueve a `procesados/` (éxito) o `fallidos/` (error terminal) via `integration-file-mover.mjs`
+- Output va a `extracciones/` via `output-depositor.mjs`
+
+**Agregar integración nueva** = crear `worker/{nombre}-poller.mjs` con list + download + move a `en_proceso/` + llamar `uploadAndEnqueue` de `poller-handoff.mjs` con `fileMeta` apropiado, agregar `input_source` al CHECK constraint de `pdf_jobs` y a `VALID_SOURCES` en `gateway.mjs`. El movimiento post-worker es automático vía `integration-file-mover.mjs`.
 
 ---
 
@@ -116,6 +138,7 @@ Supabase (resultados)  +  Drive / Firebase / SFTP (outputs)
 | `GET /api/drive/folders` | Bearer | Listar carpetas Drive |
 | `POST /api/drive/set-folder` | Bearer | Guardar carpeta Drive seleccionada |
 | `GET /api/auth/google/callback` | Sin auth | OAuth callback Google |
+| `POST /api/integrations/init-folders` | Bearer | Crear carpetas de sistema en storage del cliente (TASK-107) |
 | `GET /api/metrics` | Bearer | Proxy métricas cola → :9090 ✅ TASK-85 |
 | `GET /health` | Bearer | Estado del gateway |
 
@@ -187,10 +210,12 @@ NODE_ENV=production
 | FIX-AUTH-LOAD | `setLoading(false)` inmediato tras `getSession`; `fetchProfile` en background sin bloquear UI en F5 (commit `b7e6f9d`, 2026-06-15) |
 | FIX-AUTH-LOCK | Fix definitivo del spinner 20s en F5 y flash de métricas en cero (commit `972ab03`, 2026-06-15) |
 | TASK-87 | SEC-01: RLS en `integration_processed_files` — políticas `tenant_select_own` + `tenant_insert_own` (2026-06-15) |
-| TASK-90 | FIX-BILLING: `charge_credit` hardcodeado a $0.30/doc base. Eliminado lookup `billing_plans.price_per_doc`. Migración `fix_charge_credit_flat_price` aplicada en prod (2026-06-17) |
+| TASK-90 | FIX-BILLING: `charge_credit` hardcodeado a $0.30/doc base. Eliminado lookup `billing_plans.price_per_doc`. Migración `fix_charge_credit_flat_price` aplicada en prod (2026-06-17). ⚠️ **REEMPLAZADO por UX-PRICE-BREAKDOWN** — ver sección TASK-90 abajo para detalle. |
 | TASK-104 | BILLING-POLLING: Tabla `polling_interval_tiers` (12 tramos 1-120 min), RPC `update_polling_tier`, `charge_credit` con `p_polling_interval_minutes`, worker chain wired, IntegracionesPage con dropdown, MonitoringPage panel superadmin (2026-06-17) — build main-DhKkH-eP.js, worker v1.9.9 — validado e2e (2026-06-18) |
 | UX-PRICE-BREAKDOWN | Sección "Costo por documento" en SettingsPage. RPC `get_price_breakdown()` (SECURITY DEFINER) lee billing_plans + tenant_integrations + feature_pricing_multipliers + polling_interval_tiers → jsonb `{base_price, features, polling, total_per_doc}`. `charge_credit` migrado para leer `base_price` de `billing_plans WHERE name='basico'` con COALESCE($0.30) fallback. MonitoringPage tarjeta "Precios" con editor completo de planes, features y polling tiers. Build main-BR-UIiPb.js (2026-06-17). |
 | FIX-PRICE-BREAKDOWN-MASTER | `get_price_breakdown()` no incluía `master_file`. Fix: migración `fix_get_price_breakdown_master_file` — detecta `output_enabled=true` en cualquier `tenant_integration` activa → agrega `master_file` leyendo costo de `feature_pricing_multipliers` (sin hardcodear). Verificado: Aignition retorna $0.30 + $0.20 (drive) + $0.05 (master_file) + $0.20 (polling) = $0.75 — coincide con cobro real del worker (2026-06-17). |
+| FIX-GATEWAY-METADATA | `gateway.mjs`: `metadata` en payload BullMQ ahora hace spread del body original (`...(body?.metadata ?? {})`), preservando `fileMeta` de los pollers. Antes sobreescribía con objeto propio → `integration-file-mover.mjs` recibía `integration_id=undefined` → archivos quedaban en `en_proceso/` sin moverse a `procesados/`/`fallidos/`. Deploy worker v1.9.9+ (2026-06-18). Integración Supabase Storage validada e2e. |
+| TASK-107 | INTEGRATION-SETUP-FOLDERS: `POST /api/integrations/init-folders` en gateway — sube `.keep` de 0 bytes a `en_proceso/`, `procesados/`, `fallidos/`, `extracciones/` en el storage del cliente (supabase_storage y firebase_storage). Drive: skip (lo maneja poller). Frontend: `handleSave` llama init-folders post-guardado; botón "Inicializar carpetas" en tarjeta activa para Supabase/Firebase. Build main-CVGdx646.js (2026-06-18). **FIX credentials (2026-06-18)**: columna `credentials` no existe — es `credentials_encrypted` (bytea). Gateway y `integration-file-mover.mjs` ahora usan `SELECT integration_type,folder_path,organization_id` + RPC `admin_get_integration_credentials` para desencriptar. También corrige bug silencioso en `integration-file-mover.mjs` que impedía mover archivos a `procesados/`/`fallidos/`. |
 
 ---
 
@@ -212,26 +237,24 @@ NODE_ENV=production
 
 ---
 
-## TASK-90 — FIX-BILLING: Cobro correcto por documento (✅ Hecho — 2026-06-17, pendiente validación con job real)
+## TASK-90 — FIX-BILLING: Cobro correcto por documento (✅ Hecho — 2026-06-17)
 
-**Root cause**: `charge_credit` RPC leía `price_per_doc` de `billing_plans` via `organization_credits.plan_id`. Todas las orgs nuevas reciben el plan "free" (trigger `trg_assign_free_plan`), cuyo `price_per_doc = $0.00`. Resultado: cobro base = $0, solo se descontaban features activas ($0.03 cada una).
+> ⚠️ **El fix de esta task fue reemplazado por la migración de UX-PRICE-BREAKDOWN (2026-06-17).** El registro histórico se conserva abajo, pero el comportamiento vigente en producción es el de UX-PRICE-BREAKDOWN. No confundir.
 
-**Fix**: Migración `fix_charge_credit_flat_price` aplicada en Supabase (`klhbgsiatzbmxbkzpbzv`):
-- `v_base_price := 0.3000` hardcodeado — sin lookup a `billing_plans`
-- El `plan_id` se sigue leyendo de `organization_credits` pero solo se graba en `credit_transactions` para trazabilidad
-- Costo real: `($0.30 + feature_costs) × doc_count`
-- Ejemplo: 5 docs sin features = $1.50; 5 docs con Drive = `(0.30 + 0.03) × 5 = $1.65`
+**Root cause (histórico)**: `charge_credit` RPC leía `price_per_doc` de `billing_plans` via `organization_credits.plan_id`. Todas las orgs nuevas reciben el plan "free" (trigger `trg_assign_free_plan`), cuyo `price_per_doc = $0.00`. Resultado: cobro base = $0, solo se descontaban features activas ($0.03 cada una).
 
-**Validación pendiente**: procesar un job real y verificar que `organization_credits.balance` baje `$0.30 × n` + features.
+**Fix TASK-90 (migración `fix_charge_credit_flat_price`, reemplazada)**: `v_base_price := 0.3000` hardcodeado — sin lookup a `billing_plans`. Era el fix de emergencia que resolvió el bug de $0.
+
+**Fix vigente (UX-PRICE-BREAKDOWN, migración posterior)**: `charge_credit` lee `price_per_doc` de `billing_plans WHERE name='basico' AND active=true` con `COALESCE($0.30)` como fallback. El precio base es ahora **configurable desde MonitoringPage → Precios** sin redeploy. El `$0.30` hardcodeado solo actúa si el plan `basico` no existe o su `price_per_doc` es NULL.
 
 ---
 
 ## Arquitectura de créditos / billing
 
 - `organization_credits.balance` → `numeric(12,4)` en USD
-- `charge_credit(p_org_id, p_job_id, p_amount, p_description, p_features[])` — SECURITY DEFINER: descuenta `($0.30 + suma_feature_costs) × doc_count`. **Precio base hardcodeado: $0.30/doc** (no leer de `billing_plans`). Ver TASK-90.
+- `charge_credit(p_org_id, p_job_id, p_amount, p_description, p_features[])` — SECURITY DEFINER: descuenta `(base_price + suma_feature_costs + polling_cost) × doc_count`. **Precio base leído de `billing_plans WHERE name='basico'` → `price_per_doc`, con `COALESCE($0.30)` fallback** (UX-PRICE-BREAKDOWN, reemplazó el hardcode de TASK-90). Editable desde MonitoringPage → Precios sin redeploy.
 - `feature_pricing_multipliers`: costo adicional por feature (`cost_usd`); tiene RLS con SELECT policy `authenticated_read_feature_pricing`
-- `billing_plans`: planes con `price` (lo que paga el user) y `balance_usd` (crédito que recibe). El campo `price_per_doc` **ya NO se usa** para cobrar — solo referencia histórica.
+- `billing_plans`: planes con `price` (lo que paga el user) y `balance_usd` (crédito que recibe). **`price_per_doc` del plan `basico` es el precio base efectivo de cobro** — editable y vigente. Los demás planes tienen `price_per_doc` definido pero actualmente no se usan para cobrar (solo `basico`).
 - `organization_credits.plan_id` — solo para logging/trazabilidad. No afecta el precio cobrado.
 - `trg_assign_free_plan` — trigger: asigna plan "free" + $20 balance a toda org nueva. El balance $20 es intencional (trial gratuito). El plan "free" tenía `price_per_doc = $0.00` — era el root cause del bug de $0 cobrado (TASK-90, resuelto).
 - **Modelo de paquetes (a implementar)**: recarga con bonus. Ej: pagar $19 → recibir $20 en balance. El bonus % varía por tramo. Pendiente de implementación formal.

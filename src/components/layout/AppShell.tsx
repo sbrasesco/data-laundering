@@ -95,7 +95,7 @@ export function AppShell({ children }: AppShellProps) {
 
         {/* Logo */}
         <div className="flex items-center justify-center px-4 py-4 border-b border-border">
-          <img src={auroraLogo} alt="Aurora" className="h-16 w-auto" />
+          <img src={auroraLogo} alt="Agora" className="h-16 w-auto" />
         </div>
 
         {/* Nav */}

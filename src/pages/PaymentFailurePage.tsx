@@ -12,7 +12,7 @@ export function PaymentFailurePage() {
       {/* Logo */}
       <div className="mb-8">
         <Link to="/">
-          <img src={auroraLogo} alt="Aurora" className="h-9 w-auto" />
+          <img src={auroraLogo} alt="Agora" className="h-9 w-auto" />
         </Link>
       </div>
 
