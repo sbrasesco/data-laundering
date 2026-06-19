@@ -18,6 +18,14 @@ import { depositSingleApprovedRow } from './output-depositor.mjs';
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL       = process.env.SUPABASE_URL;
 const SUPABASE_KEY       = process.env.SUPABASE_SERVICE_KEY;
+
+// Diagnóstico al arranque — aparece en docker logs dl-worker
+console.log('[gateway] env check:', {
+  has_supabase_url: !!SUPABASE_URL,
+  supabase_url_prefix: SUPABASE_URL ? SUPABASE_URL.slice(0, 30) : 'MISSING',
+  has_service_key: !!SUPABASE_KEY,
+  service_key_prefix: SUPABASE_KEY ? SUPABASE_KEY.slice(0, 20) : 'MISSING',
+});
 const GATEWAY_API_KEY    = process.env.GATEWAY_API_KEY;
 const MP_ACCESS_TOKEN    = process.env.MP_ACCESS_TOKEN;
 const FRONTEND_URL       = process.env.FRONTEND_URL ?? 'http://localhost:5173';
@@ -479,6 +487,234 @@ async function handleInitFolders(body, log) {
   return { status: 200, body: { ok: true, type } };
 }
 
+// ─── Handler: comprobar conexión de una integración (test-connection) ─────────
+// Valida con las credenciales que vienen en el body (lo que el usuario carga en
+// IntegracionesPage ANTES de guardar). Devuelve { ok, folders } o { ok:false, error }.
+const TEST_CONN_SYSTEM_FOLDERS = new Set(['en_proceso', 'procesados', 'fallidos', 'extracciones']);
+
+function jwtRefFromKey(key) {
+  try {
+    const payload = String(key).split('.')[1];
+    if (!payload) return null;
+    const decoded = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    return JSON.parse(decoded)?.ref ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleTestConnection(body, log) {
+  const { integration_type: type, credentials } = body ?? {};
+  if (!type || !credentials) {
+    return { status: 400, body: { ok: false, error: 'integration_type y credentials requeridos' } };
+  }
+
+  if (type === 'supabase_storage') {
+    const { project_url: projectUrl, service_role_key: serviceRoleKey, bucket_name: bucketName } = credentials;
+    if (!projectUrl || !serviceRoleKey || !bucketName) {
+      return { status: 200, body: { ok: false, error: 'Faltan datos: URL del proyecto, Service Role Key y nombre del bucket.' } };
+    }
+
+    // Validación temprana: el claim `ref` del JWT debe coincidir con el proyecto de la URL.
+    let projectRef = null;
+    try {
+      projectRef = new URL(projectUrl).hostname.split('.')[0];
+    } catch {
+      return { status: 200, body: { ok: false, error: 'La URL del proyecto no es válida.' } };
+    }
+    const keyRef = jwtRefFromKey(serviceRoleKey);
+    if (keyRef && projectRef && keyRef !== projectRef) {
+      return { status: 200, body: { ok: false,
+        error: `La Service Role Key pertenece al proyecto "${keyRef}", pero la URL apunta a "${projectRef}". Copiá la key del proyecto correcto (Settings → API).` } };
+    }
+
+    try {
+      const res = await fetch(`${projectUrl}/storage/v1/object/list/${bucketName}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefix: '', limit: 100, offset: 0, sortBy: { column: 'name', order: 'asc' } }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        let msg = `No se pudo listar el bucket (${res.status}).`;
+        if (res.status === 400 && /signature/i.test(txt)) msg = 'La Service Role Key no es válida para este proyecto (signature verification failed).';
+        else if (res.status === 404) msg = `El bucket "${bucketName}" no existe en este proyecto.`;
+        else if (res.status === 401 || res.status === 403) msg = 'Credenciales rechazadas. Verificá la Service Role Key.';
+        log('warn', 'test_conn.supabase_list_failed', { status: res.status, body: txt?.slice(0, 200) });
+        return { status: 200, body: { ok: false, error: msg } };
+      }
+      const items = await res.json();
+      const folders = Array.isArray(items)
+        ? items.filter(i => i && i.id === null && i.name && !TEST_CONN_SYSTEM_FOLDERS.has(i.name)).map(i => i.name)
+        : [];
+      log('info', 'test_conn.supabase_ok', { bucket: bucketName, folders: folders.length });
+      return { status: 200, body: { ok: true, folders } };
+    } catch (err) {
+      log('error', 'test_conn.supabase_error', { error: err.message });
+      return { status: 200, body: { ok: false, error: `Error de conexión: ${err.message}` } };
+    }
+  }
+
+  return { status: 200, body: { ok: false, error: `Comprobación de conexión aún no disponible para "${type}".` } };
+}
+
+// ─── Handler: migrar carpetas al cambiar la ruta de escucha ──────────────────
+// Al cambiar folder_path A→B (integraciones no-Drive), mueve las carpetas de
+// sistema (con su contenido) y los archivos sueltos de A a B, con merge (no pisa
+// lo que ya exista en B). Evita que se ensucie el bucket con jerarquías duplicadas.
+function normPrefix(p) {
+  const raw = String(p ?? '').trim().replace(/^\/+/, '');
+  return raw ? (raw.endsWith('/') ? raw : `${raw}/`) : '';
+}
+
+async function listSupabaseObjects(projectUrl, serviceRoleKey, bucketName, prefix) {
+  const res = await fetch(`${projectUrl}/storage/v1/object/list/${bucketName}`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ prefix, limit: 1000, offset: 0, sortBy: { column: 'name', order: 'asc' } }),
+  });
+  if (!res.ok) throw new Error(`list ${prefix} (${res.status})`);
+  return res.json();
+}
+
+async function moveSupabaseObject(projectUrl, serviceRoleKey, bucketName, sourceKey, destKey, log) {
+  const res = await fetch(`${projectUrl}/storage/v1/object/move`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ bucketId: bucketName, sourceKey, destinationBucket: bucketName, destinationKey: destKey }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    log('warn', 'migrate.move_skip', { from: sourceKey, to: destKey, status: res.status, error: t?.slice(0, 120) });
+    return false;
+  }
+  return true;
+}
+
+async function deleteSupabaseObject(projectUrl, serviceRoleKey, bucketName, key) {
+  try {
+    await fetch(`${projectUrl}/storage/v1/object/${bucketName}/${encodeURIComponent(key)}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${serviceRoleKey}`, apikey: serviceRoleKey },
+    });
+  } catch { /* best-effort */ }
+}
+
+async function handleMigrateFolders(body, log) {
+  const { integration_id, org_id, old_folder_path, new_folder_path } = body ?? {};
+  if (!integration_id || !org_id) {
+    return { status: 400, body: { error: 'integration_id y org_id requeridos' } };
+  }
+  const oldP = normPrefix(old_folder_path);
+  const newP = normPrefix(new_folder_path);
+
+  // Fetch integración + credenciales desencriptadas (mismo patrón que init-folders)
+  let integration;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/tenant_integrations?id=eq.${encodeURIComponent(integration_id)}&select=integration_type,organization_id&limit=1`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } },
+    );
+    if (!res.ok) return { status: 502, body: { error: `Error consultando integración (${res.status})` } };
+    const row = (await res.json())?.[0];
+    if (!row) return { status: 404, body: { error: 'Integración no encontrada' } };
+    try {
+      row.credentials = (await callSupabaseRpc('admin_get_integration_credentials', {
+        p_integration_id: integration_id, p_org_id: row.organization_id,
+      })) ?? {};
+    } catch (credErr) {
+      log('error', 'migrate.cred_error', { integration_id, error: credErr.message });
+      return { status: 502, body: { error: 'Error obteniendo credenciales' } };
+    }
+    integration = row;
+  } catch (err) {
+    return { status: 502, body: { error: `Error consultando integración: ${err.message}` } };
+  }
+
+  const { integration_type: type, credentials } = integration;
+
+  if (type === 'supabase_storage') {
+    const { project_url: projectUrl, service_role_key: serviceRoleKey, bucket_name: bucketName } = credentials ?? {};
+    if (!projectUrl || !serviceRoleKey || !bucketName) {
+      return { status: 400, body: { error: 'Faltan credenciales supabase_storage' } };
+    }
+    // Sin cambio de ruta → solo asegurar carpetas
+    if (oldP === newP) {
+      await initSupabaseFolders({ projectUrl, serviceRoleKey, bucketName, prefix: newP }, log);
+      return { status: 200, body: { ok: true, moved: 0, note: 'sin cambio de ruta' } };
+    }
+
+    let moved = 0;
+    const sysSet = new Set(SYSTEM_INIT_FOLDERS);
+
+    // 1) Contenido de las carpetas de sistema A/<S>/ → B/<S>/
+    for (const S of SYSTEM_INIT_FOLDERS) {
+      let items = [];
+      try { items = await listSupabaseObjects(projectUrl, serviceRoleKey, bucketName, `${oldP}${S}/`); } catch { items = []; }
+      for (const it of items) {
+        if (!it || it.id === null || !it.name || it.name === '.keep') continue;
+        const ok = await moveSupabaseObject(projectUrl, serviceRoleKey, bucketName, `${oldP}${S}/${it.name}`, `${newP}${S}/${it.name}`, log);
+        if (ok) moved++;
+      }
+      await deleteSupabaseObject(projectUrl, serviceRoleKey, bucketName, `${oldP}${S}/.keep`);
+    }
+
+    // 2) Archivos sueltos en la raíz vieja (no carpetas de sistema, no .keep)
+    let rootItems = [];
+    try { rootItems = await listSupabaseObjects(projectUrl, serviceRoleKey, bucketName, oldP); } catch { rootItems = []; }
+    for (const it of rootItems) {
+      if (!it || it.id === null || !it.name || it.name === '.keep' || sysSet.has(it.name)) continue;
+      const ok = await moveSupabaseObject(projectUrl, serviceRoleKey, bucketName, `${oldP}${it.name}`, `${newP}${it.name}`, log);
+      if (ok) moved++;
+    }
+
+    // 3) Asegurar carpetas de sistema en la ruta nueva
+    await initSupabaseFolders({ projectUrl, serviceRoleKey, bucketName, prefix: newP }, log);
+    log('info', 'migrate.supabase_done', { integration_id, oldP, newP, moved });
+    return { status: 200, body: { ok: true, moved } };
+  }
+
+  if (type === 'firebase_storage') {
+    const { service_account_json, bucket_name: bucketName } = credentials ?? {};
+    if (!service_account_json || !bucketName) {
+      return { status: 400, body: { error: 'Faltan credenciales firebase_storage' } };
+    }
+    const serviceAccount = typeof service_account_json === 'string' ? JSON.parse(service_account_json) : service_account_json;
+    if (oldP === newP) {
+      await initFirebaseFolders({ serviceAccount, bucketName, prefix: newP }, log);
+      return { status: 200, body: { ok: true, moved: 0, note: 'sin cambio de ruta' } };
+    }
+    const { initializeApp, deleteApp, cert } = await import('firebase-admin/app');
+    const { getStorage } = await import('firebase-admin/storage');
+    const app = initializeApp({ credential: cert(serviceAccount), storageBucket: bucketName }, `dl_migrate_${Date.now()}`);
+    let moved = 0;
+    try {
+      const bucket = getStorage(app).bucket();
+      for (const S of SYSTEM_INIT_FOLDERS) {
+        const [files] = await bucket.getFiles({ prefix: `${oldP}${S}/` });
+        for (const f of files) {
+          const rel = f.name.slice(`${oldP}${S}/`.length);
+          if (!rel || rel === '.keep') continue;
+          try { await f.move(`${newP}${S}/${rel}`); moved++; } catch (e) { log('warn', 'migrate.fb_move_skip', { from: f.name, error: e.message }); }
+        }
+      }
+      const [rootFiles] = await bucket.getFiles({ prefix: oldP, delimiter: '/' });
+      for (const f of rootFiles) {
+        const base = f.name.slice(oldP.length);
+        if (!base || base.includes('/') || base === '.keep') continue;
+        try { await f.move(`${newP}${base}`); moved++; } catch { /* skip colisiones */ }
+      }
+      await initFirebaseFolders({ serviceAccount, bucketName, prefix: newP }, log);
+    } finally {
+      await deleteApp(app);
+    }
+    log('info', 'migrate.firebase_done', { integration_id, oldP, newP, moved });
+    return { status: 200, body: { ok: true, moved } };
+  }
+
+  // google_drive / ftp / sftp: no aplica esta lógica
+  return { status: 200, body: { ok: true, moved: 0, skipped: true } };
+}
+
 // ─── Handler: depositar fila aprobada (TASK-80) ──────────────────────────────
 
 async function handleDepositRow(body, log) {
@@ -543,20 +779,36 @@ async function handleEnqueue(body, queue, log) {
   };
 
   // Crear pdf_jobs si no existe (integration sources). Para frontend_upload el frontend
-  // ya lo crea antes de llamar al gateway — on_conflict=ignore-duplicates evita pisarlo.
+  // ya lo crea antes de llamar al gateway — la RPC usa ON CONFLICT DO NOTHING.
+  // Usa RPC SECURITY DEFINER en lugar de REST directo para bypassear RLS de forma fiable.
   if (SUPABASE_URL && SUPABASE_KEY && input_source !== 'frontend_upload') {
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/pdf_jobs?on_conflict=id`, {
+      const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/gateway_create_pdf_job`, {
         method: 'POST',
         headers: {
           'apikey':        SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`,
           'Content-Type':  'application/json',
-          'Prefer':        'return=minimal,resolution=ignore-duplicates',
         },
-        body: JSON.stringify({ id: job_id, organization_id, status: 'processing', client_id: client_id || null, input_source }),
+        body: JSON.stringify({
+          p_job_id:          job_id,
+          p_organization_id: organization_id,
+          p_status:          'processing',
+          p_client_id:       client_id || null,
+          p_input_source:    input_source,
+        }),
       });
-    } catch (_) {}
+      if (!jobRes.ok) {
+        const errText = await jobRes.text();
+        log('warn', 'gateway.pdf_job_create_failed', { job_id, input_source, http_status: jobRes.status, error: errText });
+      } else {
+        log('info', 'gateway.pdf_job_created', { job_id, input_source });
+      }
+    } catch (err) {
+      log('warn', 'gateway.pdf_job_create_error', { job_id, input_source, error: err.message });
+    }
+  } else if (input_source !== 'frontend_upload') {
+    log('warn', 'gateway.pdf_job_skipped_no_supabase', { job_id, input_source, has_url: !!SUPABASE_URL, has_key: !!SUPABASE_KEY });
   }
 
   await queue.add('process-pdf', payload, { jobId: job_id, priority: 5 });
@@ -976,6 +1228,30 @@ export function startGateway(queue, log) {
       }
     }
 
+    // Integraciones: migrar carpetas al cambiar la ruta de escucha
+    if (req.method === 'POST' && req.url === '/api/integrations/migrate-folders') {
+      try {
+        const body = await readBody(req);
+        const result = await handleMigrateFolders(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'migrate_folders.request_error', { error: err.message });
+        return json(res, 500, { error: err.message });
+      }
+    }
+
+    // Integraciones: comprobar conexión + listar carpetas (test-connection)
+    if (req.method === 'POST' && req.url === '/api/integrations/test-connection') {
+      try {
+        const body = await readBody(req);
+        const result = await handleTestConnection(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'test_connection.request_error', { error: err.message });
+        return json(res, 400, { ok: false, error: err.message });
+      }
+    }
+
     // Drive: guardar carpeta seleccionada
     if (req.method === 'POST' && req.url === '/api/drive/set-folder') {
       try {
@@ -997,6 +1273,8 @@ export function startGateway(queue, log) {
         'POST /api/mp/webhook',
         'POST /api/deposit-row',
         'POST /api/integrations/init-folders',
+        'POST /api/integrations/test-connection',
+        'POST /api/integrations/migrate-folders',
         'GET  /api/auth/google/callback',
         'GET  /api/drive/folders',
         'POST /api/drive/set-folder',

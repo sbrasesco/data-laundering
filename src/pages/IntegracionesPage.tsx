@@ -166,6 +166,13 @@ export function IntegracionesPage() {
   const [outputFormat, setOutputFormat]           = useState<'csv' | 'xlsx' | 'json'>('csv');
   const [showXlsxDisclosure, setShowXlsxDisclosure] = useState(false);
 
+  // Comprobar conexión (test-connection) + carpetas listadas del bucket
+  const [testing, setTesting]           = useState(false);
+  const [testStatus, setTestStatus]     = useState<'idle' | 'ok' | 'error'>('idle');
+  const [testMsg, setTestMsg]           = useState<string | null>(null);
+  const [folderOptions, setFolderOptions] = useState<string[]>([]);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
   const [pollingTiers, setPollingTiers] = useState<PollingIntervalTier[]>([]);
 
   const [driveFolders, setDriveFolders]     = useState<Record<string, DriveFolder[]>>({});
@@ -268,6 +275,7 @@ export function IntegracionesPage() {
     setEditingId(null); setSelectedType('google_drive'); setCredentials({});
     setFolderPath(''); setPollingInterval(15); setOutputEnabled(false);
     setOutputFolder('extracciones'); setOutputFolderLocked(true); setOutputFormat('csv'); setSaveError(null);
+    resetConnTest();
   };
 
   const openConfigureForm = (type: IntegrationType) => {
@@ -283,6 +291,11 @@ export function IntegracionesPage() {
     setOutputFolder(savedFolder); setOutputFolderLocked(savedFolder === 'extracciones');
     setOutputFormat((i.output_format ?? 'csv') as 'csv' | 'xlsx' | 'json');
     setSaveError(null); setShowForm(true);
+    resetConnTest();
+    // Auto-comprobar conexión al editar una integración que soporta listado (trae el dropdown sin clic manual)
+    if (supportsConnTest(i.integration_type) && i.credentials && Object.keys(i.credentials).length > 0) {
+      void runConnTest(i.integration_type, i.credentials as CredentialFields);
+    }
   };
 
   // Init folders en el storage del cliente — best-effort, no bloquea el flujo
@@ -297,9 +310,57 @@ export function IntegracionesPage() {
     } catch (_) { /* best-effort — no bloquear al usuario */ }
   };
 
+  // Migrar carpetas (system folders + sueltos) al cambiar la ruta de escucha — best-effort
+  const callMigrateFolders = async (integrationId: string, oldFolder: string, newFolder: string) => {
+    if (!organizationId || !integrationId) return;
+    try {
+      await fetch(`${GATEWAY_BASE_URL}/api/integrations/migrate-folders`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_API_KEY}` },
+        body:    JSON.stringify({ integration_id: integrationId, org_id: organizationId, old_folder_path: oldFolder, new_folder_path: newFolder }),
+      });
+    } catch (_) { /* best-effort */ }
+  };
+
+  // Tipos que soportan comprobación de conexión + listado de carpetas
+  const supportsConnTest = (t: IntegrationType) => t === 'supabase_storage';
+
+  const resetConnTest = () => { setTestStatus('idle'); setTestMsg(null); setFolderOptions([]); setCreatingFolder(false); };
+
+  // Editar una credencial invalida el test previo (hay que re-comprobar)
+  const updateCred = (key: string, val: string) => { setCredentials(c => ({ ...c, [key]: val })); resetConnTest(); };
+
+  const runConnTest = async (type: IntegrationType, creds: CredentialFields) => {
+    setTesting(true); setTestStatus('idle'); setTestMsg(null);
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/integrations/test-connection`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_API_KEY}` },
+        body:    JSON.stringify({ integration_type: type, credentials: creds }),
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        setTestStatus('ok');
+        setFolderOptions(Array.isArray(data.folders) ? data.folders : []);
+        setTestMsg('Conectado correctamente.');
+      } else {
+        setTestStatus('error');
+        setFolderOptions([]);
+        setTestMsg(data?.error ?? 'No se pudo conectar.');
+      }
+    } catch (e: unknown) {
+      setTestStatus('error');
+      setFolderOptions([]);
+      setTestMsg(e instanceof Error ? e.message : 'Error de conexión');
+    } finally { setTesting(false); }
+  };
+
+  const handleTestConnection = () => runConnTest(selectedType, credentials);
+
   const handleSave = async () => {
     setSaving(true); setSaveError(null);
     try {
+      const prevFolder = editingId ? (integrations.find(i => i.id === editingId)?.folder_path ?? '') : '';
       const { data: integrationId, error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
         p_type: selectedType, p_config: {}, p_credentials: credentials,
         p_folder_path: folderPath || null, p_interval: pollingInterval,
@@ -308,8 +369,17 @@ export function IntegracionesPage() {
         p_output_format: outputFormat,
       });
       if (rpcError) throw rpcError;
-      // Crear carpetas de sistema en el storage del cliente (supabase_storage, firebase_storage)
-      if (integrationId) await callInitFolders(integrationId as string);
+      if (integrationId) {
+        const idStr = integrationId as string;
+        const folderChanged = !!editingId && (prevFolder ?? '') !== (folderPath ?? '');
+        if (folderChanged && selectedType !== 'google_drive') {
+          // Cambió la carpeta de escucha → migrar la estructura existente en vez de recrearla
+          await callMigrateFolders(idStr, prevFolder ?? '', folderPath ?? '');
+        } else {
+          // Crear carpetas de sistema en el storage del cliente (supabase_storage, firebase_storage)
+          await callInitFolders(idStr);
+        }
+      }
       setShowForm(false); await loadIntegrations();
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : 'Error al guardar');
@@ -667,16 +737,31 @@ export function IntegracionesPage() {
                     </Label>
                     {field.type === 'textarea'
                       ? <textarea id={`cred-${field.key}`} value={credentials[field.key] ?? ''}
-                          onChange={(e) => setCredentials(c => ({ ...c, [field.key]: e.target.value }))}
+                          onChange={(e) => updateCred(field.key, e.target.value)}
                           placeholder={field.placeholder} rows={4}
                           className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y" />
                       : <Input id={`cred-${field.key}`} type={field.type ?? 'text'}
                           value={credentials[field.key] ?? ''}
-                          onChange={(e) => setCredentials(c => ({ ...c, [field.key]: e.target.value }))}
+                          onChange={(e) => updateCred(field.key, e.target.value)}
                           placeholder={field.placeholder} />
                     }
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Comprobar conexión (supabase_storage) */}
+            {supportsConnTest(selectedType) && (
+              <div className="space-y-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleTestConnection} disabled={testing} className="gap-1.5">
+                  <IconLink size={13} /> {testing ? 'Comprobando...' : 'Comprobar conexion'}
+                </Button>
+                {testStatus === 'ok' && (
+                  <p className="text-sm text-emerald-600 flex items-center gap-1">✓ {testMsg}</p>
+                )}
+                {testStatus === 'error' && (
+                  <Alert variant="destructive"><AlertDescription className="text-sm">{testMsg}</AlertDescription></Alert>
+                )}
               </div>
             )}
 
@@ -685,7 +770,29 @@ export function IntegracionesPage() {
               {selectedType !== 'google_drive' && (
                 <div className="space-y-1.5">
                   <Label>Carpeta a monitorear</Label>
-                  <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
+                  {supportsConnTest(selectedType) && testStatus === 'ok' ? (
+                    creatingFolder ? (
+                      <div className="flex gap-1.5 items-center">
+                        <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="nombre-de-carpeta" autoFocus />
+                        <button type="button" title="Volver a la lista"
+                          onClick={() => { setCreatingFolder(false); setFolderPath(''); }}
+                          className="h-9 px-2 text-xs rounded-md border border-input bg-background hover:bg-muted text-muted-foreground whitespace-nowrap">Lista</button>
+                      </div>
+                    ) : (
+                      <select className={selectCls}
+                        value={folderPath === '' || folderOptions.includes(folderPath) ? folderPath : '__new__'}
+                        onChange={(e) => {
+                          if (e.target.value === '__new__') { setCreatingFolder(true); setFolderPath(''); }
+                          else setFolderPath(e.target.value);
+                        }}>
+                        <option value="">(raiz del bucket)</option>
+                        {folderOptions.map(f => <option key={f} value={f}>{f}</option>)}
+                        <option value="__new__">+ Crear carpeta nueva...</option>
+                      </select>
+                    )
+                  ) : (
+                    <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
+                  )}
                 </div>
               )}
               <div className={`space-y-1.5 ${selectedType === 'google_drive' ? 'col-span-2 max-w-[240px]' : ''}`}>
@@ -804,10 +911,13 @@ export function IntegracionesPage() {
                   <IconLink size={13} /> {saving ? 'Conectando...' : 'Conectar con Google Drive'}
                 </Button>
               ) : (
-                <Button onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+                <Button onClick={handleSave} disabled={saving || (supportsConnTest(selectedType) && testStatus !== 'ok')}>{saving ? 'Guardando...' : 'Guardar'}</Button>
               )}
               <Button variant="outline" onClick={() => { setShowForm(false); resetForm(); }} disabled={saving}>Cancelar</Button>
             </div>
+            {supportsConnTest(selectedType) && testStatus !== 'ok' && (
+              <p className="text-xs text-muted-foreground">Comproba la conexion para poder guardar.</p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

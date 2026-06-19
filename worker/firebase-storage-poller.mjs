@@ -32,7 +32,8 @@ const SYSTEM_FOLDERS = new Set(['en_proceso', 'procesados', 'fallidos', 'extracc
 // ─── Poller específico ────────────────────────────────────────────────────────
 
 async function pollFirebaseStorage(integration, ctx) {
-  const { id: integrationId, organization_id: orgId, credentials, folder_path: folderPath } = integration;
+  const { id: integrationId, organization_id: orgId, credentials, folder_path: folderPath,
+          polling_interval_minutes: pollingIntervalMinutes } = integration;
   const { log } = ctx;
 
   const { service_account_json, bucket_name: bucketName } = credentials ?? {};
@@ -127,6 +128,7 @@ async function pollFirebaseStorage(integration, ctx) {
         // 4. Upload a Aurora + enqueue — fileMeta permite que el worker mueva después
         await uploadAndEnqueue({
           buffer, filename, orgId, integrationId, protocol: 'firebase_storage',
+          pollingIntervalMinutes,
           fileMeta: { original_path: enProcesoPath, bucket_name: bucketName },
           ctx,
         });

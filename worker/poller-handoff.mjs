@@ -90,7 +90,7 @@ export async function checkAndRegisterFile({ buffer, filename, orgId, integratio
  *   Firebase Storage: { original_path, bucket_name }
  *   Google Drive:     { drive_file_id, en_proceso_folder_id, client_folder_id }
  */
-export async function uploadAndEnqueue({ buffer, filename, orgId, integrationId, protocol, fileMeta = {}, ctx }) {
+export async function uploadAndEnqueue({ buffer, filename, orgId, integrationId, protocol, pollingIntervalMinutes = null, fileMeta = {}, ctx }) {
   const { supabaseUrl, supabaseKey, gatewayUrl, gatewayApiKey, log } = ctx;
 
   const ext     = path.extname(filename).toLowerCase();
@@ -124,12 +124,13 @@ export async function uploadAndEnqueue({ buffer, filename, orgId, integrationId,
       'Authorization': `Bearer ${gatewayApiKey}`,
     },
     body: JSON.stringify({
-      organization_id:   orgId,
-      file_url:          fileUrl,
-      file_type:         extInfo.file_type,
-      original_filename: filename,
-      input_source:      protocol,
-      metadata:          { source: protocol, integration_id: integrationId, protocol, ...fileMeta },
+      organization_id:        orgId,
+      file_url:               fileUrl,
+      file_type:              extInfo.file_type,
+      original_filename:      filename,
+      input_source:           protocol,
+      polling_interval_minutes: pollingIntervalMinutes,
+      metadata:               { source: protocol, integration_id: integrationId, protocol, ...fileMeta },
     }),
   });
   if (!enqRes.ok) {
@@ -150,14 +151,14 @@ export async function uploadAndEnqueue({ buffer, filename, orgId, integrationId,
  * Útil cuando el poller no necesita el paso intermedio de mover a en_proceso/.
  * Para el flujo completo (con en_proceso/), usar las dos funciones por separado.
  */
-export async function handoffBuffer({ buffer, filename, orgId, integrationId, protocol, fileMeta = {}, ctx }) {
+export async function handoffBuffer({ buffer, filename, orgId, integrationId, protocol, pollingIntervalMinutes = null, fileMeta = {}, ctx }) {
   const { log } = ctx;
   const { isNew } = await checkAndRegisterFile({ buffer, filename, orgId, integrationId, ctx });
   if (!isNew) {
     log('debug', 'integration.file_skipped_duplicate', { integration_id: integrationId, filename, protocol });
     return { action: 'skipped', reason: 'duplicate' };
   }
-  return await uploadAndEnqueue({ buffer, filename, orgId, integrationId, protocol, fileMeta, ctx });
+  return await uploadAndEnqueue({ buffer, filename, orgId, integrationId, protocol, pollingIntervalMinutes, fileMeta, ctx });
 }
 
 // ─── Orquestador genérico ─────────────────────────────────────────────────────

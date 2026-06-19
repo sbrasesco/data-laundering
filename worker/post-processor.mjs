@@ -33,6 +33,7 @@ const INPUT_SOURCE_TO_FEATURE = {
   ftp:                'integration_ftp',
   sftp:               'integration_sftp',
   firebase_storage:   'integration_firebase',
+  supabase_storage:   'integration_supabase',
 };
 
 async function fetchJobInputSource(jobId) {

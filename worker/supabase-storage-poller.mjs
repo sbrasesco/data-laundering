@@ -81,7 +81,8 @@ async function moveFile(projectUrl, serviceRoleKey, bucketName, sourceKey, destK
 // ─── Poller específico ────────────────────────────────────────────────────────
 
 async function pollSupabaseStorage(integration, ctx) {
-  const { id: integrationId, organization_id: orgId, credentials, folder_path: folderPath } = integration;
+  const { id: integrationId, organization_id: orgId, credentials, folder_path: folderPath,
+          polling_interval_minutes: pollingIntervalMinutes } = integration;
   const { log } = ctx;
 
   const { project_url: projectUrl, service_role_key: serviceRoleKey, bucket_name: bucketName } = credentials ?? {};
@@ -147,6 +148,7 @@ async function pollSupabaseStorage(integration, ctx) {
       // 4. Upload a Aurora + enqueue — fileMeta permite que el worker lo mueva después
       await uploadAndEnqueue({
         buffer, filename, orgId, integrationId, protocol: 'supabase_storage',
+        pollingIntervalMinutes,
         fileMeta: { original_path: enProcesoKey, bucket_name: bucketName },
         ctx,
       });
