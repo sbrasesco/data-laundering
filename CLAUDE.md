@@ -181,12 +181,12 @@ NODE_ENV=production
 ### 🟡 Backlog activo
 | Task | Descripción | Prioridad |
 |------|-------------|-----------|
-| **TASK-91** | FIX-CLIENT-VALIDATION: Validar email y CUIT duplicados al crear cliente | 🔴 Crítica |
+| **TASK-91** | FIX-CLIENT-VALIDATION: Validar email y CUIT duplicados al crear cliente. 🔄 EN PROGRESO — constraints DB aplicadas (`clients_org_email_unique`, `clients_org_tax_id_unique`, migración `add_clients_org_email_unique` 2026-06-19); la DB ya bloquea duplicados. Falta UX: traducir el error 23505 a mensaje amigable en ClientsPage | 🔴 Crítica |
 | **TASK-92** | FIX-STATUS-TERMINOLOGY: Estandarizar estados de documentos | 🟠 Alta |
 | **TASK-93** | FIX-FILE-COUNT-NOTIFICATION: Notificar discrepancia archivos subidos vs procesados | 🟠 Alta |
 | **TASK-94** | FIX-DRIVE-DATES: Fecha de período en docs cargados desde Google Drive | 🟠 Alta |
 | **TASK-95** | FIX-MONITORING-ACTIVITY: Pestaña Activity vacía en MonitoringPage | 🟠 Alta |
-| **TASK-96** | FIX-DRIVE-ERROR-FOLDER: Carpeta de errores en integración Google Drive | 🟠 Alta |
+| **TASK-96** | FIX-DRIVE-ERROR-FOLDER: Carpeta de errores en integración Google Drive. NOTA (2026-06-19): para Supabase/Firebase ya cubierto (`fallidos/` vía init/migrate-folders + worker); queda acotada a Drive | 🟠 Alta |
 | **TASK-97** | UX-REMOVE-DATE-FIELD | 🟡 Media |
 | **TASK-98** | UX-DOCTYPE-DROPDOWN | 🟡 Media |
 | **TASK-99** | UX-CLARIFY-UPLOADER | 🟡 Media |
@@ -201,6 +201,12 @@ NODE_ENV=production
 ### ✅ Completadas y en prod
 | Task | Descripción |
 |------|-------------|
+| TASK-106 (2026-06-19) | INT-SUPABASE-STORAGE: integración Supabase Storage validada e2e. Poller procesa, `gateway_create_pdf_job` crea `pdf_jobs`, billing correcto (base $0.30 + integration_supabase $0.15 + polling = **$0.65/doc validado**). Worker fd3c1af6 / frontend main-B3VNKqZD.js / commit f74f07c. ⚠️ Precios DINÁMICOS: $0.65 es la config de hoy, no un valor fijo. |
+| INT-TEST-CONNECTION (2026-06-19) | `POST /api/integrations/test-connection`: valida creds + compara `ref` del JWT vs `project_url`, lista carpetas. Frontend: botón Comprobar conexión, dropdown de carpetas (raíz/existentes/crear nueva), gate de Guardar, auto-test al editar. |
+| INT-FOLDER-MIGRATION (2026-06-19) | `POST /api/integrations/migrate-folders`: al cambiar `folder_path` mueve system folders + sueltos A→B con merge, limpia `.keep` viejos (no-Drive). Disparo en `handleSave`. ⚠️ falta validar movimiento con archivos reales. |
+| FIX-PDFJOBS-CREATE (2026-06-19) | gateway.mjs usa RPC `gateway_create_pdf_job` (SECURITY DEFINER) en vez de REST con catch silencioso → `pdf_jobs` vuelve a crearse para integration sources. |
+| FIX-POLLING-PASSTHROUGH (2026-06-19) | `poller-handoff.uploadAndEnqueue` + supabase/firebase pollers pasan `polling_interval_minutes` al gateway → el polling se cobra como en Drive. Validado $0.65/doc. |
+| FIX-PRICE-BREAKDOWN (2026-06-19) | `get_price_breakdown()`: mapea `supabase_storage` ($0.15) y `master_file` solo drive+xlsx (ya no `output_enabled`). Coincide con el cobro real del worker. Migraciones `fix_get_price_breakdown_supabase_storage` + `_masterfile_drive_xlsx_only`. |
 | TASK-85 (Notion) | Worker metrics en MonitoringPage: `GET /api/metrics` en gateway (proxy Bearer → :9090), tarjeta "Cola" + modal (queue_depth, p50/p95, error_rate). Polling 30s. Build main-BAo2rvH3.js / commit 2ffba1d (2026-06-15). `VITE_WORKER_API_KEY=staging-key-2026` requerida en `.env` del frontend. `VITE_WORKER_GATEWAY_URL` debe ser la URL base SIN `/api/enqueue` — los archivos del codebase appendean el endpoint específico. |
 | Sentry (OBS) | Error monitoring en prod: @sentry/react + vite-plugin, source maps → aignition/javascript-react, setUser/setTag por tenant, filtro extensiones. Build main-Cjx7Trrf.js (commit fb6c5af, 2026-06-15) |
 | TASK-73 | Excel acumulativo Drive |
