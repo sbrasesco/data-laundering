@@ -152,6 +152,10 @@ export function LoginPage() {
       if (signUpError) throw new Error(signUpError.message);
       const user = signUpData.user;
       if (!user) throw new Error('El registro fue exitoso, pero no se obtuvo el usuario.');
+      // Supabase devuelve identities=[] cuando el email ya está registrado (email confirm desactivado)
+      if ((user.identities ?? []).length === 0) {
+        throw new Error('Ya existe una cuenta con ese email. Iniciá sesión en la pestaña "Iniciar sesión".');
+      }
 
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: signupEmail.trim(), password: signupPassword });
 
