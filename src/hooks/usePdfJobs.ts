@@ -104,7 +104,7 @@ export function usePdfJobs() {
     loadJobs();
 
     const jobsChannel = supabase
-      .channel('pdf_jobs_changes')
+      .channel('mis_procesos_jobs_changes')
       .on(
         'postgres_changes',
         {
@@ -124,7 +124,7 @@ export function usePdfJobs() {
       .subscribe();
 
     const rowsChannel = supabase
-      .channel('pdf_job_rows_changes')
+      .channel('mis_procesos_rows_changes')
       .on(
         'postgres_changes',
         {

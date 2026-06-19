@@ -39,6 +39,14 @@ Estos sistemas están validados en producción. No modificar ninguno de estos ar
 - Trigger `on_auth_user_created → handle_new_user()` — crea org + profile automáticamente. El frontend **nunca** inserta org/profile manualmente.
 - RPCs con SECURITY DEFINER (`charge_credit`, `add_credits`, `get_all_tenants_admin`, `get_tenant_jobs_admin`, `approve_document_row`) — no eliminar ni modificar sin evaluar impacto en RLS.
 
+### Realtime / Subscripciones (CERRADO — 2026-06-19)
+- **Publicación `supabase_realtime`**: tablas `pdf_jobs` y `pdf_job_rows` habilitadas vía migración `enable_realtime_pdf_jobs`. Sin esto, ningún evento `postgres_changes` llega al cliente y la UI no refresca sola. **NO remover estas tablas de la publicación.**
+- **Nombres de canal — NO duplicar**:
+  - `useClientJobs` → `'pdf_jobs_changes'` (ClientDashboardPage)
+  - `usePdfJobs` → `'mis_procesos_jobs_changes'` + `'mis_procesos_rows_changes'` (MisProcesosPage)
+  - Supabase reutiliza canales con el mismo nombre en el mismo cliente. Si dos hooks usan el mismo nombre y se montan en secuencia, las subscripciones se corrompen.
+- **Polling de respaldo**: ambos hooks tienen polling (8s / 5s) que activa solo cuando hay jobs en estado `pending`/`processing` o recientes en el estado local. Depende de Realtime para recibir el INSERT inicial; si Realtime falla, el primer job nunca entra al estado y el polling nunca arranca.
+
 ### Observabilidad
 - Sentry — `@sentry/react` + `vite-plugin`, source maps subidos. `SENTRY_AUTH_TOKEN` debe ser env var real al buildear, no solo en `.env`.
 - `GET /api/metrics` en `gateway.mjs` — proxy a `metrics.mjs:9090`, consumido por `MonitoringPage`. No cambiar la ruta ni el auth Bearer.
