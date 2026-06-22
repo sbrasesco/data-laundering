@@ -14,10 +14,10 @@ const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://a
 const WORKER_API_KEY     = import.meta.env.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
 
 const STATUS_LABEL: Record<string, string> = {
-  ok:               'OK',
-  warning:          'Advertencia',
+  ok:               'Exitoso',
+  warning:          'Con advertencia',
   failed:           'Fallido',
-  pending_approval: 'Pendiente aprobación',
+  pending_approval: 'Pendiente de aprobación',
 };
 
 const STATUS_ROW_STYLE: Record<string, React.CSSProperties> = {

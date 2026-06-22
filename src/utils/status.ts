@@ -7,7 +7,7 @@ export function getJobStatusLabel(status: string) {
     case 'done':
       return 'Completado';
     case 'done_with_warnings':
-      return 'Completado';
+      return 'Completado con advertencia';
     case 'error':
       return 'Error';
     default:
@@ -20,8 +20,8 @@ export function getJobStatusVariant(status: string): 'secondary' | 'success' | '
   switch (status) {
     case 'pending':
     case 'processing':        return 'secondary';
-    case 'done':
-    case 'done_with_warnings':return 'success';
+    case 'done':              return 'success';
+    case 'done_with_warnings':return 'warning';
     case 'error':             return 'destructive';
     default:                  return 'outline';
   }

@@ -27,7 +27,7 @@ export function JobStatusBadge(props: JobStatusBadgeProps) {
     PENDIENTE:                   { text: 'Pendiente',           variant: 'secondary'   },
     PROCESANDO:                  { text: 'Procesando',          variant: 'secondary'   },
     COMPLETADO:                  { text: 'Completado',          variant: 'success'     },
-    COMPLETADO_CON_ADVERTENCIAS: { text: 'Con advertencias',    variant: 'warning'     },
+    COMPLETADO_CON_ADVERTENCIAS: { text: 'Con advertencia',     variant: 'warning'     },
     FALLIDO:                     { text: 'Fallido',             variant: 'destructive' },
     ERROR:                       { text: 'Error',               variant: 'destructive' },
   };

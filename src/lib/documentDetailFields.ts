@@ -34,9 +34,9 @@ function formatMoneda(doc: DocumentRow): string {
 
 function formatDocStatus(doc: DocumentRow): string {
   const map: Record<string, string> = {
-    ok: 'Correcto',
-    warning: 'Con advertencias',
-    failed: 'Con error',
+    ok: 'Exitoso',
+    warning: 'Con advertencia',
+    failed: 'Fallido',
   };
   return map[doc.doc_status ?? ''] ?? doc.doc_status ?? '-';
 }
