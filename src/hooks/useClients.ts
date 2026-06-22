@@ -12,6 +12,12 @@ export interface Client {
   created_at: string;
 }
 
+// Normaliza un CUIT / Tax ID para comparar y guardar de forma consistente:
+// elimina espacios, guiones y puntos para que "20-12345678-9" y "20123456789"
+// se traten como el mismo valor. Preserva caracteres alfanuméricos (Tax IDs extranjeros).
+const normalizeTaxId = (value?: string | null): string =>
+  (value ?? '').replace(/[\s.\-]/g, '').trim();
+
 export function useClients() {
   const { organizationId } = useAuthContext();
   const [clients, setClients] = useState<Client[]>([]);
@@ -53,11 +59,11 @@ export function useClients() {
     email?: string;
   }) => {
     // Validar duplicados contra el listado ya cargado
-    const taxIdTrim = clientData.tax_id?.trim();
+    const taxIdNorm = normalizeTaxId(clientData.tax_id);
     const emailTrim = clientData.email?.trim().toLowerCase();
-    if (taxIdTrim) {
-      const dup = clients.find(c => c.tax_id?.trim() === taxIdTrim);
-      if (dup) return { data: null, error: `Ya existe un cliente con el CUIT ${taxIdTrim} (${dup.name}).` };
+    if (taxIdNorm) {
+      const dup = clients.find(c => normalizeTaxId(c.tax_id) === taxIdNorm);
+      if (dup) return { data: null, error: `Ya existe un cliente con el CUIT ${clientData.tax_id?.trim()} (${dup.name}).` };
     }
     if (emailTrim) {
       const dup = clients.find(c => c.email?.trim().toLowerCase() === emailTrim);
@@ -69,7 +75,7 @@ export function useClients() {
         .from('clients')
         .insert({
           name: clientData.name,
-          tax_id: clientData.tax_id || null,
+          tax_id: taxIdNorm || null,
           external_code: clientData.external_code || null,
           email: clientData.email || null,
           is_active: true,
@@ -100,22 +106,25 @@ export function useClients() {
     data: Partial<Pick<Client, 'name' | 'tax_id' | 'external_code' | 'email' | 'is_active'>>
   ) => {
     // Validar duplicados excluyendo el cliente que se está editando
-    const taxIdTrim = data.tax_id?.trim();
+    const taxIdNorm = data.tax_id !== undefined ? normalizeTaxId(data.tax_id) : undefined;
     const emailTrim = data.email?.trim().toLowerCase();
-    if (taxIdTrim) {
-      const dup = clients.find(c => c.id !== id && c.tax_id?.trim() === taxIdTrim);
-      if (dup) return { error: `Ya existe un cliente con el CUIT ${taxIdTrim} (${dup.name}).` };
+    if (taxIdNorm) {
+      const dup = clients.find(c => c.id !== id && normalizeTaxId(c.tax_id) === taxIdNorm);
+      if (dup) return { error: `Ya existe un cliente con el CUIT ${data.tax_id?.trim()} (${dup.name}).` };
     }
     if (emailTrim) {
       const dup = clients.find(c => c.id !== id && c.email?.trim().toLowerCase() === emailTrim);
       if (dup) return { error: `Ya existe un cliente con el email ${data.email} (${dup.name}).` };
     }
 
+    // Guardar el CUIT normalizado (sin guiones/espacios/puntos) cuando viene en el update
+    const updatePayload = taxIdNorm !== undefined ? { ...data, tax_id: taxIdNorm || null } : data;
+
     setLoading(true);
     setError(null);
     const { error } = await supabase
       .from('clients')
-      .update(data)
+      .update(updatePayload)
       .eq('id', id);
     if (error) {
       setLoading(false);

@@ -12,6 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type TabType = 'login' | 'signup';
 
+// Normaliza CUIT / Tax ID (quita espacios, guiones y puntos) para guardarlo consistente
+const normalizeTaxId = (value: string): string => value.replace(/[\s.\-]/g, '').trim();
+
 export function LoginPage() {
   const [searchParams] = useSearchParams();
   const planSlug = searchParams.get('plan') ?? '';
@@ -26,6 +29,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
 
   const [organizationName, setOrganizationName] = useState('');
+  const [signupTaxId, setSignupTaxId] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
@@ -134,6 +138,7 @@ export function LoginPage() {
     setSuccessMessage(null);
 
     if (!organizationName.trim()) { setError('El nombre de la organización es obligatorio'); setLoading(false); return; }
+    if (!signupTaxId.trim()) { setError('El CUIT / Tax ID es obligatorio'); setLoading(false); return; }
     if (!signupEmail.trim()) { setError('El email es obligatorio'); setLoading(false); return; }
     if (!signupPassword) { setError('La contraseña es obligatoria'); setLoading(false); return; }
     if (signupPassword !== passwordConfirm) { setError('Las contraseñas no coinciden'); setLoading(false); return; }
@@ -144,9 +149,9 @@ export function LoginPage() {
         email: signupEmail.trim(),
         password: signupPassword,
         options: {
-          // El trigger handle_new_user() lee organization_name desde raw_user_meta_data
-          // y crea la organización y el profile automáticamente al registrar el usuario.
-          data: { organization_name: organizationName.trim() },
+          // El trigger handle_new_user() lee organization_name y tax_id desde raw_user_meta_data
+          // y crea la organización (con su CUIT) y el profile automáticamente al registrar el usuario.
+          data: { organization_name: organizationName.trim(), tax_id: normalizeTaxId(signupTaxId) },
         },
       });
       if (signUpError) throw new Error(signUpError.message);
@@ -168,7 +173,7 @@ export function LoginPage() {
             ? `Se ha enviado un correo a ${signupEmail.trim()}. Confirmá tu registro y volvé a la landing para completar tu compra.`
             : `Se ha enviado un correo a ${signupEmail.trim()}. Por favor, confirmá tu registro.`;
           setSuccessMessage(confirmMsg);
-          setOrganizationName(''); setSignupEmail(''); setSignupPassword(''); setPasswordConfirm('');
+          setOrganizationName(''); setSignupTaxId(''); setSignupEmail(''); setSignupPassword(''); setPasswordConfirm('');
           setLoading(false);
           return;
         }
@@ -180,7 +185,7 @@ export function LoginPage() {
 
       const successMsg = planSlug ? 'Cuenta creada. Redirigiendo al pago...' : 'Cuenta creada con éxito. Redirigiendo...';
       setSuccessMessage(successMsg);
-      setOrganizationName(''); setSignupEmail(''); setSignupPassword(''); setPasswordConfirm('');
+      setOrganizationName(''); setSignupTaxId(''); setSignupEmail(''); setSignupPassword(''); setPasswordConfirm('');
       setLoading(false);
       // useEffect handles redirect via handlePostAuth
     } catch (err) {
@@ -237,6 +242,10 @@ export function LoginPage() {
                 <div className="space-y-1.5">
                   <Label htmlFor="organizationName">Nombre de la organización <span className="text-destructive">*</span></Label>
                   <Input id="organizationName" type="text" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} required disabled={loading} placeholder="Ej: Estudio Contable ABC" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="signupTaxId">CUIT / Tax ID <span className="text-destructive">*</span></Label>
+                  <Input id="signupTaxId" type="text" value={signupTaxId} onChange={(e) => setSignupTaxId(e.target.value)} required disabled={loading} placeholder="Ej: 30-71234567-8" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="signupEmail">Email <span className="text-destructive">*</span></Label>
