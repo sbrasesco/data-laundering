@@ -2,6 +2,17 @@
 
 ---
 
+## 🧭 División de trabajo operativa (leer primero)
+
+- **Cowork (este entorno)** maneja: base de datos (Supabase MCP: migraciones, RPCs, triggers, queries), código (frontend y worker: leer/editar archivos), análisis, y documentación (Notion + este CLAUDE.md). **No hace** deploy, git, ni SSH.
+- **Claude Code CLI** maneja: servidor y despliegue — `git` (commit/push), `ssh` al VPS, `npm run build`, `scp` del frontend, `docker compose` del worker. Cowork le pasa los comandos; él los ejecuta en la máquina del usuario.
+- **No mezclar.** Cowork prepara los cambios (DB aplicada directo; código editado en el repo); Claude Code los buildea, commitea y deploya.
+- **Nota de sincronización conocida**: hay latencia entre lo que Cowork edita (carpeta OneDrive) y lo que Claude Code/git ven. Si un build no toma un cambio o `git status` no lo muestra, esperar/reintentar; verificar con `grep` en el archivo antes de concluir que falta.
+
+> **Regla de oro de las zonas cerradas (abajo):** no se tocan salvo que una tarea explícita lo justifique. Ante la duda, **señalar el impacto y preguntar ANTES de ejecutar**. Producción tiene clientes activos: estabilidad > velocidad.
+
+---
+
 ## 🔒 ZONA CERRADA — NO TOCAR SIN RAZÓN EXPLÍCITA
 
 Estos sistemas están validados en producción. No modificar ninguno de estos archivos, tablas ni flujos salvo que haya una tarea nueva que lo justifique explícitamente. Si algo nuevo los afecta, señalarlo primero y confirmar antes de tocar.
@@ -191,8 +202,7 @@ NODE_ENV=production
 ### 🟡 Backlog activo
 | Task | Descripción | Prioridad |
 |------|-------------|-----------|
-| **TASK-91** | FIX-CLIENT-VALIDATION: Validar email y CUIT duplicados al crear cliente. 🔄 EN PROGRESO — constraints DB aplicadas (`clients_org_email_unique`, `clients_org_tax_id_unique`, migración `add_clients_org_email_unique` 2026-06-19); la DB ya bloquea duplicados. Falta UX: traducir el error 23505 a mensaje amigable en ClientsPage | 🔴 Crítica |
-| **TASK-92** | FIX-STATUS-TERMINOLOGY: Estandarizar estados de documentos | 🟠 Alta |
+| **TASK-92** | FIX-STATUS-TERMINOLOGY: Estandarizar estados de documentos. 🔄 EN PROGRESO (2026-06-22) — DB: trigger `classify_pdf_job_row` reescrito (failed solo si error real de procesamiento O leído sin ningún dato útil; baja confianza/campos faltantes → warning) + reclasificado todo el histórico. Frontend: vocabulario unificado en TODO el sistema a **Exitoso / Con advertencia / Fallido** (eliminado "Completado"/"Error"/"Con avisos"); archivos status.ts, JobStatusBadge, JobList, JobDocumentsSection, documentDetailFields, MonitoringPage, csvExport, excelExport. Deployado. PENDIENTE: revisión con Javier (criterio de aceptación); opcional: que la columna de la página "Documentos" muestre `doc_status` por fila en vez del estado del proceso | 🟠 Alta |
 | **TASK-93** | FIX-FILE-COUNT-NOTIFICATION: Notificar discrepancia archivos subidos vs procesados | 🟠 Alta |
 | **TASK-94** | FIX-DRIVE-DATES: Fecha de período en docs cargados desde Google Drive | 🟠 Alta |
 | **TASK-95** | FIX-MONITORING-ACTIVITY: Pestaña Activity vacía en MonitoringPage | 🟠 Alta |
@@ -204,6 +214,7 @@ NODE_ENV=production
 | **TASK-101** | UX-REMOVE-REDUNDANT-BUTTON | 🟡 Media |
 | **TASK-102** | AI-REFINE-PROMPT: Ajustar prompt para facturas de servicios | 🟡 Media |
 | **TASK-103** | RESEARCH-AFIP: Investigar integración validación AFIP | 🟢 Baja |
+| **TEST-CLASSIFY-TRIGGER** | Tests del trigger `classify_pdf_job_row` (red de seguridad; motivada por el bug `NULL IN(...)` de TASK-92). Ver DEC-017 | 🟢 Baja |
 | **TASK-86** | FIX-CLEANUP: Limpiar refs n8n restantes | 🟡 Media |
 | **TASK-66** | Landing visual refinement — dejar para el final | — |
 | **TASK-105** | UX-OUTPUT-FORMAT: Selector CSV/Excel en tarjeta Google Drive (IntegracionesPage). Ver spec abajo. | 🟡 Media |
@@ -211,6 +222,8 @@ NODE_ENV=production
 ### ✅ Completadas y en prod
 | Task | Descripción |
 |------|-------------|
+| TASK-91 (2026-06-22) | FIX-CLIENT-VALIDATION: validación de email/CUIT duplicado al crear/editar cliente. DB: constraints `clients_org_email_unique`, `clients_org_tax_id_unique`. Frontend (`useClients.ts`): validación previa al submit + traducción del error 23505 a mensaje amigable por campo. Mejora extra: normalización de CUIT (quita guiones/espacios/puntos) antes de comparar y guardar. Commit b03ceee. ⚠️ Validated pendiente de confirmar funcionalmente. |
+| REG-TAXID (2026-06-22) | CUIT/Tax ID obligatorio en el registro de organización. DB (aditivo): columna `organizations.tax_id` (nullable) + trigger `handle_new_user` lee `tax_id` del metadata. Frontend (`LoginPage.tsx`): campo obligatorio + normalización en `signUp options.data`. Orgs viejas quedan con `tax_id` NULL. Build main-BxkhjhDz.js, commit b03ceee. |
 | TASK-106 (2026-06-19) | INT-SUPABASE-STORAGE: integración Supabase Storage validada e2e. Poller procesa, `gateway_create_pdf_job` crea `pdf_jobs`, billing correcto (base $0.30 + integration_supabase $0.15 + polling = **$0.65/doc validado**). Worker fd3c1af6 / frontend main-B3VNKqZD.js / commit f74f07c. ⚠️ Precios DINÁMICOS: $0.65 es la config de hoy, no un valor fijo. |
 | INT-TEST-CONNECTION (2026-06-19) | `POST /api/integrations/test-connection`: valida creds + compara `ref` del JWT vs `project_url`, lista carpetas. Frontend: botón Comprobar conexión, dropdown de carpetas (raíz/existentes/crear nueva), gate de Guardar, auto-test al editar. |
 | INT-FOLDER-MIGRATION (2026-06-19) | `POST /api/integrations/migrate-folders`: al cambiar `folder_path` mueve system folders + sueltos A→B con merge, limpia `.keep` viejos (no-Drive). Disparo en `handleSave`. ⚠️ falta validar movimiento con archivos reales. |
