@@ -5,11 +5,11 @@ export function getJobStatusLabel(status: string) {
     case 'processing':
       return 'Procesando';
     case 'done':
-      return 'Completado';
+      return 'Exitoso';
     case 'done_with_warnings':
-      return 'Completado con advertencia';
+      return 'Con advertencia';
     case 'error':
-      return 'Error';
+      return 'Fallido';
     default:
       return status;
   }

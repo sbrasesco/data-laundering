@@ -18,7 +18,7 @@ export interface JobForStatus {
 
 /**
  * Mapea el estado de BD a estado UI basándose SOLO en status.
- * Para el Dashboard: done y done_with_warnings ambos muestran "Completado".
+ * Para el Dashboard: done muestra "Exitoso" y done_with_warnings "Con advertencia".
  * NO usa has_warnings ni deduce estados de contadores - la BD es la fuente de verdad.
  */
 export function getUiStatus(job: JobForStatus): UiStatus {

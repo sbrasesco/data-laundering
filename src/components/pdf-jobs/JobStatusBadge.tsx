@@ -26,10 +26,10 @@ export function JobStatusBadge(props: JobStatusBadgeProps) {
   const config: Record<string, { text: string; variant: Variant }> = {
     PENDIENTE:                   { text: 'Pendiente',           variant: 'secondary'   },
     PROCESANDO:                  { text: 'Procesando',          variant: 'secondary'   },
-    COMPLETADO:                  { text: 'Completado',          variant: 'success'     },
+    COMPLETADO:                  { text: 'Exitoso',             variant: 'success'     },
     COMPLETADO_CON_ADVERTENCIAS: { text: 'Con advertencia',     variant: 'warning'     },
     FALLIDO:                     { text: 'Fallido',             variant: 'destructive' },
-    ERROR:                       { text: 'Error',               variant: 'destructive' },
+    ERROR:                       { text: 'Fallido',             variant: 'destructive' },
   };
 
   const { text, variant } = config[uiStatus] ?? { text: uiStatus, variant: 'secondary' as Variant };

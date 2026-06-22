@@ -72,7 +72,7 @@ export function JobList({ jobs }: JobListProps) {
             let displayLabel: string;
             let displayVariant: 'secondary' | 'success' | 'destructive' | 'warning' | 'outline';
             if (isProcessing)            { displayLabel = 'Procesando';      displayVariant = 'secondary'; }
-            else if (job.status === 'error') { displayLabel = 'Error';       displayVariant = 'destructive'; }
+            else if (job.status === 'error') { displayLabel = 'Fallido';     displayVariant = 'destructive'; }
             else if (hasIssues)          { displayLabel = 'Con advertencia'; displayVariant = 'warning'; }
             else                         { displayLabel = getJobStatusLabel(job.status); displayVariant = getJobStatusVariant(job.status); }
 

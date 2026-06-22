@@ -28,8 +28,8 @@ export function exportToCSV(documents: DocumentRow[], filename: string = 'docume
       const statusMap: Record<string, string> = {
         pending: 'Pendiente',
         processing: 'Procesando',
-        done: 'Completado',
-        error: 'Error',
+        done: 'Exitoso',
+        error: 'Fallido',
       };
       return doc.pdf_jobs?.status ? statusMap[doc.pdf_jobs.status] || doc.pdf_jobs.status : '-';
     }},

@@ -588,7 +588,7 @@ export function MonitoringPage() {
           <div className="grid grid-cols-2 gap-3 mt-2">
             {[
               { label: 'Total', value: totalJobs, color: '#000000' },
-              { label: 'Completados', value: completedJobs, color: '#22C365' },
+              { label: 'Exitosos', value: completedJobs, color: '#22C365' },
               { label: 'En proceso', value: processing, color: '#FED210' },
               { label: 'Error sistema', value: errorSystem, color: '#e11d48' },
               { label: 'Error créditos', value: errorCredits, color: '#A347D1' },
@@ -823,11 +823,11 @@ export function MonitoringPage() {
                       <TableCell className="text-xs">{sourceLabel[j.input_source ?? ''] ?? j.input_source ?? '—'}</TableCell>
                       <TableCell>
                         {j.status === 'done'
-                          ? <Badge variant="success">Completado</Badge>
+                          ? <Badge variant="success">Exitoso</Badge>
                           : j.status === 'done_with_warnings'
-                          ? <Badge variant="warning">Con avisos</Badge>
+                          ? <Badge variant="warning">Con advertencia</Badge>
                           : j.status === 'error'
-                          ? <Badge variant="destructive">{j.error_type === 'credits' ? 'Sin créditos' : 'Error'}</Badge>
+                          ? <Badge variant="destructive">{j.error_type === 'credits' ? 'Sin créditos' : 'Fallido'}</Badge>
                           : j.status === 'processing'
                           ? <Badge variant="secondary">Procesando</Badge>
                           : <Badge variant="outline">{j.status}</Badge>
@@ -990,7 +990,7 @@ export function MonitoringPage() {
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-lg border p-3 flex flex-col items-center text-center">
                   <div className="text-xl font-black font-lora">{workerMetrics.totals.completed}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">Completados</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Exitosos</div>
                 </div>
                 <div className="rounded-lg border p-3 flex flex-col items-center text-center">
                   <div className="text-xl font-black font-lora">{workerMetrics.totals.failed}</div>
