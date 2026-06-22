@@ -81,6 +81,16 @@ El pipeline de procesamiento está validado y estabilizado. No tocar sin tarea e
 
 ---
 
+## Decisiones arquitectónicas clave (fuente de verdad: Decisions Log en Notion)
+
+- **DEC-007 (enmendado 2026-06-22) + DEC-017** — Qué va en la DB vs. en el worker:
+  - *Procesamiento y lógica de negocio compleja* (OCR, IA, parseo, merge OCs, cálculos, o lógica que depende de contexto externo o de múltiples entidades) → **Worker**.
+  - *Derivación determinística de estado sobre una sola fila* (ej. `doc_status` vía trigger `classify_pdf_job_row`; conteos del job vía `trg_sync_job_counts_rows`) → **aceptable en la DB** como invariante, si es determinística, sin side-effects y depende solo de la propia fila.
+  - La clasificación de `doc_status` se **mantiene en el trigger** por decisión orientada a escala. NO migrar al worker "por las dudas": solo al cruzar los gatillos de DEC-017 (la clasificación pasa a depender de datos externos —AFIP, histórico, comparación entre docs—; o CPU sostenida ~>70% / latencia p95 / volumen de `pdf_job_rows` en millones / throughput cerca de límites del plan).
+  - Acción pendiente: task **TEST-CLASSIFY-TRIGGER** (Kanban, Backlog 🟢 Baja) — tests del trigger (motivada por el bug `NULL IN(...)` de TASK-92).
+
+---
+
 ## Stack
 
 - **Frontend**: React 18 + TypeScript + Vite, shadcn/ui, Tailwind CSS
