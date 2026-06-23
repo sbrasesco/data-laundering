@@ -169,6 +169,7 @@ export function MonitoringPage() {
   const [activityTarget,  setActivityTarget]  = useState<TenantBalance | null>(null);
   const [tenantJobs,      setTenantJobs]      = useState<TenantJob[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
+  const [activityError,   setActivityError]   = useState<string | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
@@ -334,11 +335,16 @@ export function MonitoringPage() {
   const handleViewActivity = async (t: TenantBalance) => {
     setActivityTarget(t);
     setTenantJobs([]);
+    setActivityError(null);
     setModal('activity');
     setLoadingActivity(true);
     try {
-      const { data } = await supabase.rpc('get_tenant_jobs_admin', { p_org_id: t.org_id });
+      const { data, error } = await supabase.rpc('get_tenant_jobs_admin', { p_org_id: t.org_id });
+      if (error) throw error;
       setTenantJobs((data ?? []) as TenantJob[]);
+    } catch (err) {
+      console.error('Error cargando actividad del tenant:', err);
+      setActivityError('No se pudo cargar la actividad. Reintentá.');
     } finally {
       setLoadingActivity(false);
     }
@@ -783,7 +789,7 @@ export function MonitoringPage() {
       </Dialog>
 
       {/* Actividad por tenant */}
-      <Dialog open={modal === 'activity'} onOpenChange={() => { setModal(null); setActivityTarget(null); }}>
+      <Dialog open={modal === 'activity'} onOpenChange={() => { setModal('tenants'); setActivityTarget(null); }}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -793,6 +799,8 @@ export function MonitoringPage() {
           </DialogHeader>
           {loadingActivity ? (
             <div className="py-8 flex justify-center"><LoadingSpinner /></div>
+          ) : activityError ? (
+            <p className="text-sm text-destructive py-6 text-center">{activityError}</p>
           ) : tenantJobs.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">Este tenant todavía no registró procesos.</p>
           ) : (
@@ -1214,3 +1222,4 @@ export function MonitoringPage() {
     </div>
   );
 }
+
