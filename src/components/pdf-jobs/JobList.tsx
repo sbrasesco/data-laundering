@@ -67,16 +67,19 @@ export function JobList({ jobs }: JobListProps) {
             const failed    = job.failed_documents ?? 0;
 
             const isProcessing = job.status === 'pending' || job.status === 'processing' || total === 0 || processed + failed < total;
-            const hasIssues    = !isProcessing && job.status !== 'error' && (job.status === 'done_with_warnings' || job.has_warnings || failed > 0);
+            const allFailed    = !isProcessing && total > 0 && failed >= total;
+            const hasIssues    = !isProcessing && !allFailed && job.status !== 'error' && (job.status === 'done_with_warnings' || job.has_warnings || failed > 0);
 
             let displayLabel: string;
             let displayVariant: 'secondary' | 'success' | 'destructive' | 'warning' | 'outline';
             if (isProcessing)            { displayLabel = 'Procesando';      displayVariant = 'secondary'; }
-            else if (job.status === 'error') { displayLabel = 'Fallido';     displayVariant = 'destructive'; }
+            else if (job.status === 'error' || allFailed) { displayLabel = 'Fallido'; displayVariant = 'destructive'; }
             else if (hasIssues)          { displayLabel = 'Con advertencia'; displayVariant = 'warning'; }
             else                         { displayLabel = getJobStatusLabel(job.status); displayVariant = getJobStatusVariant(job.status); }
 
-            const rowBg = hasIssues ? 'bg-yellow-50/70 dark:bg-yellow-950/10' : '';
+            const rowBg = allFailed
+              ? 'bg-red-50/70 dark:bg-red-950/10'
+              : hasIssues ? 'bg-yellow-50/70 dark:bg-yellow-950/10' : '';
 
             return (
               <TableRow key={job.id} className={rowBg}>

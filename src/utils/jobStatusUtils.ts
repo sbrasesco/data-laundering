@@ -34,7 +34,17 @@ export function getUiStatus(job: JobForStatus): UiStatus {
   if (job.status === 'processing') {
     return 'PROCESANDO';
   }
-  
+
+  // Si TODOS los documentos del proceso fallaron, el proceso es un fallo,
+  // no una simple advertencia (derivación determinística sobre los contadores del job).
+  {
+    const total  = job.total_documents ?? 0;
+    const failed = job.failed_documents ?? 0;
+    if ((job.status === 'done' || job.status === 'done_with_warnings') && total > 0 && failed >= total) {
+      return 'FALLIDO';
+    }
+  }
+
   if (job.status === 'done_with_warnings') {
     return 'COMPLETADO_CON_ADVERTENCIAS';
   }
@@ -45,5 +55,48 @@ export function getUiStatus(job: JobForStatus): UiStatus {
   }
 
   return 'PROCESANDO';
+}
+
+/**
+ * Discrepancia entre los documentos detectados y los contabilizados (procesados + fallidos).
+ * NOTA: `total_documents` incluye legítimamente los adjuntos embebidos (ej. órdenes de compra
+ * que el worker desengancha y procesa como documentos propios). Por eso NO se compara contra
+ * "facturas" sino contra el total real de documentos detectados.
+ *
+ * - 'gap'     => total > procesados+fallidos: hay documentos que no se contabilizaron
+ *                (se perdieron o ni se intentaron). Es el caso a avisarle al cliente.
+ * - 'anomaly' => procesados+fallidos > total: inconsistencia de conteo (el "13 de 3").
+ * - 'none'    => todo cuadra, o el job aún no terminó (los contadores siguen cambiando).
+ *
+ * Solo se evalúa en jobs terminados sin error de sistema (done / done_with_warnings).
+ * Los jobs en 'error' (ej. rechazo por créditos) no representan documentos perdidos.
+ */
+export type DocDiscrepancyKind = 'none' | 'gap' | 'anomaly';
+
+export interface DocDiscrepancy {
+  kind: DocDiscrepancyKind;
+  total: number;
+  accounted: number; // processed + failed
+  missing: number;   // total - accounted (> 0 sólo en 'gap')
+  excess: number;    // accounted - total (> 0 sólo en 'anomaly')
+}
+
+export function getDocDiscrepancy(job: JobForStatus): DocDiscrepancy {
+  const total     = job.total_documents ?? 0;
+  const processed = job.processed_documents ?? 0;
+  const failed    = job.failed_documents ?? 0;
+  const accounted = processed + failed;
+  const none: DocDiscrepancy = { kind: 'none', total, accounted, missing: 0, excess: 0 };
+
+  if (job.status !== 'done' && job.status !== 'done_with_warnings') return none;
+  if (total <= 0) return none;
+
+  if (accounted < total) {
+    return { kind: 'gap', total, accounted, missing: total - accounted, excess: 0 };
+  }
+  if (accounted > total) {
+    return { kind: 'anomaly', total, accounted, missing: 0, excess: accounted - total };
+  }
+  return none;
 }
 

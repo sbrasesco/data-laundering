@@ -19,6 +19,13 @@ function StatItem({ label, value }: { label: string; value: string | number }) {
 }
 
 export function JobDetailHeader({ job }: JobDetailHeaderProps) {
+  // Proceso totalmente fallido: el badge ya muestra "Fallido"; no mostrar además
+  // el alert amarillo de "se completó con advertencias" (sería contradictorio).
+  const allFailed =
+    (job.status === 'done' || job.status === 'done_with_warnings') &&
+    (job.total_documents ?? 0) > 0 &&
+    (job.failed_documents ?? 0) >= (job.total_documents ?? 0);
+
   const formatPeriod = (month: number | null, year: number | null) => {
     if (!month || !year) return '-';
     const months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -55,12 +62,22 @@ export function JobDetailHeader({ job }: JobDetailHeaderProps) {
         </CardContent>
       </Card>
 
-      {job.has_warnings && (
+      {job.has_warnings && !allFailed && (
         <Alert variant="warning">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Advertencia</AlertTitle>
           <AlertDescription>
             Este proceso se completó con advertencias. Algunos documentos no pudieron procesarse correctamente.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {allFailed && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Proceso fallido</AlertTitle>
+          <AlertDescription>
+            Ningún documento de este proceso pudo procesarse correctamente.
           </AlertDescription>
         </Alert>
       )}

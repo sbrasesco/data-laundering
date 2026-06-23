@@ -6,6 +6,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Button } from '@/components/ui/button';
 import { JobDetailHeader } from '../components/pdf-jobs/JobDetailHeader';
+import { JobDiscrepancyNotice } from '../components/pdf-jobs/JobDiscrepancyNotice';
 import { JobDocumentsSection } from '../components/pdf-jobs/JobDocumentsSection';
 import { JobRowsTable } from '../components/pdf-jobs/JobRowsTable';
 
@@ -41,6 +42,8 @@ export function ProcesoDetailPage() {
       <Button variant="outline" onClick={() => navigate('/dashboard')}>← Volver al Dashboard</Button>
 
       <JobDetailHeader job={job} />
+
+      <JobDiscrepancyNotice job={job} />
 
       {rowsError && <ErrorMessage message={rowsError} />}
 

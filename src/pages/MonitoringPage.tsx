@@ -794,7 +794,7 @@ export function MonitoringPage() {
           {loadingActivity ? (
             <div className="py-8 flex justify-center"><LoadingSpinner /></div>
           ) : tenantJobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">Sin actividad registrada.</p>
+            <p className="text-sm text-muted-foreground py-6 text-center">Este tenant todavía no registró procesos.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -822,16 +822,21 @@ export function MonitoringPage() {
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(j.created_at)}</TableCell>
                       <TableCell className="text-xs">{sourceLabel[j.input_source ?? ''] ?? j.input_source ?? '—'}</TableCell>
                       <TableCell>
-                        {j.status === 'done'
-                          ? <Badge variant="success">Exitoso</Badge>
-                          : j.status === 'done_with_warnings'
-                          ? <Badge variant="warning">Con advertencia</Badge>
-                          : j.status === 'error'
-                          ? <Badge variant="destructive">{j.error_type === 'credits' ? 'Sin créditos' : 'Fallido'}</Badge>
-                          : j.status === 'processing'
-                          ? <Badge variant="secondary">Procesando</Badge>
-                          : <Badge variant="outline">{j.status}</Badge>
-                        }
+                        {(() => {
+                          const t = j.total_documents ?? 0;
+                          const f = j.failed_documents ?? 0;
+                          const allFailed = (j.status === 'done' || j.status === 'done_with_warnings') && t > 0 && f >= t;
+                          if (allFailed) return <Badge variant="destructive">Fallido</Badge>;
+                          return j.status === 'done'
+                            ? <Badge variant="success">Exitoso</Badge>
+                            : j.status === 'done_with_warnings'
+                            ? <Badge variant="warning">Con advertencia</Badge>
+                            : j.status === 'error'
+                            ? <Badge variant="destructive">{j.error_type === 'credits' ? 'Sin créditos' : 'Fallido'}</Badge>
+                            : j.status === 'processing'
+                            ? <Badge variant="secondary">Procesando</Badge>
+                            : <Badge variant="outline">{j.status}</Badge>;
+                        })()}
                       </TableCell>
                       <TableCell className="text-right text-sm tabular-nums">{j.total_documents ?? '—'}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums">{j.processed_documents ?? '—'}</TableCell>
