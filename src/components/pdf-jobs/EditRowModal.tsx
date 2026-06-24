@@ -5,6 +5,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useDocumentTypes } from '../../hooks/useDocumentTypes';
 
 interface EditRowModalProps {
   row: any | null;
@@ -14,17 +15,11 @@ interface EditRowModalProps {
   saving: boolean;
 }
 
-const DOC_TYPE_OPTIONS = [
-  'Factura A', 'Factura B', 'Factura C',
-  'Nota de crédito A', 'Nota de crédito B', 'Nota de crédito C',
-  'Presupuesto', 'Recibo', 'Ticket', 'Otro',
-];
-
-const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' | 'select'; options?: string[] }[] = [
+const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' | 'select' }[] = [
   { key: 'proveedor',            label: 'Proveedor',         type: 'text' },
   { key: 'cuit',                 label: 'CUIT Emisor',       type: 'text' },
   { key: 'condicion_iva_emisor', label: 'Condición IVA',     type: 'text' },
-  { key: 'tipo_documento',       label: 'Tipo Documento',    type: 'select', options: DOC_TYPE_OPTIONS },
+  { key: 'tipo_documento',       label: 'Tipo Documento',    type: 'select' },
   { key: 'codigo_afip',          label: 'Cód. AFIP',         type: 'text' },
   { key: 'punto_venta',          label: 'Punto de Venta',    type: 'text' },
   { key: 'numero_comprobante',   label: 'Nro. Comprobante',  type: 'text' },
@@ -41,6 +36,7 @@ const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' | '
 
 export function EditRowModal({ row, onClose, onSave, onSaveAndProcess, saving }: EditRowModalProps) {
   const [values, setValues] = useState<Record<string, any>>({});
+  const { docTypes } = useDocumentTypes();
 
   useEffect(() => {
     if (!row) return;
@@ -97,10 +93,10 @@ export function EditRowModal({ row, onClose, onSave, onSaveAndProcess, saving }:
                   className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="">— Seleccionar —</option>
-                  {values[f.key] && !f.options?.includes(values[f.key]) && (
+                  {values[f.key] && !docTypes.some(d => d.code === values[f.key]) && (
                     <option value={values[f.key]}>{values[f.key]} (actual)</option>
                   )}
-                  {f.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  {docTypes.map(d => <option key={d.code} value={d.code}>{d.label}</option>)}
                 </select>
               ) : (
                 <Input

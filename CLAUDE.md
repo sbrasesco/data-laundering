@@ -141,6 +141,9 @@ Frontend / Integration poller → POST /api/enqueue → gateway.mjs (:3001)
 
 Editable desde MonitoringPage→Precios (superadmin) vía RPC `update_feature_cost`. Los montos "validados" en el historial son la config de ese momento, no valores hardcodeados.
 
+### document_types (config global — NO hardcodear)
+Tabla `document_types` (code, label, sort_order, active), RLS read `authenticated_read_document_types`. `code` = valor canónico de `pdf_job_rows.tipo_documento` que produce la IA: `FACTURA_A/B/C/M`, `NOTA_DEBITO_A/B/C`, `NOTA_CREDITO_A/B/C`, `ORDEN_COMPRA`, `SOLICITUD_COTIZACION` (fuente: prompt en `document-processor.mjs`). El dropdown de edición manual (`EditRowModal` vía hook `useDocumentTypes`) muestra `label` y guarda `code`. Alta de tipo = INSERT, sin redeploy. Global por ahora (regionalización por país = futuro). Panel admin pendiente (TASK-111).
+
 ## RPCs relevantes
 
 | RPC | Tipo | Propósito |
@@ -164,6 +167,7 @@ Editable desde MonitoringPage→Precios (superadmin) vía RPC `update_feature_co
 |---|---|---|
 | **TASK-108** | SCOPE-ATTACHMENT-EXTRACTION: limitar extracción de adjuntos (pdfdetach+mutool+PyMuPDF) a un tenant/integración vía flag (default OFF). Hoy global; necesidad de 1 cliente | 🟡 Media |
 | **TASK-109** | JOB-FILE-MANIFEST (fase 2 de TASK-93): worker registra manifiesto de archivos por job (nombres+estado/motivo) para nombrar los no procesados. Tabla `pdf_job_files` (org_id+RLS) vs jsonb; punto en `zip-processor.mjs` | 🟡 Media |
+| **TASK-111** | ADMIN-DOCUMENT-TYPES: panel superadmin para administrar `document_types` (alta/edición/activar) sin SQL, estilo panel Precios. RPCs `upsert_document_type`/`toggle_document_type`. `code` inmutable | 🟡 Media |
 | **TASK-105** | UX-OUTPUT-FORMAT: toggle "Archivo acumulativo (Excel)" en tarjeta Drive (`IntegracionesPage`). OFF=csv/`output_enabled=false`; ON=xlsx/`output_enabled=true` (cobra master_file). Precio dinámico de `get_price_breakdown()`. Solo frontend | 🟡 Media |
 | **TASK-98** | UX-DOCTYPE-DROPDOWN | 🟡 Media |
 | **TASK-99** | UX-CLARIFY-UPLOADER | 🟡 Media |
