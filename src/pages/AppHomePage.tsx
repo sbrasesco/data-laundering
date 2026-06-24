@@ -21,7 +21,7 @@ export function AppHomePage() {
         <CardHeader><CardTitle className="text-base">Accesos rápidos</CardTitle></CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <Button onClick={() => navigate('/dashboard')}>Ir al Dashboard</Button>
-          <Button variant="outline" onClick={() => navigate('/jobs/new')}>Subir nuevo archivo</Button>
+          <Button variant="outline" onClick={() => navigate('/jobs/new')}>Nuevo proceso</Button>
           <Button variant="destructive" onClick={() => signOut()}>Cerrar sesión</Button>
         </CardContent>
       </Card>

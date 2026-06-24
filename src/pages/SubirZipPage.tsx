@@ -17,6 +17,7 @@ export function SubirZipPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const { user, organizationId, loading: authLoading } = useAuth();
   const { clients, loading: clientsLoading, error: clientsError } = useActiveClients();
   const { balance, loading: creditsLoading } = useTenantCredits();
@@ -28,8 +29,30 @@ export function SubirZipPage() {
     }
   }, [balance, creditsLoading]);
 
+  const ACCEPTED_EXT = ['.zip', '.rar', '.pdf', '.jpg', '.jpeg', '.png'];
+
+  const selectFile = (f: File) => {
+    const ext = '.' + (f.name.split('.').pop() ?? '').toLowerCase();
+    if (!ACCEPTED_EXT.includes(ext)) {
+      setError('Formato no permitido. Aceptamos ZIP, RAR, PDF, JPG o PNG.');
+      return;
+    }
+    setFile(f);
+    setError(null);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) { setFile(e.target.files[0]); setError(null); }
+    if (e.target.files && e.target.files[0]) selectFile(e.target.files[0]);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); if (!loading) setDragActive(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setDragActive(false); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (loading) return;
+    const f = e.dataTransfer.files?.[0];
+    if (f) selectFile(f);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -98,11 +121,18 @@ export function SubirZipPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="file">Archivo (ZIP, PDF, JPG, PNG) <span className="text-destructive">*</span></Label>
-              <input id="file" type="file" accept=".zip,.rar,.pdf,.jpg,.jpeg,.png" onChange={handleFileChange} disabled={loading} required
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50" />
-              <p className="text-xs text-muted-foreground">
-                Para procesar varios archivos, comprimilos en un <strong>ZIP</strong> y subilos juntos. También podés usar la integración con <strong>Google Drive</strong> para procesar carpetas completas de forma automática.
-              </p>
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`rounded-md border border-dashed px-3 py-3 transition-colors ${dragActive ? 'border-primary bg-primary/5' : 'border-input'}`}
+              >
+                <input id="file" type="file" accept=".zip,.rar,.pdf,.jpg,.jpeg,.png" onChange={handleFileChange} disabled={loading} required
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50" />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Arrastrá un archivo acá o seleccionalo arriba. Para procesar varios archivos, comprimilos en un <strong>ZIP</strong> y subilos juntos, o usá la integración con <strong>Google Drive</strong> para procesar carpetas completas de forma automática.
+                </p>
+              </div>
               {file && <p className="text-xs text-muted-foreground">{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</p>}
             </div>
 
