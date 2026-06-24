@@ -25,6 +25,9 @@ const SUPPORTED_MIME_TYPES = {
   'image/png':                 { ext: 'png', file_type: 'png' },
   'application/zip':           { ext: 'zip', file_type: 'zip' },
   'application/x-zip-compressed': { ext: 'zip', file_type: 'zip' },
+  'application/x-rar-compressed': { ext: 'rar', file_type: 'rar' },
+  'application/vnd.rar':          { ext: 'rar', file_type: 'rar' },
+  'application/x-rar':            { ext: 'rar', file_type: 'rar' },
 };
 
 // ─── Supabase helpers ────────────────────────────────────────────────────────
@@ -220,6 +223,32 @@ async function moveFileToProcesados(drive, fileId, parentFolderId, filename, int
   }
 }
 
+async function moveFileToFallidos(drive, fileId, parentFolderId, filename, integrationId, log) {
+  try {
+    const fallidosId = await getOrCreateFolder(drive, parentFolderId, 'fallidos');
+    await drive.files.update({
+      fileId,
+      addParents:    fallidosId,
+      removeParents: parentFolderId,
+      fields:        'id, parents',
+    });
+    log('info', 'integration.file_moved_to_fallidos', {
+      integration_id: integrationId,
+      filename,
+      drive_file_id:  fileId,
+      reason:         'unsupported_format',
+    });
+  } catch (moveErr) {
+    log('warn', 'integration.file_move_failed', {
+      integration_id: integrationId,
+      filename,
+      drive_file_id:  fileId,
+      context:        'to_fallidos',
+      error:          moveErr.message,
+    });
+  }
+}
+
 async function listSubfolders(drive, folderId) {
   const res = await drive.files.list({
     q:        `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
@@ -259,6 +288,16 @@ async function listAllFiles(drive, folderId) {
     pageSize: 100,
   });
   return (res.data.files || []).filter(f => SUPPORTED_MIME_TYPES[f.mimeType]);
+}
+
+async function listUnsupportedFiles(drive, folderId) {
+  const res = await drive.files.list({
+    q:        `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+    fields:   'files(id, name, mimeType)',
+    orderBy:  'name asc',
+    pageSize: 100,
+  });
+  return (res.data.files || []).filter(f => !SUPPORTED_MIME_TYPES[f.mimeType]);
 }
 
 async function downloadFile(drive, fileId) {
@@ -362,7 +401,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
 
       // 6. Iterar subcarpetas de clientes
       const subfolders = await listSubfolders(drive, folderId);
-      let enqueued = 0, skipped = 0, failed = 0;
+      let enqueued = 0, skipped = 0, failed = 0, rejected = 0;
 
       for (const subfolder of subfolders) {
         const clientData = clientFolderMap[subfolder.name];
@@ -461,6 +500,21 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
             failed++;
           }
         }
+
+        // TASK-96: archivos de formato no soportado → fallidos/ (en vez de ignorarlos en silencio)
+        try {
+          const unsupported = await listUnsupportedFiles(drive, subfolder.id);
+          for (const badFile of unsupported) {
+            await moveFileToFallidos(drive, badFile.id, subfolder.id, badFile.name, integrationId, log);
+            rejected++;
+          }
+        } catch (unsupErr) {
+          log('warn', 'integration.unsupported_scan_failed', {
+            integration_id: integrationId,
+            client_id:      clientId,
+            error:          unsupErr.message,
+          });
+        }
       }
 
       // 7. Actualizar last_polled_at
@@ -472,6 +526,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
         enqueued,
         skipped,
         failed,
+        rejected,
       });
 
     } catch (tenantErr) {
