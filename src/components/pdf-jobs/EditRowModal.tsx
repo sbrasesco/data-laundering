@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDocumentTypes } from '../../hooks/useDocumentTypes';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface EditRowModalProps {
   row: any | null;
@@ -85,19 +86,15 @@ export function EditRowModal({ row, onClose, onSave, onSaveAndProcess, saving }:
             <div key={f.key} className="space-y-1">
               <Label htmlFor={`edit-${f.key}`} className="text-xs">{f.label}</Label>
               {f.type === 'select' ? (
-                <select
-                  id={`edit-${f.key}`}
-                  value={values[f.key] ?? ''}
-                  onChange={e => handleChange(f.key, e.target.value)}
-                  disabled={saving}
-                  className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">— Seleccionar —</option>
-                  {values[f.key] && !docTypes.some(d => d.code === values[f.key]) && (
-                    <option value={values[f.key]}>{values[f.key]} (actual)</option>
-                  )}
-                  {docTypes.map(d => <option key={d.code} value={d.code}>{d.label}</option>)}
-                </select>
+                <Select value={values[f.key] || undefined} onValueChange={val => handleChange(f.key, val)} disabled={saving}>
+                  <SelectTrigger id={`edit-${f.key}`} className="h-8"><SelectValue placeholder="— Seleccionar —" /></SelectTrigger>
+                  <SelectContent>
+                    {values[f.key] && !docTypes.some(d => d.code === values[f.key]) && (
+                      <SelectItem value={values[f.key]}>{values[f.key]} (actual)</SelectItem>
+                    )}
+                    {docTypes.map(d => <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               ) : (
                 <Input
                   id={`edit-${f.key}`}

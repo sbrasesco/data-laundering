@@ -8,6 +8,7 @@ import { JobStatusBadge } from '../components/pdf-jobs/JobStatusBadge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
@@ -45,9 +46,6 @@ export function ClientDashboardPage() {
 
   const { jobs, loading, error, metrics } = useClientJobs(filters);
 
-  const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFilters(prev => ({ ...prev, clientId: e.target.value || undefined }));
-  };
 
   const handleFechaDesdeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFilters(prev => ({ ...prev, fechaDesde: e.target.value || undefined }));
@@ -108,17 +106,19 @@ export function ClientDashboardPage() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <div className="flex flex-col gap-1.5">
               <Label>Cliente</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                value={filters.clientId || ''}
-                onChange={handleClientChange}
+              <Select
+                value={filters.clientId || '__all__'}
+                onValueChange={v => setFilters(prev => ({ ...prev, clientId: v === '__all__' ? undefined : v }))}
                 disabled={clientsLoading}
               >
-                <option value="">Todos los clientes</option>
-                {clients.map(client => (
-                  <option key={client.id} value={client.id}>{client.name}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todos los clientes</SelectItem>
+                  {clients.map(client => (
+                    <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Fecha desde</Label>

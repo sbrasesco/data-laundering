@@ -7,6 +7,7 @@ import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { JobList } from '../components/pdf-jobs/JobList';
 import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function MisProcesosPage() {
   const { jobs, loading, error } = usePdfJobs();
@@ -36,16 +37,15 @@ export function MisProcesosPage() {
       <div className="flex items-end gap-4">
         <div className="flex flex-col gap-1.5">
           <Label>Cliente</Label>
-          <select
-            className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            value={selectedClientId}
-            onChange={e => setSelectedClientId(e.target.value)}
-          >
-            <option value="">Todos los clientes</option>
-            {clients.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <Select value={selectedClientId || '__all__'} onValueChange={v => setSelectedClientId(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="h-9 min-w-[220px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos los clientes</SelectItem>
+              {clients.map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         {selectedClientId && (
           <Button variant="outline" size="sm" onClick={() => setSelectedClientId('')}>

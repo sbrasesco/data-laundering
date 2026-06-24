@@ -7,6 +7,7 @@ import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { exportToCSV } from '../lib/csvExport';
 import { exportDocumentsToXlsx } from '../utils/excelExport';
@@ -35,14 +36,12 @@ export function DocumentsPage() {
 
   const handleFechaDesdeChange  = (e: React.ChangeEvent<HTMLInputElement>) => { setFilters(p => ({ ...p, fechaDesde: e.target.value || undefined })); setPage(1); };
   const handleFechaHastaChange  = (e: React.ChangeEvent<HTMLInputElement>) => { setFilters(p => ({ ...p, fechaHasta: e.target.value || undefined })); setPage(1); };
-  const handleClientChange      = (e: React.ChangeEvent<HTMLSelectElement>) => { setFilters(p => ({ ...p, clientId: e.target.value || undefined })); setPage(1); };
   const handleSearchChange      = (e: React.ChangeEvent<HTMLInputElement>) => setSearchText(e.target.value);
   const handleClearFilters      = () => { setFilters({}); setSearchText(''); setPage(1); };
   const handleExportToExcel     = () => { if (!filteredDocuments.length) { alert('No hay documentos para exportar'); return; } exportDocumentsToXlsx(filteredDocuments, `documentos_${new Date().toISOString().split('T')[0]}.xlsx`); };
   const handleExportToCSV       = () => { if (!filteredDocuments.length) { alert('No hay documentos para exportar'); return; } exportToCSV(filteredDocuments, `documentos_${new Date().toISOString().split('T')[0]}.csv`); };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-  const selectCls  = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -80,10 +79,13 @@ export function DocumentsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Cliente</Label>
-              <select className={selectCls} value={filters.clientId || ''} onChange={handleClientChange} disabled={clientsLoading}>
-                <option value="">Todos los clientes</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <Select value={filters.clientId || '__all__'} onValueChange={v => { setFilters(p => ({ ...p, clientId: v === '__all__' ? undefined : v })); setPage(1); }} disabled={clientsLoading}>
+                <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todos los clientes</SelectItem>
+                  {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Buscador</Label>
