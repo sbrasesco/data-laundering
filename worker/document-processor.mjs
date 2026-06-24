@@ -87,7 +87,7 @@ async function runMistralOCR(fileUrl, fileType, log) {
 
 // ─── 2. Extracción via OpenAI ─────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Eres Extractor de comprobantes argentinos. Devolvé SOLO JSON válido, sin texto extra.
+export const SYSTEM_PROMPT = `Eres Extractor de comprobantes argentinos. Devolvé SOLO JSON válido, sin texto extra.
 REGLAS: fecha en DD-MM-YYYY, importes como número (punto decimal), null si no encontrás el dato, confidence_score siempre número 0-1.
 EMISOR vs RECEPTOR — REGLA FUNDAMENTAL:
 - EMISOR = proveedor que emite la factura. SIEMPRE está en el ENCABEZADO (parte superior). emisor_cuit = CUIT del encabezado.

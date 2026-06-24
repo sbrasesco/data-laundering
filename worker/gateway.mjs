@@ -14,6 +14,7 @@
 import { createServer } from 'http';
 import { randomUUID } from 'crypto';
 import { depositSingleApprovedRow } from './output-depositor.mjs';
+import { SYSTEM_PROMPT } from './document-processor.mjs';
 
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL       = process.env.SUPABASE_URL;
@@ -1139,6 +1140,11 @@ export function startGateway(queue, log) {
 
     if (req.method === 'GET' && req.url === '/health') {
       return json(res, 200, { status: 'ok', gateway: true, worker_version: process.env.WORKER_VERSION, google_oauth: !!GOOGLE_CLIENT_ID });
+    }
+
+    // Prompt de extracción del worker (TASK-114) — solo lectura, para visor superadmin en MonitoringPage
+    if (req.method === 'GET' && req.url === '/api/prompt') {
+      return json(res, 200, { prompt: SYSTEM_PROMPT, extraction_model: 'gpt-4.1-mini-2025-04-14', ocr_model: 'mistral-ocr-latest' });
     }
 
     // Proxy de métricas de la cola (TASK-85) — proxy interno a metrics.mjs:9090
