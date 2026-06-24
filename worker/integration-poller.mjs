@@ -511,7 +511,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
                 p_org_id:       orgId,
                 p_input_source: 'integration_drive',
                 p_filename:     badFile.name,
-                p_reason:       `Formato de archivo no permitido: ${badExt ? '.' + badExt : badFile.mimeType}`,
+                p_reason:       `Formato de archivo no permitido: ${badExt ? '.' + badExt : badFile.mimeType} (${badFile.name})`,
                 p_client_id:    clientId,
               });
             } catch (rejErr) {

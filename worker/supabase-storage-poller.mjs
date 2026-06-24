@@ -174,7 +174,7 @@ async function pollSupabaseStorage(integration, ctx) {
     const fullPath = prefix ? `${prefix}${file.name}` : file.name;
     const filename = path.basename(file.name);
     const ext      = path.extname(file.name).toLowerCase() || '(sin extensión)';
-    await registerRejectedFile({ orgId, integrationId, protocol: 'supabase_storage', filename, reason: `Formato de archivo no permitido: ${ext}`, ctx });
+    await registerRejectedFile({ orgId, integrationId, protocol: 'supabase_storage', filename, reason: `Formato de archivo no permitido: ${ext} (${filename})`, ctx });
     await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, `${prefix}fallidos/${filename}`, log, 'to_fallidos_rejected');
     rejected++;
   }

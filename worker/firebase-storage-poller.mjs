@@ -155,7 +155,7 @@ async function pollFirebaseStorage(integration, ctx) {
     for (const file of rejectedFiles) {
       const filename = path.basename(file.name);
       const ext      = path.extname(file.name).toLowerCase() || '(sin extensión)';
-      await registerRejectedFile({ orgId, integrationId, protocol: 'firebase_storage', filename, reason: `Formato de archivo no permitido: ${ext}`, ctx });
+      await registerRejectedFile({ orgId, integrationId, protocol: 'firebase_storage', filename, reason: `Formato de archivo no permitido: ${ext} (${filename})`, ctx });
       try {
         await file.copy(bucket.file(`${prefix}fallidos/${filename}`));
         await file.delete();
