@@ -505,6 +505,20 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
         try {
           const unsupported = await listUnsupportedFiles(drive, subfolder.id);
           for (const badFile of unsupported) {
+            const badExt = (badFile.name.split('.').pop() || '').toLowerCase();
+            try {
+              await callRpc(supabaseUrl, supabaseKey, 'gateway_register_rejected_file', {
+                p_org_id:       orgId,
+                p_input_source: 'integration_drive',
+                p_filename:     badFile.name,
+                p_reason:       `Formato de archivo no permitido: ${badExt ? '.' + badExt : badFile.mimeType}`,
+                p_client_id:    clientId,
+              });
+            } catch (rejErr) {
+              log('warn', 'integration.reject_register_failed', {
+                integration_id: integrationId, filename: badFile.name, error: rejErr.message,
+              });
+            }
             await moveFileToFallidos(drive, badFile.id, subfolder.id, badFile.name, integrationId, log);
             rejected++;
           }

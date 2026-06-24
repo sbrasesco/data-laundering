@@ -26,6 +26,7 @@ import {
   SUPPORTED_EXTENSIONS,
   checkAndRegisterFile,
   uploadAndEnqueue,
+  registerRejectedFile,
   runIntegrationPoller,
 } from './poller-handoff.mjs';
 
@@ -108,7 +109,7 @@ async function pollSupabaseStorage(integration, ctx) {
     integration_id: integrationId, protocol: 'supabase_storage', count: candidates.length,
   });
 
-  let enqueued = 0, skipped = 0, failed = 0;
+  let enqueued = 0, skipped = 0, failed = 0, rejected = 0;
 
   for (const file of candidates) {
     const fullPath     = prefix ? `${prefix}${file.name}` : file.name;
@@ -162,8 +163,24 @@ async function pollSupabaseStorage(integration, ctx) {
     }
   }
 
+  // TASK-110: archivos de formato no soportado → job fallido visible + mover a fallidos/
+  const rejectedFiles = allFiles.filter(f => {
+    if (!f.name || f.metadata === null) return false;
+    const topLevel = f.name.split('/')[0];
+    if (SYSTEM_FOLDERS.has(topLevel)) return false;
+    return !SUPPORTED_EXTENSIONS[path.extname(f.name).toLowerCase()];
+  });
+  for (const file of rejectedFiles) {
+    const fullPath = prefix ? `${prefix}${file.name}` : file.name;
+    const filename = path.basename(file.name);
+    const ext      = path.extname(file.name).toLowerCase() || '(sin extensión)';
+    await registerRejectedFile({ orgId, integrationId, protocol: 'supabase_storage', filename, reason: `Formato de archivo no permitido: ${ext}`, ctx });
+    await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, `${prefix}fallidos/${filename}`, log, 'to_fallidos_rejected');
+    rejected++;
+  }
+
   log('info', 'integration.tenant_done', {
-    integration_id: integrationId, organization_id: orgId, protocol: 'supabase_storage', enqueued, skipped, failed,
+    integration_id: integrationId, organization_id: orgId, protocol: 'supabase_storage', enqueued, skipped, failed, rejected,
   });
 }
 

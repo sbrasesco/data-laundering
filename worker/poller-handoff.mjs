@@ -161,6 +161,32 @@ export async function handoffBuffer({ buffer, filename, orgId, integrationId, pr
   return await uploadAndEnqueue({ buffer, filename, orgId, integrationId, protocol, pollingIntervalMinutes, fileMeta, ctx });
 }
 
+// ─── Archivo rechazado → job fallido visible ────────────────────────
+
+/**
+ * Registra un archivo rechazado (formato no soportado, etc.) como un job pdf_jobs
+ * fallido visible en el frontend (status='error', error_type='rejected', razón en
+ * error_message). NO se cobra. Universal para toda integración. El move del archivo
+ * a fallidos/ lo hace cada poller con su storage API. Best-effort: nunca lanza.
+ */
+export async function registerRejectedFile({ orgId, integrationId, protocol, filename, reason, clientId = null, ctx }) {
+  const { supabaseUrl, supabaseKey, log } = ctx;
+  try {
+    const jobId = await callRpc(supabaseUrl, supabaseKey, 'gateway_register_rejected_file', {
+      p_org_id:       orgId,
+      p_input_source: protocol,
+      p_filename:     filename,
+      p_reason:       reason,
+      p_client_id:    clientId,
+    });
+    log('info', 'integration.file_rejected', { integration_id: integrationId, filename, protocol, reason, job_id: jobId });
+    return jobId;
+  } catch (err) {
+    log('warn', 'integration.reject_register_failed', { integration_id: integrationId, filename, protocol, error: err.message });
+    return null;
+  }
+}
+
 // ─── Orquestador genérico ─────────────────────────────────────────────────────
 
 /**

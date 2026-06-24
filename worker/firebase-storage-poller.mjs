@@ -23,6 +23,7 @@ import {
   SUPPORTED_EXTENSIONS,
   checkAndRegisterFile,
   uploadAndEnqueue,
+  registerRejectedFile,
   runIntegrationPoller,
 } from './poller-handoff.mjs';
 
@@ -79,7 +80,7 @@ async function pollFirebaseStorage(integration, ctx) {
       integration_id: integrationId, protocol: 'firebase_storage', count: candidates.length,
     });
 
-    let enqueued = 0, skipped = 0, failed = 0;
+    let enqueued = 0, skipped = 0, failed = 0, rejected = 0;
 
     for (const file of candidates) {
       const filename      = path.basename(file.name);
@@ -142,8 +143,31 @@ async function pollFirebaseStorage(integration, ctx) {
       }
     }
 
+    // TASK-110: archivos de formato no soportado → job fallido visible + mover a fallidos/
+    const rejectedFiles = allFiles.filter(file => {
+      const relPath = prefix ? file.name.slice(prefix.length) : file.name;
+      if (!relPath || relPath.endsWith('/')) return false;
+      const topSegment = relPath.split('/')[0];
+      if (SYSTEM_FOLDERS.has(topSegment)) return false;
+      if (relPath.includes('/')) return false;
+      return !SUPPORTED_EXTENSIONS[path.extname(file.name).toLowerCase()];
+    });
+    for (const file of rejectedFiles) {
+      const filename = path.basename(file.name);
+      const ext      = path.extname(file.name).toLowerCase() || '(sin extensión)';
+      await registerRejectedFile({ orgId, integrationId, protocol: 'firebase_storage', filename, reason: `Formato de archivo no permitido: ${ext}`, ctx });
+      try {
+        await file.copy(bucket.file(`${prefix}fallidos/${filename}`));
+        await file.delete();
+        log('info', 'integration.file_moved', { protocol: 'firebase_storage', from: file.name, to: `${prefix}fallidos/${filename}`, context: 'to_fallidos_rejected' });
+      } catch (moveErr) {
+        log('warn', 'integration.file_move_failed', { protocol: 'firebase_storage', filename, error: moveErr.message, context: 'to_fallidos_rejected' });
+      }
+      rejected++;
+    }
+
     log('info', 'integration.tenant_done', {
-      integration_id: integrationId, organization_id: orgId, protocol: 'firebase_storage', enqueued, skipped, failed,
+      integration_id: integrationId, organization_id: orgId, protocol: 'firebase_storage', enqueued, skipped, failed, rejected,
     });
 
   } finally {
