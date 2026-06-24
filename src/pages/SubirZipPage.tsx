@@ -100,6 +100,9 @@ export function SubirZipPage() {
               <Label htmlFor="file">Archivo (ZIP, PDF, JPG, PNG) <span className="text-destructive">*</span></Label>
               <input id="file" type="file" accept=".zip,.rar,.pdf,.jpg,.jpeg,.png" onChange={handleFileChange} disabled={loading} required
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50" />
+              <p className="text-xs text-muted-foreground">
+                Para procesar varios archivos, comprimilos en un <strong>ZIP</strong> y subilos juntos. También podés usar la integración con <strong>Google Drive</strong> para procesar carpetas completas de forma automática.
+              </p>
               {file && <p className="text-xs text-muted-foreground">{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</p>}
             </div>
 
