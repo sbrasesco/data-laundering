@@ -14,11 +14,17 @@ interface EditRowModalProps {
   saving: boolean;
 }
 
-const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' }[] = [
+const DOC_TYPE_OPTIONS = [
+  'Factura A', 'Factura B', 'Factura C',
+  'Nota de crédito A', 'Nota de crédito B', 'Nota de crédito C',
+  'Presupuesto', 'Recibo', 'Ticket', 'Otro',
+];
+
+const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' | 'select'; options?: string[] }[] = [
   { key: 'proveedor',            label: 'Proveedor',         type: 'text' },
   { key: 'cuit',                 label: 'CUIT Emisor',       type: 'text' },
   { key: 'condicion_iva_emisor', label: 'Condición IVA',     type: 'text' },
-  { key: 'tipo_documento',       label: 'Tipo Documento',    type: 'text' },
+  { key: 'tipo_documento',       label: 'Tipo Documento',    type: 'select', options: DOC_TYPE_OPTIONS },
   { key: 'codigo_afip',          label: 'Cód. AFIP',         type: 'text' },
   { key: 'punto_venta',          label: 'Punto de Venta',    type: 'text' },
   { key: 'numero_comprobante',   label: 'Nro. Comprobante',  type: 'text' },
@@ -82,15 +88,31 @@ export function EditRowModal({ row, onClose, onSave, onSaveAndProcess, saving }:
           {FIELDS.map(f => (
             <div key={f.key} className="space-y-1">
               <Label htmlFor={`edit-${f.key}`} className="text-xs">{f.label}</Label>
-              <Input
-                id={`edit-${f.key}`}
-                type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'}
-                step={f.type === 'number' ? 'any' : undefined}
-                value={values[f.key] ?? ''}
-                onChange={e => handleChange(f.key, e.target.value)}
-                disabled={saving}
-                className="h-8 text-sm"
-              />
+              {f.type === 'select' ? (
+                <select
+                  id={`edit-${f.key}`}
+                  value={values[f.key] ?? ''}
+                  onChange={e => handleChange(f.key, e.target.value)}
+                  disabled={saving}
+                  className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">— Seleccionar —</option>
+                  {values[f.key] && !f.options?.includes(values[f.key]) && (
+                    <option value={values[f.key]}>{values[f.key]} (actual)</option>
+                  )}
+                  {f.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              ) : (
+                <Input
+                  id={`edit-${f.key}`}
+                  type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'}
+                  step={f.type === 'number' ? 'any' : undefined}
+                  value={values[f.key] ?? ''}
+                  onChange={e => handleChange(f.key, e.target.value)}
+                  disabled={saving}
+                  className="h-8 text-sm"
+                />
+              )}
             </div>
           ))}
         </div>
