@@ -65,6 +65,7 @@ Validado y estabilizado. No tocar sin tarea explícita.
 - `document-processor.mjs` (OCR+IA), `worker.mjs` (BullMQ + cron), `supabase-storage-poller.mjs`, `firebase-storage-poller.mjs`, `output-depositor.mjs` (CSV/XLSX → `extracciones/`). `integration-poller.mjs` (Drive, prod) — tocar SOLO para TASK-96.
 - **Estructura de carpetas uniforme**: usuario suelta en raíz/carpeta → poller mueve a `en_proceso/` → worker a `procesados/`/`fallidos/` → output a `extracciones/`.
 - **Agregar integración** = `worker/{nombre}-poller.mjs` (list+download+move a `en_proceso/` + `uploadAndEnqueue` con `fileMeta`) + `input_source` al CHECK de `pdf_jobs` y a `VALID_SOURCES`. El movimiento post-worker es automático.
+- **Archivos rechazados** (formato no soportado): cada poller llama `registerRejectedFile` (poller-handoff) → RPC `gateway_register_rejected_file` crea un `pdf_jobs` `status='error'`, `error_type='rejected'` con la razón en `error_message`, y mueve el archivo a `{cliente}/fallidos/`. Universal, no se cobra, el front lo muestra como Fallido (TASK-110).
 
 ---
 
@@ -151,6 +152,7 @@ Editable desde MonitoringPage→Precios (superadmin) vía RPC `update_feature_co
 | `get_all_tenants_admin()` / `get_tenant_jobs_admin(p_org_id)` | SEC DEFINER | Panel superadmin (bypass RLS) |
 | `gateway_create_pdf_job(...)` | SEC DEFINER | Crea `pdf_jobs` desde integraciones |
 | `get_price_breakdown()` | SEC DEFINER | Desglose de costo por doc |
+| `gateway_register_rejected_file(...)` | SEC DEFINER | Crea `pdf_jobs` error_type='rejected' para archivo rechazado (TASK-110) |
 
 ---
 
@@ -160,7 +162,6 @@ Editable desde MonitoringPage→Precios (superadmin) vía RPC `update_feature_co
 
 | Task | Descripción | Prioridad |
 |---|---|---|
-| **TASK-96** | FIX-DRIVE-ERROR-FOLDER: carpeta de errores en Drive (Supabase/Firebase ya cubierto vía `fallidos/`). Tocar `integration-poller.mjs` | 🟠 Alta |
 | **TASK-108** | SCOPE-ATTACHMENT-EXTRACTION: limitar extracción de adjuntos (pdfdetach+mutool+PyMuPDF) a un tenant/integración vía flag (default OFF). Hoy global; necesidad de 1 cliente | 🟡 Media |
 | **TASK-109** | JOB-FILE-MANIFEST (fase 2 de TASK-93): worker registra manifiesto de archivos por job (nombres+estado/motivo) para nombrar los no procesados. Tabla `pdf_job_files` (org_id+RLS) vs jsonb; punto en `zip-processor.mjs` | 🟡 Media |
 | **TASK-105** | UX-OUTPUT-FORMAT: toggle "Archivo acumulativo (Excel)" en tarjeta Drive (`IntegracionesPage`). OFF=csv/`output_enabled=false`; ON=xlsx/`output_enabled=true` (cobra master_file). Precio dinámico de `get_price_breakdown()`. Solo frontend | 🟡 Media |
@@ -176,6 +177,6 @@ Editable desde MonitoringPage→Precios (superadmin) vía RPC `update_feature_co
 
 ### ✅ Completadas (en prod)
 
-**Sesión 2026-06-23**: **TASK-92** estados de documento estandarizados (trigger `classify_pdf_job_row` reescrito: `failed` solo si error real o leído sin ningún dato; baja confianza/campos faltantes → `warning`; respeta `approved_at`; fix bug `NULL IN(...)`. Vocabulario unificado a **Exitoso/Con advertencia/Fallido**. Columna "Estado" por-documento en `DocumentsTable`). · **TASK-93** aviso de discrepancia (`getDocDiscrepancy` + `JobDiscrepancyNotice` en ProcesoDetailPage; gap real vs anomalía de conteo; no lista nombres → TASK-109) + **UX-JOB-ALLFAILED** (job 100% fallido → "Fallido" en JobList/JobDetailHeader/JobStatusBadge/MonitoringPage). · **TASK-94 + TASK-97** período = mes de procesamiento universal (trigger `trg_set_pdf_job_period`, backfill hecho) + quitado el selector Mes/Año del subidor. · **TASK-95** Activity vacía: causa raíz = RPC `get_tenant_jobs_admin` con `id` ambiguo (migración `fix_get_tenant_jobs_admin_ambiguous_id`) + empty-state + manejo de error. · Builds: `main-8UVxgJRP.js`, `main-D8Ivc5LK.js`.
+**Sesión 2026-06-23**: **TASK-92** estados de documento estandarizados (trigger `classify_pdf_job_row` reescrito: `failed` solo si error real o leído sin ningún dato; baja confianza/campos faltantes → `warning`; respeta `approved_at`; fix bug `NULL IN(...)`. Vocabulario unificado a **Exitoso/Con advertencia/Fallido**. Columna "Estado" por-documento en `DocumentsTable`). · **TASK-93** aviso de discrepancia (`getDocDiscrepancy` + `JobDiscrepancyNotice` en ProcesoDetailPage; gap real vs anomalía de conteo; no lista nombres → TASK-109) + **UX-JOB-ALLFAILED** (job 100% fallido → "Fallido" en JobList/JobDetailHeader/JobStatusBadge/MonitoringPage). · **TASK-94 + TASK-97** período = mes de procesamiento universal (trigger `trg_set_pdf_job_period`, backfill hecho) + quitado el selector Mes/Año del subidor. · **TASK-95** Activity vacía: causa raíz = RPC `get_tenant_jobs_admin` con `id` ambiguo (migración `fix_get_tenant_jobs_admin_ambiguous_id`) + empty-state + manejo de error. · **TASK-96** carpeta de errores en Drive (no-soportados → `fallidos/`; + soporte `.rar`). · **TASK-110** archivos rechazados visibles como proceso fallido (universal, todas las integraciones): RPC `gateway_register_rejected_file` + `error_type='rejected'` + helper compartido `registerRejectedFile`; el front ya los muestra como Fallido con la razón (nombre + formato). · Builds: `main-8UVxgJRP.js`, `main-D8Ivc5LK.js`; worker f4987cb+.
 
 **Previas**: TASK-73 (Excel acumulativo Drive) · TASK-78 (Drive por cliente) · TASK-79 (`input_source` + filtro cliente) · TASK-80 (edición/aprobación manual de docs con error) · TASK-81 (saldo USD) · TASK-82 (panel Monitoreo superadmin) · TASK-83 (resiliencia frontend ante extensiones, 6 fixes → reglas en ZONA CERRADA/Auth) · TASK-84 (MonitoringPage Tenants vía RPC bypass RLS) · TASK-85 (MP webhook IPN, validado e2e) · TASK-87 (RLS `integration_processed_files`) · TASK-90 → **UX-PRICE-BREAKDOWN** (precio base configurable; `get_price_breakdown()`) · TASK-91 (validación email/CUIT duplicado) · REG-TAXID (CUIT obligatorio en registro) · TASK-104 (`polling_interval_tiers`) · TASK-106 (Supabase Storage e2e) · TASK-107 (init-folders) · INT-TEST-CONNECTION · INT-FOLDER-MIGRATION · FIX-GATEWAY-METADATA (spread de `metadata`) · Sentry · UX-BALANCE · FIX-AUTH-LOAD / FIX-AUTH-LOCK (reglas en ZONA CERRADA/Auth) · FIX-REG (trigger crea org+profile).
