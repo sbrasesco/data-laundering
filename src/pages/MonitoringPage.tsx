@@ -43,7 +43,7 @@ interface PricingPlan     { name: string; display_name: string; price_per_doc: n
 interface PricingFeature  { feature_key: string; label: string; cost_usd: number; }
 interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | null;
 
 // ─── FeatureRow ───────────────────────────────────────────────────────────────
 function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
@@ -173,6 +173,10 @@ export function MonitoringPage() {
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
+  const [promptText,     setPromptText]     = useState<string>('');
+  const [promptInfo,     setPromptInfo]     = useState<{ extraction_model?: string; ocr_model?: string }>({});
+  const [promptLoading,  setPromptLoading]  = useState(false);
+  const [promptError,    setPromptError]    = useState<string | null>(null);
   const [togglingUser,   setTogglingUser]   = useState<string | null>(null);
   const [pricingPlans,        setPricingPlans]        = useState<PricingPlan[]>([]);
   const [pricingFeatures,     setPricingFeatures]     = useState<PricingFeature[]>([]);
@@ -331,6 +335,23 @@ export function MonitoringPage() {
     const interval = setInterval(fetchWorkerMetrics, 30_000);
     return () => clearInterval(interval);
   }, [fetchWorkerMetrics]);
+
+  const handleViewPrompt = async () => {
+    setModal('prompt');
+    setPromptLoading(true);
+    setPromptError(null);
+    try {
+      const res = await fetch(`${GATEWAY_BASE}/api/prompt`, { headers: { Authorization: `Bearer ${GATEWAY_API_KEY}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setPromptText(data.prompt ?? '');
+      setPromptInfo({ extraction_model: data.extraction_model, ocr_model: data.ocr_model });
+    } catch (err) {
+      setPromptError(err instanceof Error ? err.message : 'Error');
+    } finally {
+      setPromptLoading(false);
+    }
+  };
 
   const handleViewActivity = async (t: TenantBalance) => {
     setActivityTarget(t);
@@ -581,11 +602,37 @@ export function MonitoringPage() {
               sub="base doc · click para editar"
               onClick={() => { setEditPrices({}); setModal('prices'); }}
             />
+            <MonitorCard
+              title="Prompt" accent="#6366f1"
+              icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>}
+              metric="IA"
+              sub="ver prompt de extracción"
+              onClick={handleViewPrompt}
+            />
           </div>
         </>
       )}
 
       {/* ── Modales ──────────────────────────────────────────────────────────── */}
+
+      {/* Prompt del worker (TASK-114) — solo lectura */}
+      <Dialog open={modal === 'prompt'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Prompt de extracción (worker)</DialogTitle></DialogHeader>
+          {promptLoading ? (
+            <div className="py-8 flex justify-center"><LoadingSpinner /></div>
+          ) : promptError ? (
+            <p className="text-sm text-destructive py-6 text-center">No se pudo cargar el prompt: {promptError}</p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Solo lectura. Extracción: <span className="font-medium">{promptInfo.extraction_model ?? '—'}</span> · OCR: <span className="font-medium">{promptInfo.ocr_model ?? '—'}</span>. Para editarlo hay que cambiarlo en el worker y redesplegar.
+              </p>
+              <pre className="text-xs whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono max-h-[60vh] overflow-y-auto">{promptText}</pre>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Jobs */}
       <Dialog open={modal === 'jobs'} onOpenChange={() => setModal(null)}>
