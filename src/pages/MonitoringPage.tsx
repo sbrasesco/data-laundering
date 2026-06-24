@@ -42,8 +42,9 @@ interface TenantJob     { id: string; status: string; error_type: string | null;
 interface PricingPlan     { name: string; display_name: string; price_per_doc: number; balance_usd: number; docs_included: number; }
 interface PricingFeature  { feature_key: string; label: string; cost_usd: number; }
 interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
+interface DocTypeAdmin    { code: string; label: string; sort_order: number; active: boolean; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | null;
 
 // ─── FeatureRow ───────────────────────────────────────────────────────────────
 function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
@@ -186,6 +187,13 @@ export function MonitoringPage() {
   const [editPollingTiers,    setEditPollingTiers]    = useState<Record<string, string>>({});
   const [savingPollingTier,   setSavingPollingTier]   = useState<number | null>(null);
   const [togglingPollingTier, setTogglingPollingTier] = useState<number | null>(null);
+  const [docTypes,            setDocTypes]            = useState<DocTypeAdmin[]>([]);
+  const [editDocLabels,       setEditDocLabels]       = useState<Record<string, string>>({});
+  const [savingDocType,       setSavingDocType]       = useState<string | null>(null);
+  const [togglingDocType,     setTogglingDocType]     = useState<string | null>(null);
+  const [newDocCode,          setNewDocCode]          = useState('');
+  const [newDocLabel,         setNewDocLabel]         = useState('');
+  const [addingDocType,       setAddingDocType]       = useState(false);
 
   const GATEWAY_BASE = (import.meta.env.VITE_WORKER_GATEWAY_URL as string ?? '');
 
@@ -276,6 +284,13 @@ export function MonitoringPage() {
         .select('interval_minutes, label, cost_per_doc, active, sort_order')
         .order('sort_order', { ascending: true });
       setPollingTiers((pollingTiersData ?? []) as PollingTierAdmin[]);
+
+      // Tipos de documento (activos + inactivos - TASK-111)
+      const { data: docTypesData } = await supabase
+        .from('document_types')
+        .select('code, label, sort_order, active')
+        .order('sort_order', { ascending: true });
+      setDocTypes((docTypesData ?? []) as DocTypeAdmin[]);
 
       setLastUpdated(new Date());
     } finally {
@@ -498,6 +513,55 @@ export function MonitoringPage() {
     }
   };
 
+  // Tipos de documento (TASK-111)
+  const handleSaveDocTypeLabel = async (code: string) => {
+    const val = (editDocLabels[code] ?? '').trim();
+    if (!val) return;
+    setSavingDocType(code);
+    try {
+      const { error } = await supabase.rpc('upsert_document_type', { p_code: code, p_label: val });
+      if (error) throw error;
+      setDocTypes(prev => prev.map(d => d.code === code ? { ...d, label: val } : d));
+      setEditDocLabels(prev => { const n = { ...prev }; delete n[code]; return n; });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setSavingDocType(null);
+    }
+  };
+
+  const handleToggleDocType = async (code: string, currentActive: boolean) => {
+    setTogglingDocType(code);
+    try {
+      const { error } = await supabase.rpc('toggle_document_type', { p_code: code, p_active: !currentActive });
+      if (error) throw error;
+      setDocTypes(prev => prev.map(d => d.code === code ? { ...d, active: !currentActive } : d));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al cambiar estado');
+    } finally {
+      setTogglingDocType(null);
+    }
+  };
+
+  const handleAddDocType = async () => {
+    const code = newDocCode.trim().toUpperCase().replace(/\s+/g, '_');
+    const label = newDocLabel.trim();
+    if (!code || !label) return;
+    if (docTypes.some(d => d.code === code)) { alert('Ya existe un tipo con ese codigo'); return; }
+    setAddingDocType(true);
+    try {
+      const { error } = await supabase.rpc('upsert_document_type', { p_code: code, p_label: label });
+      if (error) throw error;
+      const nextOrder = docTypes.reduce((m, d) => Math.max(m, d.sort_order), 0) + 10;
+      setDocTypes(prev => [...prev, { code, label, sort_order: nextOrder, active: true }]);
+      setNewDocCode(''); setNewDocLabel('');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error al agregar');
+    } finally {
+      setAddingDocType(false);
+    }
+  };
+
   // Métricas derivadas
   const totalJobs     = jobSummary.reduce((s, r) => s + r.count, 0);
   const completedJobs = jobSummary.filter(r => r.status === 'done' || r.status === 'done_with_warnings').reduce((s, r) => s + r.count, 0);
@@ -601,6 +665,13 @@ export function MonitoringPage() {
               metric={pricingPlans.length > 0 ? `$${Number(pricingPlans[0]?.price_per_doc ?? 0).toFixed(2)}` : '—'}
               sub="base doc · click para editar"
               onClick={() => { setEditPrices({}); setModal('prices'); }}
+            />
+            <MonitorCard
+              title="Tipos de doc" accent="#0ea5e9"
+              icon={<svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 4H7a2 2 0 01-2-2V6a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg>}
+              metric={`${docTypes.filter(d => d.active).length}`}
+              sub="activos · click para administrar"
+              onClick={() => { setEditDocLabels({}); setNewDocCode(''); setNewDocLabel(''); setModal('doctypes'); }}
             />
             <MonitorCard
               title="Prompt" accent="#6366f1"
@@ -1262,6 +1333,84 @@ export function MonitoringPage() {
               </div>
             )}
 
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tipos de documento (TASK-111) */}
+      <Dialog open={modal === 'doctypes'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Tipos de documento</DialogTitle></DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            <p className="text-xs text-muted-foreground">
+              Lista global de tipos. La <b>etiqueta</b> es lo que ve el usuario; el <b>codigo</b> es el valor que produce la IA y se guarda en los documentos. Es inmutable. Desactivar un tipo lo oculta del menu de edicion manual sin borrar datos.
+            </p>
+
+            <div className="rounded-md border overflow-hidden">
+              {docTypes.length === 0 && (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">Sin tipos cargados.</div>
+              )}
+              {docTypes.map((dt, i) => {
+                const editVal = editDocLabels[dt.code];
+                const isDirty = editVal !== undefined && editVal.trim() !== dt.label && editVal.trim() !== '';
+                return (
+                  <div key={dt.code} className={`flex items-center gap-3 px-3 py-2.5 ${i < docTypes.length - 1 ? 'border-b' : ''} ${!dt.active ? 'opacity-50' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={editVal ?? dt.label}
+                        onChange={e => setEditDocLabels(prev => ({ ...prev, [dt.code]: e.target.value }))}
+                        className="w-full h-7 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      <p className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate">{dt.code}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={togglingDocType === dt.code}
+                      onClick={() => handleToggleDocType(dt.code, dt.active)}
+                      title={dt.active ? 'Desactivar' : 'Activar'}
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${dt.active ? 'bg-[#22C365]' : 'bg-slate-300'} ${togglingDocType === dt.code ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${dt.active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </button>
+                    <Button size="sm" className="h-7 px-2.5 text-xs w-16" disabled={!isDirty || savingDocType === dt.code} onClick={() => handleSaveDocTypeLabel(dt.code)}>
+                      {savingDocType === dt.code ? '...' : 'Guardar'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Agregar tipo nuevo</p>
+              <div className="flex items-end gap-2">
+                <div className="flex-1 min-w-0">
+                  <label className="text-[11px] text-muted-foreground">Codigo (interno, p. ej. FACTURA_E)</label>
+                  <input
+                    type="text"
+                    value={newDocCode}
+                    onChange={e => setNewDocCode(e.target.value)}
+                    placeholder="FACTURA_E"
+                    className="w-full h-7 rounded-md border border-input bg-background px-2 text-sm font-mono uppercase focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <label className="text-[11px] text-muted-foreground">Etiqueta (visible)</label>
+                  <input
+                    type="text"
+                    value={newDocLabel}
+                    onChange={e => setNewDocLabel(e.target.value)}
+                    placeholder="Factura E"
+                    className="w-full h-7 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+                <Button size="sm" className="h-7 px-3 text-xs" disabled={!newDocCode.trim() || !newDocLabel.trim() || addingDocType} onClick={handleAddDocType}>
+                  {addingDocType ? '...' : 'Agregar'}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1.5">El codigo se normaliza a mayusculas. Solo crea un tipo si la IA puede producir ese valor; si no, no se asignara automaticamente a ningun documento.</p>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
