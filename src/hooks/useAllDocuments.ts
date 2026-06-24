@@ -116,22 +116,20 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
             : row.pdf_jobs,
         }));
 
-        // Ordenes de Compra
-        let ocQuery = supabase.from('pdf_job_row_oc').select(OC_SELECT);
-
-        if (jobIds && jobIds.length > 0) {
-          ocQuery = ocQuery.in('pdf_job_rows.job_id', jobIds);
+        // Ordenes de Compra - solo las de las facturas de ESTA pagina.
+        // Las facturas ya estan paginadas (.range) y filtradas (fecha/cliente); traer sus OCs
+        // por row_id evita duplicar todas las OCs en cada pagina y la pagina fantasma que rompia (416).
+        const facturaRowIds = (data || []).map((row: any) => row.id);
+        let ocData: any[] | null = [];
+        if (facturaRowIds.length > 0) {
+          const ocRes = await supabase
+            .from('pdf_job_row_oc')
+            .select(OC_SELECT)
+            .in('row_id', facturaRowIds);
+          ocData = ocRes.data;
         }
 
-        const { data: ocData } = await ocQuery;
-
         const ocRows: DocumentRow[] = (ocData || [])
-          .filter((oc: any) => {
-            const fecha = oc.pdf_job_rows?.fecha;
-            if (filters?.fechaDesde && fecha && fecha < filters.fechaDesde) return false;
-            if (filters?.fechaHasta && fecha && fecha > filters.fechaHasta) return false;
-            return true;
-          })
           .map((oc: any) => {
             const padre = oc.pdf_job_rows;
             const job = padre?.pdf_jobs;
@@ -170,7 +168,7 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
         });
 
         setDocuments(combined);
-        setTotalCount((count || 0) + ocRows.length);
+        setTotalCount(count || 0); // paginamos por facturas; las OCs cuelgan de la factura de su pagina
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error desconocido al cargar documentos');
         setDocuments([]);
