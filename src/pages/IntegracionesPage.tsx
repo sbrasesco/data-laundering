@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '../lib/supabase';
 import { useAuthContext } from '../contexts/AuthContext';
 
@@ -492,7 +493,6 @@ export function IntegracionesPage() {
     } catch (e: unknown) { console.error(e); }
   };
 
-  const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
   if (loading) return <LoadingSpinner />;
 
@@ -584,10 +584,12 @@ export function IntegracionesPage() {
                         {folderError[activeInteg.id] && <p className="text-xs text-destructive">{folderError[activeInteg.id]}</p>}
                         {!loadingFolders[activeInteg.id] && driveFolders[activeInteg.id] && (
                           <div className="flex gap-2 items-center">
-                            <select value={selectedFolder[activeInteg.id] ?? ''} onChange={(e) => setSelectedFolder(prev => ({ ...prev, [activeInteg.id]: e.target.value }))} className={`${selectCls} flex-1`}>
-                              <option value="">Elegi una carpeta</option>
-                              {driveFolders[activeInteg.id].map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                            </select>
+                            <Select value={selectedFolder[activeInteg.id] || undefined} onValueChange={(v) => setSelectedFolder(prev => ({ ...prev, [activeInteg.id]: v }))}>
+                              <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Elegi una carpeta" /></SelectTrigger>
+                              <SelectContent>
+                                {driveFolders[activeInteg.id].map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                             <Button size="sm" disabled={!selectedFolder[activeInteg.id] || savingFolder[activeInteg.id]} onClick={() => handleSetFolder(activeInteg)}>
                               {savingFolder[activeInteg.id] ? 'Guardando...' : 'Confirmar'}
                             </Button>
@@ -794,16 +796,20 @@ export function IntegracionesPage() {
                           className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted text-muted-foreground">✕</button>
                       </div>
                     ) : (
-                      <select className={selectCls}
-                        value={folderPath === '' || folderOptions.includes(folderPath) ? folderPath : '__new__'}
-                        onChange={(e) => {
-                          if (e.target.value === '__new__') { setCreatingFolder(true); setFolderPath(''); }
-                          else setFolderPath(e.target.value);
+                      <Select
+                        value={folderPath === '' ? '__root__' : (folderOptions.includes(folderPath) ? folderPath : '__new__')}
+                        onValueChange={(v) => {
+                          if (v === '__new__') { setCreatingFolder(true); setFolderPath(''); }
+                          else if (v === '__root__') { setFolderPath(''); }
+                          else setFolderPath(v);
                         }}>
-                        <option value="">(raiz del bucket)</option>
-                        {folderOptions.map(f => <option key={f} value={f}>{f}</option>)}
-                        <option value="__new__">+ Crear carpeta nueva...</option>
-                      </select>
+                        <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__root__">(raiz del bucket)</SelectItem>
+                          {folderOptions.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                          <SelectItem value="__new__">+ Crear carpeta nueva...</SelectItem>
+                        </SelectContent>
+                      </Select>
                     )
                   ) : (
                     <Input type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} placeholder="/facturas/entrantes" />
@@ -812,20 +818,22 @@ export function IntegracionesPage() {
               )}
               <div className={`space-y-1.5 ${selectedType === 'google_drive' ? 'col-span-2 max-w-[240px]' : ''}`}>
                 <Label>Intervalo de escucha</Label>
-                <select
-                  value={pollingInterval}
-                  onChange={(e) => setPollingInterval(Number(e.target.value))}
-                  className={selectCls}
+                <Select
+                  value={String(pollingInterval)}
+                  onValueChange={(v) => setPollingInterval(Number(v))}
                 >
-                  {pollingTiers.length > 0
-                    ? pollingTiers.map((t) => (
-                        <option key={t.interval_minutes} value={t.interval_minutes}>
-                          {t.label}{t.cost_per_doc > 0 ? ` (+$${t.cost_per_doc.toFixed(2)}/doc)` : ''}
-                        </option>
-                      ))
-                    : <option value={pollingInterval}>{pollingInterval} min</option>
-                  }
-                </select>
+                  <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {pollingTiers.length > 0
+                      ? pollingTiers.map((t) => (
+                          <SelectItem key={t.interval_minutes} value={String(t.interval_minutes)}>
+                            {t.label}{t.cost_per_doc > 0 ? ` (+$${t.cost_per_doc.toFixed(2)}/doc)` : ''}
+                          </SelectItem>
+                        ))
+                      : <SelectItem value={String(pollingInterval)}>{pollingInterval} min</SelectItem>
+                    }
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -863,10 +871,13 @@ export function IntegracionesPage() {
                                 <button type="button" onClick={() => fetchOutputFolderOptions(editingId)} className="underline text-xs">Reintentar</button>
                               </div>
                             : (
-                              <select className={`${selectCls} flex-1`} value={outputFolder} onChange={(e) => setOutputFolder(e.target.value)}>
-                                <option value="extracciones">extracciones (default)</option>
-                                {outputFolderOptions.filter(f => f.name !== 'extracciones').map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
-                              </select>
+                              <Select value={outputFolder} onValueChange={setOutputFolder}>
+                                <SelectTrigger className="flex-1 h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="extracciones">extracciones (default)</SelectItem>
+                                  {outputFolderOptions.filter(f => f.name !== 'extracciones').map(f => <SelectItem key={f.id} value={f.name}>{f.name}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
                             )
                       ) : (
                         <Input className="flex-1" value={outputFolder} onChange={(e) => setOutputFolder(e.target.value)} placeholder="extracciones" autoFocus />
@@ -896,22 +907,24 @@ export function IntegracionesPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm">Formato</Label>
-                    <select
+                    <Select
                       value={outputFormat}
-                      onChange={(e) => {
-                        const val = e.target.value as 'csv' | 'xlsx' | 'json';
-                        if (val === 'xlsx' && !localStorage.getItem('dl_xlsx_disclosure_seen')) {
+                      onValueChange={(val) => {
+                        const v = val as 'csv' | 'xlsx' | 'json';
+                        if (v === 'xlsx' && !localStorage.getItem('dl_xlsx_disclosure_seen')) {
                           setShowXlsxDisclosure(true);
                         } else {
-                          setOutputFormat(val);
+                          setOutputFormat(v);
                         }
                       }}
-                      className={selectCls}
                     >
-                      <option value="csv">CSV</option>
-                      <option value="xlsx">Excel (.xlsx)</option>
-                      <option value="json">JSON (proximamente)</option>
-                    </select>
+                      <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="csv">CSV</SelectItem>
+                        <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
+                        <SelectItem value="json">JSON (proximamente)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
