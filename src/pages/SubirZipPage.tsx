@@ -14,8 +14,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 export function SubirZipPage() {
   const [file, setFile] = useState<File | null>(null);
   const [clientId, setClientId] = useState<string>('');
-  const [periodMonth, setPeriodMonth] = useState<number>(new Date().getMonth() + 1);
-  const [periodYear, setPeriodYear] = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
@@ -46,7 +44,7 @@ export function SubirZipPage() {
     setError(null);
 
     try {
-      const { data: job, error: jobError } = await createPdfJob({ user_id: user.id, client_id: clientId, period_month: periodMonth, period_year: periodYear });
+      const { data: job, error: jobError } = await createPdfJob({ user_id: user.id, client_id: clientId });
       if (jobError || !job) throw new Error(jobError || 'Error al crear el proceso');
 
       const selectedClient = clients.find((c) => c.id === clientId);
@@ -66,16 +64,6 @@ export function SubirZipPage() {
       setLoading(false);
     }
   };
-
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
-
-  const months = [
-    { value: 1, label: 'Enero' }, { value: 2, label: 'Febrero' }, { value: 3, label: 'Marzo' },
-    { value: 4, label: 'Abril' }, { value: 5, label: 'Mayo' }, { value: 6, label: 'Junio' },
-    { value: 7, label: 'Julio' }, { value: 8, label: 'Agosto' }, { value: 9, label: 'Septiembre' },
-    { value: 10, label: 'Octubre' }, { value: 11, label: 'Noviembre' }, { value: 12, label: 'Diciembre' },
-  ];
 
   const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -106,21 +94,6 @@ export function SubirZipPage() {
                     {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="period_month">Mes <span className="text-destructive">*</span></Label>
-                <select id="period_month" value={periodMonth} onChange={(e) => setPeriodMonth(Number(e.target.value))} required disabled={loading} className={selectCls}>
-                  {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="period_year">Año <span className="text-destructive">*</span></Label>
-                <select id="period_year" value={periodYear} onChange={(e) => setPeriodYear(Number(e.target.value))} required disabled={loading} className={selectCls}>
-                  {years.map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
-              </div>
             </div>
 
             <div className="space-y-1.5">

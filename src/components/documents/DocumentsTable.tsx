@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { DocumentRow } from '../../hooks/useAllDocuments';
-import { JobStatusBadge } from '../pdf-jobs/JobStatusBadge';
 import { DocumentDetailModal } from './DocumentDetailModal';
 import { formatDisplayDate } from '../../utils/dateFormat';
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +31,7 @@ const COLS: ColDef[] = [
   { id: 'neto',      header: 'Neto',          className: 'doc-table-neto',      sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.neto_gravado },
   { id: 'iva',       header: 'IVA',           className: 'doc-table-iva',       sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.iva },
   { id: 'total',     header: 'Total',                                           sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.total },
-  { id: 'estado',    header: 'Estado Proceso',                                  sortable: true,  getVal: (d) => d.pdf_jobs?.status || null },
+  { id: 'estado',    header: 'Estado',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'ok' : ((d.doc_status as string | undefined) ?? null) },
   { id: 'accion',    header: 'Acción',                                          sortable: false, getVal: () => null },
 ];
 
@@ -79,6 +78,17 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
     if (row._row_type === 'oc') return <Badge variant="warning">-</Badge>;
     if (row.es_moneda_usd) return <Badge variant="info">USD</Badge>;
     return <Badge variant="success">ARS</Badge>;
+  };
+
+  // Estado del documento en sí (no del proceso). Las OCs existen porque se extrajeron correctamente → Exitoso.
+  const getDocStatusBadge = (row: DocumentRow) => {
+    const st = row._row_type === 'oc' ? 'ok' : ((row.doc_status as string | undefined) ?? 'ok');
+    switch (st) {
+      case 'failed':           return <Badge variant="destructive">Fallido</Badge>;
+      case 'warning':          return <Badge variant="warning">Con advertencia</Badge>;
+      case 'pending_approval': return <Badge variant="info">Pendiente de aprobación</Badge>;
+      default:                 return <Badge variant="success">Exitoso</Badge>;
+    }
   };
 
   if (documents.length === 0) {
@@ -153,16 +163,7 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
                   <td className="doc-table-iva px-3 py-2 text-sm tabular-nums">{isOC ? '-' : fmtCurrency(doc.iva)}</td>
                   <td className="px-3 py-2 text-sm font-medium tabular-nums">{isOC ? '-' : fmtCurrency(doc.total)}</td>
                   <td className="px-3 py-2">
-                    {doc.pdf_jobs?.status && (
-                      <JobStatusBadge
-                        status={doc.pdf_jobs.status}
-                        total_documents={doc.pdf_jobs.total_documents}
-                        processed_documents={doc.pdf_jobs.processed_documents}
-                        failed_documents={doc.pdf_jobs.failed_documents}
-                        has_warnings={doc.pdf_jobs.has_warnings}
-                        rows_count={doc.pdf_jobs.rows_count}
-                      />
-                    )}
+                    {getDocStatusBadge(doc)}
                   </td>
                   <td className="px-3 py-2">
                     {isOC

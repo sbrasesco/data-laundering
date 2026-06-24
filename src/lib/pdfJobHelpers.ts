@@ -3,8 +3,6 @@ import { supabase } from './supabase';
 export interface CreateJobParams {
   user_id: string;
   client_id: string;
-  period_month: number;
-  period_year: number;
 }
 
 export interface CreateJobResult {
@@ -23,8 +21,6 @@ export async function createPdfJob(params: CreateJobParams): Promise<CreateJobRe
       .insert({
         user_id: params.user_id,
         client_id: params.client_id,
-        period_month: params.period_month,
-        period_year: params.period_year,
         status: 'processing',
         input_source: 'frontend_upload',
       })
