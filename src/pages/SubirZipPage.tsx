@@ -9,6 +9,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function SubirZipPage() {
@@ -88,7 +89,6 @@ export function SubirZipPage() {
     }
   };
 
-  const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div className="p-6 lg:p-8 flex justify-center">
@@ -112,10 +112,14 @@ export function SubirZipPage() {
               {clientsLoading
                 ? <p className="text-sm text-muted-foreground py-1">Cargando clientes...</p>
                 : (
-                  <select id="client" value={clientId} onChange={(e) => setClientId(e.target.value)} required disabled={loading || clientsLoading} className={selectCls}>
-                    <option value="">Seleccionar cliente</option>
-                    {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <Select value={clientId} onValueChange={setClientId} disabled={loading || clientsLoading}>
+                    <SelectTrigger id="client" className="h-9">
+                      <SelectValue placeholder="Seleccionar cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 )}
             </div>
 
