@@ -628,7 +628,7 @@ export function MonitoringPage() {
               <p className="text-xs text-muted-foreground">
                 Solo lectura. Extracción: <span className="font-medium">{promptInfo.extraction_model ?? '—'}</span> · OCR: <span className="font-medium">{promptInfo.ocr_model ?? '—'}</span>. Para editarlo hay que cambiarlo en el worker y redesplegar.
               </p>
-              <pre className="text-xs whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono max-h-[60vh] overflow-y-auto">{promptText}</pre>
+              <pre className="text-xs whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-3 font-mono max-h-[60vh] overflow-y-auto">{promptText}</pre>
             </div>
           )}
         </DialogContent>
