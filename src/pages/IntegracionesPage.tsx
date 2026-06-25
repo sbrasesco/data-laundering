@@ -175,6 +175,7 @@ export function IntegracionesPage() {
   const [creatingFolder, setCreatingFolder] = useState(false);
 
   const [pollingTiers, setPollingTiers] = useState<PollingIntervalTier[]>([]);
+  const [masterFileCost, setMasterFileCost] = useState(0); // costo del Excel acumulativo (TASK-105)
 
   const [driveFolders, setDriveFolders]     = useState<Record<string, DriveFolder[]>>({});
   const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
@@ -202,6 +203,17 @@ export function IntegracionesPage() {
       .eq('active', true)
       .order('sort_order', { ascending: true })
       .then(({ data }) => { if (data) setPollingTiers(data as PollingIntervalTier[]); });
+  }, []);
+
+  // Costo del Excel acumulativo (feature master_file) — precio dinámico (TASK-105)
+  useEffect(() => {
+    supabase
+      .from('feature_pricing_multipliers')
+      .select('cost_usd')
+      .eq('feature_key', 'master_file')
+      .eq('active', true)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setMasterFileCost(Number(data.cost_usd) || 0); });
   }, []);
 
   useEffect(() => {
@@ -921,7 +933,7 @@ export function IntegracionesPage() {
                       <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="csv">CSV</SelectItem>
-                        <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
+                        <SelectItem value="xlsx">Excel (.xlsx){selectedType === 'google_drive' && masterFileCost > 0 ? ` (+$${masterFileCost.toFixed(2)}/doc)` : ''}</SelectItem>
                         <SelectItem value="json">JSON (proximamente)</SelectItem>
                       </SelectContent>
                     </Select>
