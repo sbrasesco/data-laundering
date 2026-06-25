@@ -427,18 +427,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
 
         for (const file of files) {
           try {
-            // Deduplicar por drive_file_id
-            const alreadyProcessed = await isDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, file.id);
-            if (alreadyProcessed) {
-              log('debug', 'integration.file_skipped_duplicate', {
-                integration_id: integrationId,
-                filename:       file.name,
-                drive_file_id:  file.id,
-              });
-              skipped++;
-              continue;
-            }
-
+            // Sin dedup (decisión 2026-06-24): levantar y procesar lo que haya.
             // Descargar archivo
             const buffer = await downloadFile(drive, file.id);
 
@@ -449,8 +438,11 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
               orgId, uniqueName, buffer, file.mimeType
             );
 
-            // Mover archivo a en_proceso/ (antes de encolar — best-effort)
+            // Mover archivo a en_proceso/ ANTES de encolar. Si el move falla, NO se encola
+            // (evita reprocesar/recobrar en cada poll): que el archivo salga de la carpeta
+            // del cliente es lo que garantiza el procesamiento único (reemplaza al dedup).
             const enProcesoId = await getOrCreateFolder(drive, subfolder.id, 'en_proceso');
+            let moved = false;
             try {
               await drive.files.update({
                 fileId:        file.id,
@@ -458,6 +450,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
                 removeParents: subfolder.id,
                 fields:        'id, parents',
               });
+              moved = true;
               log('info', 'integration.file_moved', {
                 integration_id: integrationId, filename: file.name,
                 drive_file_id: file.id, context: 'to_en_proceso',
@@ -467,8 +460,8 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
                 integration_id: integrationId, filename: file.name,
                 drive_file_id: file.id, context: 'to_en_proceso', error: moveErr.message,
               });
-              // Continuar igual: el mover es best-effort, el procesamiento no depende de ello
             }
+            if (!moved) { failed++; continue; }
 
             // Encolar en Input Gateway con fileMeta para que integration-file-mover pueda moverlo después
             const fileType = SUPPORTED_MIME_TYPES[file.mimeType].file_type;
@@ -477,9 +470,6 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
               clientId, pollingIntervalMinutes,
               { drive_file_id: file.id, en_proceso_folder_id: enProcesoId, client_folder_id: subfolder.id }
             );
-
-            // Registrar drive_file_id como procesado
-            await registerDriveFileProcessed(supabaseUrl, supabaseKey, integrationId, orgId, file.id, file.name);
 
             log('info', 'integration.file_enqueued', {
               integration_id: integrationId,

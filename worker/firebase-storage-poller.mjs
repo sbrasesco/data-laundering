@@ -21,7 +21,6 @@
 import path from 'node:path';
 import {
   SUPPORTED_EXTENSIONS,
-  checkAndRegisterFile,
   uploadAndEnqueue,
   registerRejectedFile,
   runIntegrationPoller,
@@ -91,27 +90,8 @@ async function pollFirebaseStorage(integration, ctx) {
         const [bufferArr] = await file.download();
         const buffer = Buffer.from(bufferArr);
 
-        // 2. Dedup check
-        const { isNew } = await checkAndRegisterFile({ buffer, filename, orgId, integrationId, ctx });
-
-        if (!isNew) {
-          // Ya fue procesado — mover directo a procesados/ para limpiar raíz
-          try {
-            await file.copy(bucket.file(`${prefix}procesados/${filename}`));
-            await file.delete();
-            log('info', 'integration.file_moved', {
-              protocol: 'firebase_storage', from: file.name, to: `${prefix}procesados/${filename}`, context: 'already_processed',
-            });
-          } catch (moveErr) {
-            log('warn', 'integration.file_move_failed', {
-              protocol: 'firebase_storage', filename, error: moveErr.message, context: 'already_processed',
-            });
-          }
-          skipped++;
-          continue;
-        }
-
-        // 3. Nuevo: mover a en_proceso/ ANTES de encolar (no encolar si falla el move)
+        // 2. Sin dedup (decisión 2026-06-24): levantar y procesar lo que haya.
+        //    Mover a en_proceso/ ANTES de encolar (no encolar si falla el move)
         try {
           await file.copy(bucket.file(enProcesoPath));
           await file.delete();

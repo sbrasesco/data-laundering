@@ -24,7 +24,6 @@
 import path from 'node:path';
 import {
   SUPPORTED_EXTENSIONS,
-  checkAndRegisterFile,
   uploadAndEnqueue,
   registerRejectedFile,
   runIntegrationPoller,
@@ -74,8 +73,10 @@ async function moveFile(projectUrl, serviceRoleKey, bucketName, sourceKey, destK
     });
     if (!res.ok) { const t = await res.text(); throw new Error(`Move failed (${res.status}): ${t}`); }
     log('info', 'integration.file_moved', { protocol: 'supabase_storage', from: sourceKey, to: destKey, context });
+    return true;
   } catch (err) {
     log('warn', 'integration.file_move_failed', { protocol: 'supabase_storage', from: sourceKey, to: destKey, error: err.message });
+    return false;
   }
 }
 
@@ -120,33 +121,14 @@ async function pollSupabaseStorage(integration, ctx) {
       // 1. Descargar desde raíz
       const buffer = await downloadBucketFile(projectUrl, serviceRoleKey, bucketName, fullPath);
 
-      // 2. Dedup check
-      const { isNew } = await checkAndRegisterFile({ buffer, filename, orgId, integrationId, ctx });
+      // 2. Sin dedup (decisión 2026-06-24): levantar y procesar lo que haya, repetidos incluidos.
+      //    Mover a en_proceso/ ANTES de encolar; si el archivo NO logra salir de la raíz,
+      //    no se encola (evita reprocesar/recobrar en cada ciclo). Que el archivo salga de
+      //    la raíz es lo que garantiza el procesamiento único (reemplaza al dedup).
+      const moved = await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, enProcesoKey, log, 'to_en_proceso');
+      if (!moved) { failed++; continue; }
 
-      if (!isNew) {
-        // Duplicado — borrar de raíz (ya existe en procesados/ del ciclo anterior, move daría 409)
-        try {
-          const delRes = await fetch(
-            `${projectUrl}/storage/v1/object/${bucketName}/${encodeURIComponent(fullPath)}`,
-            { method: 'DELETE', headers: { 'Authorization': `Bearer ${serviceRoleKey}`, 'apikey': serviceRoleKey } },
-          );
-          if (!delRes.ok) throw new Error(`${delRes.status}`);
-          log('info', 'integration.duplicate_deleted_from_root', {
-            integration_id: integrationId, filename, protocol: 'supabase_storage',
-          });
-        } catch (err) {
-          log('warn', 'integration.duplicate_delete_failed', {
-            integration_id: integrationId, filename, protocol: 'supabase_storage', error: err.message,
-          });
-        }
-        skipped++;
-        continue;
-      }
-
-      // 3. Nuevo: mover a en_proceso/
-      await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, enProcesoKey, log, 'to_en_proceso');
-
-      // 4. Upload a Aurora + enqueue — fileMeta permite que el worker lo mueva después
+      // 3. Upload a Aurora + enqueue — fileMeta permite que el worker lo mueva después
       await uploadAndEnqueue({
         buffer, filename, orgId, integrationId, protocol: 'supabase_storage',
         pollingIntervalMinutes,
