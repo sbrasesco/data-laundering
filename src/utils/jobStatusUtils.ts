@@ -10,7 +10,7 @@ export type UiStatus =
 
 export interface FileManifestEntry {
   name: string;
-  status: 'processed' | 'failed' | 'upload_failed' | 'omitted';
+  status: 'processed' | 'failed' | 'upload_failed' | 'omitted' | 'unsupported';
 }
 
 export interface JobForStatus {

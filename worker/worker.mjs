@@ -133,7 +133,7 @@ const worker = new Worker(
 
         const extractAttachments = await getExtractAttachmentsFlag(job.data.organization_id);
         log('info', 'job.attachments_flag', { job_id: jobId, organization_id: job.data.organization_id, extract_embedded_attachments: extractAttachments });
-        const { documents, failedUploads, detectedFiles = [] } = await processZip(job.data, log, extractAttachments);
+        const { documents, failedUploads, detectedFiles = [], unsupportedFiles = [] } = await processZip(job.data, log, extractAttachments);
         log('info', 'job.zip_extracted', {
           job_id: jobId,
           total_docs: documents.length,
@@ -141,6 +141,16 @@ const worker = new Worker(
         });
 
         const orgId = job.data.organization_id;
+
+        // Archivo vacío o ilegible (ej. RAR que no se pudo abrir, o solo formatos no soportados):
+        // no marcar como exitoso. TerminalError → job 'error' con razón clara (no se reintenta).
+        if (documents.length === 0 && failedUploads === 0) {
+          const reason = unsupportedFiles.length > 0
+            ? `No se pudo procesar ningún archivo. Formato(s) no soportado(s): ${unsupportedFiles.join(', ')}.`
+            : 'No se pudo abrir el archivo o está vacío. Verificá que sea un ZIP/RAR válido.';
+          log('warn', 'job.empty_archive', { job_id: jobId, unsupported: unsupportedFiles });
+          throw new TerminalError(reason, { code: 'EMPTY_ARCHIVE' });
+        }
 
         // DEC-012: chequear balance vs documentos a procesar ANTES de llamar a Mistral
         const docsToProcess = documents.length;
@@ -197,7 +207,10 @@ const worker = new Worker(
 
         // Finalizar job en pdf_jobs
         const totalAttempted = documents.length + failedUploads;
-        const fileManifest = detectedFiles.map((name) => ({ name, status: fileStatus.get(name) ?? 'omitted' }));
+        const fileManifest = [
+          ...detectedFiles.map((name) => ({ name, status: fileStatus.get(name) ?? 'omitted' })),
+          ...unsupportedFiles.map((name) => ({ name, status: 'unsupported' })),
+        ];
         await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence, pollingIntervalMinutes: job.data.polling_interval_minutes ?? null, fileManifest }, log);
 
         // Mover archivo original a procesados/ en el storage del cliente (best-effort)

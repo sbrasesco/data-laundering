@@ -265,7 +265,7 @@ export async function processZip(jobData, log, extractAttachments = false) {
 
     // ── Extraer ───────────────────────────────────────────────────────────────
     log('info', 'zip.extracting', { job_id });
-    await runCmd(`7z x "${zipPath}" -o"${workDir}/" -y 2>&1 || true`);
+    await runCmd(`7zz x "${zipPath}" -o"${workDir}/" -y 2>&1 || true`);  // 7zz (paquete 7zip) soporta ZIP y RAR nativamente
 
     // Aplanar subcarpetas
     await runCmd(
@@ -409,7 +409,15 @@ export async function processZip(jobData, log, extractAttachments = false) {
         && !f.startsWith('__adj__');
     });
 
-    log('info', 'zip.files_found', { job_id, count: allFiles.length, files: allFiles });
+    // Archivos NO soportados dentro del comprimido (TASK-109): se reportan por nombre.
+    // find recursivo busybox-safe (usa ! y -iname, sin -printf), excluye la carpeta adj/.
+    const unsupRaw = (await runCmd(
+      `find "${workDir}" -type f ! -path "*/adj/*" ` +
+      `! -iname '*.pdf' ! -iname '*.jpg' ! -iname '*.jpeg' ! -iname '*.png' 2>/dev/null || true`
+    )).stdout;
+    const unsupportedFiles = (unsupRaw || '').split('\n').map(s => s.trim()).filter(Boolean).map(p => p.split('/').pop());
+
+    log('info', 'zip.files_found', { job_id, count: allFiles.length, files: allFiles, unsupported: unsupportedFiles });
 
     // ── Subir cada documento a Supabase Storage ───────────────────────────────
     const documents = [];
@@ -461,7 +469,7 @@ export async function processZip(jobData, log, extractAttachments = false) {
       uploaded: documents.length,
       failed_uploads: failedUploads,
     });
-    return { documents, failedUploads, detectedFiles: allFiles };
+    return { documents, failedUploads, detectedFiles: allFiles, unsupportedFiles };
 
   } finally {
     // Limpieza del directorio temporal
