@@ -723,7 +723,7 @@ export function IntegracionesPage() {
 
       {/* Modal: formulario nueva/editar integracion */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); resetForm(); } }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-3 mb-1">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
