@@ -933,7 +933,7 @@ export function IntegracionesPage() {
                       <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="csv">CSV</SelectItem>
-                        <SelectItem value="xlsx">Excel (.xlsx){selectedType === 'google_drive' && masterFileCost > 0 ? ` (+$${masterFileCost.toFixed(2)}/doc)` : ''}</SelectItem>
+                        <SelectItem value="xlsx">Excel acumulativo (.xlsx){selectedType === 'google_drive' && masterFileCost > 0 ? ` (+$${masterFileCost.toFixed(2)}/doc)` : ''}</SelectItem>
                         <SelectItem value="json">JSON (proximamente)</SelectItem>
                       </SelectContent>
                     </Select>
