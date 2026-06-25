@@ -32,7 +32,7 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface JobSummary    { status: string; error_type: string | null; count: number; }
 interface RecentError   { id: string; organization_name: string | null; error_type: string | null; error_message: string | null; created_at: string; }
-interface TenantBalance { org_id: string; name: string; balance: number; is_active: boolean; }
+interface TenantBalance { org_id: string; name: string; balance: number; is_active: boolean; extract_attachments: boolean; }
 interface DocsStats     { total_processed: number; processed_24h: number; }
 interface AdminUser     { user_id: string; email: string; org_id: string | null; org_name: string | null; is_superadmin: boolean; created_at: string; }
 interface StuckJob      { job_id: string; org_name: string | null; created_at: string; minutes_stuck: number; }
@@ -167,6 +167,7 @@ export function MonitoringPage() {
   const [rechargeAmount, setRechargeAmount] = useState('');
   const [recharging,     setRecharging]     = useState(false);
   const [togglingTenant,  setTogglingTenant]  = useState<string | null>(null);
+  const [togglingAttach,  setTogglingAttach]  = useState<string | null>(null);
   const [activityTarget,  setActivityTarget]  = useState<TenantBalance | null>(null);
   const [tenantJobs,      setTenantJobs]      = useState<TenantJob[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
@@ -230,12 +231,18 @@ export function MonitoringPage() {
 
       // Balance por tenant (RPC bypass RLS para superadmin)
       const { data: tenantsData } = await supabase.rpc('get_all_tenants_admin');
+      // Flag de extracción de adjuntos por org (TASK-108)
+      const { data: attachFlags } = await supabase.rpc('get_tenant_attachment_flags');
+      const attachOn = new Set<string>((attachFlags ?? [])
+        .filter((f: { org_id: string; extract_embedded_attachments: boolean }) => f.extract_embedded_attachments)
+        .map((f: { org_id: string }) => f.org_id));
       setTenantBalances(
         (tenantsData ?? []).map((t: { org_id: string; name: string; is_active: boolean; balance: number }) => ({
           org_id: t.org_id,
           name: t.name ?? t.org_id?.slice(0, 8) + '…',
           balance: t.balance ?? 0,
           is_active: t.is_active ?? true,
+          extract_attachments: attachOn.has(t.org_id),
         }))
       );
 
@@ -396,6 +403,19 @@ export function MonitoringPage() {
       alert(e instanceof Error ? e.message : 'Error');
     } finally {
       setTogglingTenant(null);
+    }
+  };
+
+  const handleToggleAttachExtraction = async (t: TenantBalance) => {
+    setTogglingAttach(t.org_id);
+    try {
+      const { error } = await supabase.rpc('set_tenant_attachment_extraction', { p_org_id: t.org_id, p_value: !t.extract_attachments });
+      if (error) throw error;
+      setTenantBalances(prev => prev.map(x => x.org_id === t.org_id ? { ...x, extract_attachments: !t.extract_attachments } : x));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setTogglingAttach(null);
     }
   };
 
@@ -782,6 +802,7 @@ export function MonitoringPage() {
                   <TableHead className="text-right">Saldo USD</TableHead>
                   <TableHead>Saldo</TableHead>
                   <TableHead className="text-center">Activa</TableHead>
+                  <TableHead className="text-center">Adjuntos</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -811,6 +832,19 @@ export function MonitoringPage() {
                           <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${t.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
                         </button>
                       </TableCell>
+                      <TableCell className="text-center">
+                        <button
+                          type="button"
+                          disabled={togglingAttach === t.org_id}
+                          onClick={() => handleToggleAttachExtraction(t)}
+                          title={t.extract_attachments ? 'Extracción de adjuntos: ON' : 'Extracción de adjuntos: OFF'}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            t.extract_attachments ? 'bg-[#22C365]' : 'bg-slate-300'
+                          } ${togglingAttach === t.org_id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${t.extract_attachments ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
@@ -826,7 +860,7 @@ export function MonitoringPage() {
                     </TableRow>
                     {rechargeTarget?.org_id === t.org_id && (
                       <TableRow key={`${t.org_id}-recharge`} className="bg-muted/40">
-                        <TableCell colSpan={4} className="py-3">
+                        <TableCell colSpan={5} className="py-3">
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground flex-shrink-0">Agregar saldo a <strong>{t.name}</strong> (USD):</span>
                             <input
