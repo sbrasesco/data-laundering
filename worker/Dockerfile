@@ -3,6 +3,7 @@ FROM node:20-alpine
 # Herramientas para procesamiento ZIP + PDF
 RUN apk add --no-cache \
     7zip \
+    libarchive-tools \
     poppler-utils \
     mupdf-tools \
     wget \

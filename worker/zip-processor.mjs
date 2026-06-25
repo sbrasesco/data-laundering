@@ -265,9 +265,16 @@ export async function processZip(jobData, log, extractAttachments = false) {
 
     // ── Extraer ───────────────────────────────────────────────────────────────
     log('info', 'zip.extracting', { job_id });
-    // 7zz (paquete 7zip) soporta ZIP y RAR (incl. RAR5) nativamente. Capturamos la salida para diagnóstico.
-    const extractRes = await runCmd(`7zz x "${zipPath}" -o"${workDir}/" -y 2>&1`);
-    log('info', 'zip.extract_result', { job_id, ok: extractRes.ok, output: String(extractRes.stdout || extractRes.stderr || '').slice(0, 600) });
+    // Extracción. 7zz (paquete 7zip) maneja ZIP/7z, pero la build OSS de 7zip en Alpine NO incluye
+    // el códec RAR (propietario). Para RAR usamos bsdtar (libarchive, lee RAR5, OSS) como fallback si
+    // 7zz no extrajo nada. Logueamos la salida de cada herramienta para diagnóstico.
+    const extract7zz = await runCmd(`7zz x "${zipPath}" -o"${workDir}/" -y 2>&1`);
+    log('info', 'zip.extract_result', { job_id, tool: '7zz', ok: extract7zz.ok, output: String(extract7zz.stdout || extract7zz.stderr || '').slice(0, 400) });
+    const after7zz = (await readdir(workDir).catch(() => [])).filter(n => n !== 'adj');
+    if (after7zz.length === 0) {
+      const extractBsd = await runCmd(`bsdtar -x -f "${zipPath}" -C "${workDir}/" 2>&1`);
+      log('info', 'zip.extract_result', { job_id, tool: 'bsdtar', ok: extractBsd.ok, output: String(extractBsd.stdout || extractBsd.stderr || '').slice(0, 400) });
+    }
 
     // Aplanar subcarpetas
     await runCmd(
