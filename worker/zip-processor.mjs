@@ -240,7 +240,7 @@ export async function extractAttachmentsFromPdf(pdfPath, pdfBase, jobDir, adjDir
 
 /**
  * Procesa un ZIP y retorna un array de documentos individuales.
- * Cada documento tiene toda la info necesaria para llamar al sub-workflow.
+ * Cada documento tiene toda la info necesaria para procesarlo (document-processor.mjs).
  *
  * @param {object} jobData — datos del job padre (job_id, organization_id, file_url, ...)
  * @param {function} log — logger estructurado

@@ -127,7 +127,7 @@ const worker = new Worker(
     try {
       const fileType = job.data.file_type ?? 'pdf';
 
-      // ── ZIP: descomprimir + split + llamar sub-workflow por cada doc ─────────
+      // ── ZIP/RAR: descomprimir + split + procesar cada doc directo (document-processor) ──
       if (['zip', 'rar'].includes(fileType)) {
         log('info', 'job.zip_start', { job_id: jobId, file_url: job.data.file_url, file_type: fileType });
 
