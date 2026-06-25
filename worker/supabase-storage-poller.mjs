@@ -115,7 +115,8 @@ async function pollSupabaseStorage(integration, ctx) {
   for (const file of candidates) {
     const fullPath     = prefix ? `${prefix}${file.name}` : file.name;
     const filename     = path.basename(file.name);
-    const enProcesoKey = `${prefix}en_proceso/${filename}`;
+    const uniqueName   = `${Date.now()}_${filename}`;
+    const enProcesoKey = `${prefix}en_proceso/${uniqueName}`;  // nombre único: evita choque con repetidos (DEC-019)
 
     try {
       // 1. Descargar desde raíz
@@ -157,7 +158,7 @@ async function pollSupabaseStorage(integration, ctx) {
     const filename = path.basename(file.name);
     const ext      = path.extname(file.name).toLowerCase() || '(sin extensión)';
     await registerRejectedFile({ orgId, integrationId, protocol: 'supabase_storage', filename, reason: `Formato de archivo no permitido: ${ext} (${filename})`, ctx });
-    await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, `${prefix}fallidos/${filename}`, log, 'to_fallidos_rejected');
+    await moveFile(projectUrl, serviceRoleKey, bucketName, fullPath, `${prefix}fallidos/${Date.now()}_${filename}`, log, 'to_fallidos_rejected');
     rejected++;
   }
 

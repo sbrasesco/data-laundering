@@ -59,7 +59,7 @@
 
 ### Pipeline de integración (worker) — CERRADO
 Validado y estabilizado. No tocar sin tarea explícita.
-- `poller-handoff.mjs` — central compartido: upload a Aurora Storage, enqueue. **Dedup por SHA256/drive_file_id RETIRADO (DEC-019, 2026-06-24)**: los pollers ya NO deduplican; levantan y procesan todo lo que haya (el usuario es responsable de lo que sube). Garantía de procesamiento único = el archivo **sale de la raíz** (move a `en_proceso/`); por eso ahora **se encola SOLO si ese move tuvo éxito** (si no, no se encola → no se recobra). Nombres tal cual: si se repite un nombre, el 2º puede quedar trabado en `en_proceso/` (best-effort, asumido). Toda integración nueva lo usa, no duplicar.
+- `poller-handoff.mjs` — central compartido: upload a Aurora Storage, enqueue. **Dedup por SHA256/drive_file_id RETIRADO (DEC-019, 2026-06-24)**: los pollers ya NO deduplican; levantan y procesan todo lo que haya (el usuario es responsable de lo que sube). Garantía de procesamiento único = el archivo **sale de la raíz** (move a `en_proceso/`); por eso ahora **se encola SOLO si ese move tuvo éxito** (si no, no se encola → no se recobra). Las copias en `en_proceso/procesados/fallidos` del cliente llevan **prefijo timestamp** (`{Date.now()}_{nombre}`) para que nombres repetidos no choquen (fix 2026-06-24; Supabase/Firebase. Drive mueve por ID, no aplica). El `original_filename` del documento conserva el nombre real; solo la copia archivada lleva el prefijo. Toda integración nueva lo usa, no duplicar.
 - `integration-file-mover.mjs` — mueve `en_proceso/`→`procesados/`/`fallidos/` post-worker (llamado desde worker.mjs). Credenciales vía `credentials_encrypted` + RPC desencriptar.
 - `gateway.mjs` — rutas, billing, IPN, VALID_SOURCES. `metadata` hace spread del body (`...(body?.metadata ?? {})`) para preservar `fileMeta` de pollers (`integration_id`, etc.); sin eso file-mover no mueve.
 - `document-processor.mjs` (OCR+IA), `worker.mjs` (BullMQ + cron), `supabase-storage-poller.mjs`, `firebase-storage-poller.mjs`, `output-depositor.mjs` (CSV/XLSX → `extracciones/`). `integration-poller.mjs` (Drive, prod) — tocar SOLO para TASK-96.
@@ -83,7 +83,7 @@ React 18 + TS + Vite + shadcn/ui + Tailwind · Supabase (PostgreSQL + RLS + Real
 ## Producción
 
 - **Frontend**: `https://dataland.aignition.net` → VPS `root@157.230.231.207:/var/www/dataland/`
-- **Worker/gateway**: `v1.9.9` en `root@157.230.231.207:/root/worker/` (Docker Compose). Commits worker recientes: f4987cb (TASK-96) + TASK-110 + TASK-114 (2026-06-24).
+- **Worker/gateway**: `v1.9.9` en `root@157.230.231.207:/root/worker/` (Docker Compose). Commits worker recientes: f4987cb (TASK-96) + TASK-110 + TASK-114; **7f568fe** = TASK-108 (gateo de adjuntos por org) + DEC-019/REMOVE-DEDUP (pollers sin dedup) DEPLOYADO 2026-06-24.
 - **Supabase**: `klhbgsiatzbmxbkzpbzv`
 - **Superadmins** (DB, `is_superadmin=true`): `sbrasesco@outlook.es`, `javierginez@gmail.com`. ⚠️ `arcademy.dev@gmail.com` NO figura como superadmin en DB.
 

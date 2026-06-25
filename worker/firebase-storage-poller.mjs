@@ -83,7 +83,8 @@ async function pollFirebaseStorage(integration, ctx) {
 
     for (const file of candidates) {
       const filename      = path.basename(file.name);
-      const enProcesoPath = `${prefix}en_proceso/${filename}`;
+      const uniqueName    = `${Date.now()}_${filename}`;
+      const enProcesoPath = `${prefix}en_proceso/${uniqueName}`;  // nombre único: evita choque con repetidos (DEC-019)
 
       try {
         // 1. Descargar buffer desde raíz
@@ -136,10 +137,11 @@ async function pollFirebaseStorage(integration, ctx) {
       const filename = path.basename(file.name);
       const ext      = path.extname(file.name).toLowerCase() || '(sin extensión)';
       await registerRejectedFile({ orgId, integrationId, protocol: 'firebase_storage', filename, reason: `Formato de archivo no permitido: ${ext} (${filename})`, ctx });
+      const fallidosPath = `${prefix}fallidos/${Date.now()}_${filename}`;
       try {
-        await file.copy(bucket.file(`${prefix}fallidos/${filename}`));
+        await file.copy(bucket.file(fallidosPath));
         await file.delete();
-        log('info', 'integration.file_moved', { protocol: 'firebase_storage', from: file.name, to: `${prefix}fallidos/${filename}`, context: 'to_fallidos_rejected' });
+        log('info', 'integration.file_moved', { protocol: 'firebase_storage', from: file.name, to: fallidosPath, context: 'to_fallidos_rejected' });
       } catch (moveErr) {
         log('warn', 'integration.file_move_failed', { protocol: 'firebase_storage', filename, error: moveErr.message, context: 'to_fallidos_rejected' });
       }
