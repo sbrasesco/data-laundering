@@ -265,7 +265,9 @@ export async function processZip(jobData, log, extractAttachments = false) {
 
     // ── Extraer ───────────────────────────────────────────────────────────────
     log('info', 'zip.extracting', { job_id });
-    await runCmd(`7zz x "${zipPath}" -o"${workDir}/" -y 2>&1 || true`);  // 7zz (paquete 7zip) soporta ZIP y RAR nativamente
+    // 7zz (paquete 7zip) soporta ZIP y RAR (incl. RAR5) nativamente. Capturamos la salida para diagnóstico.
+    const extractRes = await runCmd(`7zz x "${zipPath}" -o"${workDir}/" -y 2>&1`);
+    log('info', 'zip.extract_result', { job_id, ok: extractRes.ok, output: String(extractRes.stdout || extractRes.stderr || '').slice(0, 600) });
 
     // Aplanar subcarpetas
     await runCmd(

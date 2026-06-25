@@ -2,7 +2,6 @@ FROM node:20-alpine
 
 # Herramientas para procesamiento ZIP + PDF
 RUN apk add --no-cache \
-    p7zip \
     7zip \
     poppler-utils \
     mupdf-tools \
