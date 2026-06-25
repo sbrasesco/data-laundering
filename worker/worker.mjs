@@ -71,6 +71,28 @@ async function getBalance(organizationId) {
   return data[0]?.balance ?? 0;
 }
 
+// Feature flag por org: extraccion de adjuntos embebidos (TASK-108).
+// Default OFF: si no hay fila o la lectura falla, NO se extraen adjuntos (fail-safe,
+// para no procesar/cobrar adjuntos a tenants que no lo pidieron).
+async function getExtractAttachmentsFlag(organizationId) {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/tenant_feature_flags?organization_id=eq.${encodeURIComponent(organizationId)}&select=extract_embedded_attachments`,
+      {
+        headers: {
+          'apikey':        SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+        },
+      }
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data[0]?.extract_embedded_attachments === true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Logger estructurado (Pino-compatible) ───────────────────────────────────
 function log(level, event, data = {}) {
   console.log(JSON.stringify({
@@ -109,7 +131,9 @@ const worker = new Worker(
       if (['zip', 'rar'].includes(fileType)) {
         log('info', 'job.zip_start', { job_id: jobId, file_url: job.data.file_url, file_type: fileType });
 
-        const { documents, failedUploads } = await processZip(job.data, log);
+        const extractAttachments = await getExtractAttachmentsFlag(job.data.organization_id);
+        log('info', 'job.attachments_flag', { job_id: jobId, organization_id: job.data.organization_id, extract_embedded_attachments: extractAttachments });
+        const { documents, failedUploads } = await processZip(job.data, log, extractAttachments);
         log('info', 'job.zip_extracted', {
           job_id: jobId,
           total_docs: documents.length,
@@ -196,7 +220,8 @@ const worker = new Worker(
         // Extraer adjuntos embebidos (OCs) si el archivo es un PDF
         let ocEntries = job.data.oc_entries ?? [];
         const tmpDir = `/tmp/worker-single/${jobId}`;
-        if (fileType === 'pdf') {
+        const extractAttachments = await getExtractAttachmentsFlag(job.data.organization_id);
+        if (fileType === 'pdf' && extractAttachments) {
           try {
             await mkdir(tmpDir, { recursive: true });
             const tmpPdf = `${tmpDir}/input.pdf`;

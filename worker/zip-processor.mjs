@@ -246,7 +246,7 @@ export async function extractAttachmentsFromPdf(pdfPath, pdfBase, jobDir, adjDir
  * @param {function} log — logger estructurado
  * @returns {Array<{file_url, file_type, original_filename, oc_entries, storage_path}>}
  */
-export async function processZip(jobData, log) {
+export async function processZip(jobData, log, extractAttachments = false) {
   const { job_id, organization_id, file_url, client_cuit, client_name } = jobData;
 
   const jobDir = join(TMP_BASE, job_id);
@@ -283,7 +283,10 @@ export async function processZip(jobData, log) {
 
     await mkdir(adjDir, { recursive: true });
     // ── pdfdetach: extraer adjuntos embebidos (OCs) ───────────────────────────
-    const pdfFiles = (await readdir(workDir)).filter(f => f.toLowerCase().endsWith('.pdf'));
+    if (!extractAttachments) log?.('info', 'zip.adj_extraction_skipped', { job_id, reason: 'org_flag_off' });
+    const pdfFiles = extractAttachments
+      ? (await readdir(workDir)).filter(f => f.toLowerCase().endsWith('.pdf'))
+      : [];
     for (const pdf of pdfFiles) {
       if (pdf.startsWith('__adj__')) continue;
       const pdfPath = join(workDir, pdf);
