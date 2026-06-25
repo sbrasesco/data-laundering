@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import type { FileManifestEntry } from '../utils/jobStatusUtils';
 
 export interface PdfJobDetail {
   id: string;
@@ -13,6 +14,7 @@ export interface PdfJobDetail {
   finished_at: string | null;
   period_month: number | null;
   period_year: number | null;
+  file_manifest: FileManifestEntry[] | null;
   rows_count: number; // cantidad de filas reales (pdf_job_rows) para ese job
   clients: {
     id: string;
@@ -51,6 +53,7 @@ export function usePdfJob(jobId: string) {
             finished_at,
             period_month,
             period_year,
+            file_manifest,
             clients ( id, name )
           `)
           .eq('id', jobId)
@@ -111,6 +114,7 @@ export function usePdfJob(jobId: string) {
                 finished_at,
                 period_month,
                 period_year,
+                file_manifest,
                 clients ( id, name )
               `)
               .eq('id', jobId)

@@ -133,7 +133,7 @@ const worker = new Worker(
 
         const extractAttachments = await getExtractAttachmentsFlag(job.data.organization_id);
         log('info', 'job.attachments_flag', { job_id: jobId, organization_id: job.data.organization_id, extract_embedded_attachments: extractAttachments });
-        const { documents, failedUploads } = await processZip(job.data, log, extractAttachments);
+        const { documents, failedUploads, detectedFiles = [] } = await processZip(job.data, log, extractAttachments);
         log('info', 'job.zip_extracted', {
           job_id: jobId,
           total_docs: documents.length,
@@ -156,6 +156,11 @@ const worker = new Worker(
 
         let successful = 0, failed = failedUploads, lowConfidence = 0;
 
+        // Manifiesto de archivos detectados (TASK-109): nombre → estado final.
+        const fileStatus = new Map(detectedFiles.map((f) => [f, 'omitted']));
+        const uploadedNames = new Set(documents.map((d) => d.original_filename));
+        for (const f of detectedFiles) if (!uploadedNames.has(f)) fileStatus.set(f, 'upload_failed');
+
         for (const doc of documents) {
           try {
             const docPayload = {
@@ -173,23 +178,27 @@ const worker = new Worker(
             const data = await processDocument(docPayload, log);
             if (data.success) {
               successful++;
+              fileStatus.set(doc.original_filename, 'processed');
               log('info', 'job.doc_done', { job_id: jobId, file: doc.original_filename, row_id: data.row_id });
               // Post-extracción: evaluar confianza + audit log
               await processDocumentResult(data, jobId, orgId, log);
               if ((data.confidence_score ?? 1) < 0.8) lowConfidence++;
             } else {
               failed++;
+              fileStatus.set(doc.original_filename, 'failed');
               log('warn', 'job.doc_error', { job_id: jobId, file: doc.original_filename, error: data.error });
             }
           } catch (err) {
             failed++;
+            fileStatus.set(doc.original_filename, 'failed');
             log('warn', 'job.doc_fetch_error', { job_id: jobId, file: doc.original_filename, error: err.message });
           }
         }
 
         // Finalizar job en pdf_jobs
         const totalAttempted = documents.length + failedUploads;
-        await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence, pollingIntervalMinutes: job.data.polling_interval_minutes ?? null }, log);
+        const fileManifest = detectedFiles.map((name) => ({ name, status: fileStatus.get(name) ?? 'omitted' }));
+        await finalizeJob(jobId, orgId, { total: totalAttempted, successful, failed, lowConfidence, pollingIntervalMinutes: job.data.polling_interval_minutes ?? null, fileManifest }, log);
 
         // Mover archivo original a procesados/ en el storage del cliente (best-effort)
         await moveIntegrationFile({

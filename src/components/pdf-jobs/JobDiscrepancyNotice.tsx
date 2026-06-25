@@ -10,6 +10,7 @@ export function JobDiscrepancyNotice({ job }: { job: JobForStatus }) {
   if (d.kind === 'none') return null;
 
   if (d.kind === 'gap') {
+    const missingNames = (job.file_manifest ?? []).filter((f) => f.status !== 'processed').map((f) => f.name);
     return (
       <div
         role="alert"
@@ -18,6 +19,16 @@ export function JobDiscrepancyNotice({ job }: { job: JobForStatus }) {
         <span className="font-medium">Atención:</span> de {d.total} documento{d.total === 1 ? '' : 's'} detectado
         {d.total === 1 ? '' : 's'}, {d.missing} no se procesó{d.missing === 1 ? '' : 'aron'}. Puede deberse a un
         formato no soportado o a un error de lectura. Si necesitás esos documentos, volvé a subirlos.
+        {missingNames.length > 0 && (
+          <div className="mt-2">
+            <span className="font-medium">No procesados:</span>
+            <ul className="list-disc list-inside mt-1 space-y-0.5">
+              {missingNames.map((n) => (
+                <li key={n} className="break-all">{n}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }

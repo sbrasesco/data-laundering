@@ -8,12 +8,18 @@ export type UiStatus =
   | 'FALLIDO'
   | 'ERROR';
 
+export interface FileManifestEntry {
+  name: string;
+  status: 'processed' | 'failed' | 'upload_failed' | 'omitted';
+}
+
 export interface JobForStatus {
   status: JobStatusDb;
   total_documents: number | null;
   processed_documents: number | null;
   failed_documents: number | null;
   has_warnings?: boolean | null;
+  file_manifest?: FileManifestEntry[] | null;
 }
 
 /**

@@ -128,7 +128,7 @@ export async function processDocumentResult(result, jobId, orgId, log) {
  *
  * Best-effort: si falla el UPDATE, loguea pero no relanza.
  */
-export async function finalizeJob(jobId, orgId, { total, successful, failed, lowConfidence, pollingIntervalMinutes = null }, log) {
+export async function finalizeJob(jobId, orgId, { total, successful, failed, lowConfidence, pollingIntervalMinutes = null, fileManifest = null }, log) {
   if (!SUPABASE_URL || !SUPABASE_KEY) return;
 
   // Los contadores in-memory (failed, successful) solo reflejan errores de API.
@@ -180,6 +180,7 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
           failed_documents:    failedRows,
           oc_relations:        ocRelations,
           finished_at:         new Date().toISOString(),
+          file_manifest:       fileManifest,
         }),
       }
     );

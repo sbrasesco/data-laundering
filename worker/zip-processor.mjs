@@ -461,7 +461,7 @@ export async function processZip(jobData, log, extractAttachments = false) {
       uploaded: documents.length,
       failed_uploads: failedUploads,
     });
-    return { documents, failedUploads };
+    return { documents, failedUploads, detectedFiles: allFiles };
 
   } finally {
     // Limpieza del directorio temporal
