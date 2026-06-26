@@ -13,6 +13,7 @@
 import path        from 'node:path';
 import { google }  from 'googleapis';
 import XLSX        from 'xlsx';
+import { buildDocFileBase } from './doc-naming.mjs';
 
 const SUPABASE_URL         = process.env.SUPABASE_URL;
 const SUPABASE_KEY         = process.env.SUPABASE_SERVICE_KEY;
@@ -511,14 +512,22 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
   const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
   let fileContent, filename, mimeType;
 
+  // FILE-RENAME-BY-DATA (Fase 1): para storage (Supabase/Firebase) y 1 documento con los 3 datos
+  // clave -> nombre por dato {cuit}_{numero}_{codigo_afip}. Drive (acumulativo) y multi-doc quedan
+  // con el nombre por defecto (resultado_...). Si falta algun dato, buildDocFileBase devuelve null.
+  const renameBase = (rows.length === 1
+      && ['supabase_storage', 'firebase_storage'].includes(outputConfig.integration_type))
+    ? buildDocFileBase(rows[0]) : null;
+  const baseName = renameBase ?? `resultado_${jobId.slice(0, 8)}_${timestamp}`;
+
   if (!isDriveXLSXAccum) {
     if (outputFormat === 'xlsx') {
       fileContent = rowsToXLSX(rows);
-      filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.xlsx`;
+      filename    = `${baseName}.xlsx`;
       mimeType    = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     } else {
       fileContent = rowsToCSV(rows);
-      filename    = `resultado_${jobId.slice(0, 8)}_${timestamp}.csv`;
+      filename    = `${baseName}.csv`;
       mimeType    = 'text/csv';
     }
   }
@@ -667,6 +676,10 @@ export async function depositSingleApprovedRow(rowId, jobId, orgId, log) {
 
   const outputFormat = outputConfig.output_format ?? 'csv';
 
+  // FILE-RENAME-BY-DATA Fase 2: nombre por dato del CSV/xlsx aprobado en storage (Supabase/Firebase).
+  const renameBase = ['supabase_storage', 'firebase_storage'].includes(outputConfig.integration_type)
+    ? buildDocFileBase(rows[0]) : null;
+
   let clientFolderName = null;
   if (outputConfig.integration_type === 'google_drive') {
     try {
@@ -726,11 +739,19 @@ export async function depositSingleApprovedRow(rowId, jobId, orgId, log) {
       );
     } else if (outputConfig.integration_type === 'firebase_storage') {
       const ext = outputFormat === 'xlsx' ? 'xlsx' : 'csv';
-      const filename = `aprobado_${String(rowId)}_${timestamp}.${ext}`;
+      const filename = `${renameBase ?? `aprobado_${String(rowId)}_${timestamp}`}.${ext}`;
       const fileContent = outputFormat === 'xlsx' ? rowsToXLSX(rows) : rowsToCSV(rows);
       await depositToFirebaseStorage(
         outputConfig.credentials, outputConfig.output_folder_path || 'extracciones',
         filename, fileContent, log
+      );
+    } else if (outputConfig.integration_type === 'supabase_storage') {
+      // Gap preexistente: faltaba la rama supabase en el path de aprobación. Agregada en Fase 2.
+      const ext = outputFormat === 'xlsx' ? 'xlsx' : 'csv';
+      const filename = `${renameBase ?? `aprobado_${String(rowId)}_${timestamp}`}.${ext}`;
+      const fileContent = outputFormat === 'xlsx' ? rowsToXLSX(rows) : rowsToCSV(rows);
+      await depositToSupabaseStorage(
+        outputConfig.credentials, outputConfig, filename, fileContent, log
       );
     }
     log('info', 'output.single_row.deposited', {

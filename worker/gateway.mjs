@@ -14,6 +14,7 @@
 import { createServer } from 'http';
 import { randomUUID } from 'crypto';
 import { depositSingleApprovedRow } from './output-depositor.mjs';
+import { renameProcessedInputOnApproval } from './integration-file-mover.mjs';
 import { SYSTEM_PROMPT } from './document-processor.mjs';
 
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
@@ -725,6 +726,8 @@ async function handleDepositRow(body, log) {
   }
   try {
     await depositSingleApprovedRow(row_id, job_id, org_id, log);
+    // FILE-RENAME-BY-DATA Fase 2: renombrar el archivo de entrada en procesados/ con los datos ya completos.
+    await renameProcessedInputOnApproval({ jobId: job_id, log });
     log('info', 'gateway.deposit_row.done', { row_id, job_id, org_id });
     return { status: 200, body: { ok: true } };
   } catch (err) {

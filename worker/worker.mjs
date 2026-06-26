@@ -25,6 +25,7 @@ import { pollFtpSftpIntegrations }          from './ftp-sftp-poller.mjs';
 import { pollFirebaseStorageIntegrations }  from './firebase-storage-poller.mjs';
 import { pollSupabaseStorageIntegrations } from './supabase-storage-poller.mjs';
 import { moveIntegrationFile }             from './integration-file-mover.mjs';
+import { buildDocFileBase }               from './doc-naming.mjs';
 
 // DEC-011: n8n eliminado del pipeline. Todo procesamiento va directo a document-processor.mjs.
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
@@ -90,6 +91,25 @@ async function getExtractAttachmentsFlag(organizationId) {
     return data[0]?.extract_embedded_attachments === true;
   } catch {
     return false;
+  }
+}
+
+// FILE-RENAME-BY-DATA (Fase 1): base de nombre por dato para un job de UN documento.
+// Devuelve {cuit}_{numero}_{codigo_afip} (saneado) o null si el job tiene != 1 fila,
+// le falta alguno de los 3 datos, o la lectura falla. Se usa para renombrar el archivo
+// de entrada en storage (Supabase/Firebase). Multi-doc (ZIP) y Drive no lo usan.
+async function getSingleDocRenameBase(jobId) {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=cuit,numero_comprobante,codigo_afip`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length !== 1) return null;
+    return buildDocFileBase(rows[0]);
+  } catch {
+    return null;
   }
 }
 
@@ -287,13 +307,17 @@ const worker = new Worker(
           pollingIntervalMinutes:  job.data.polling_interval_minutes ?? null,
         }, log);
 
-        // Mover archivo original a procesados/ en el storage del cliente (best-effort)
+        // Mover archivo original a procesados/ en el storage del cliente (best-effort).
+        // FILE-RENAME-BY-DATA (Fase 1): si es 1 doc con los 3 datos, renombrar a {cuit}_{numero}_{afip}.
+        const renameBase = await getSingleDocRenameBase(jobId);
         await moveIntegrationFile({
           integrationId: job.data.metadata?.integration_id,
           protocol:      job.data.metadata?.protocol,
           fileMeta:      job.data.metadata,
           success:       true,
           log,
+          renameBase,
+          jobId,
         });
 
         const result = { ...data, worker_version: WORKER_VERSION };
