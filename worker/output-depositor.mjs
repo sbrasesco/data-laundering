@@ -31,18 +31,30 @@ const COLUMNS = [
 
 // ─── Generadores de archivo ───────────────────────────────────────────────────
 
+// CSV (archivo para importar a otra tabla): separador ';', SIN la columna 'iva' genérica
+// (es el total, confunde y descuadra la importación) y con encabezados legibles para las
+// alícuotas. El xlsx acumulativo NO se toca (mantiene su estructura para no descuadrar appends).
+const CSV_COLUMNS = COLUMNS.filter(c => c !== 'iva');
+const CSV_LABELS = {
+  iva_21:  'IVA 21%',
+  iva_105: 'IVA 10,5%',
+  iva_27:  'IVA 27%',
+  iva_5:   'IVA 5%',
+  iva_25:  'IVA 2,5%',
+};
+
 function escapeCSV(value) {
   if (value === null || value === undefined) return '';
   const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+  if (str.includes(';') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
 }
 
 function rowsToCSV(rows) {
-  const header = COLUMNS.join(',');
-  const lines = rows.map(row => COLUMNS.map(col => escapeCSV(row[col])).join(','));
+  const header = CSV_COLUMNS.map(col => CSV_LABELS[col] ?? col).join(';');
+  const lines = rows.map(row => CSV_COLUMNS.map(col => escapeCSV(row[col])).join(';'));
   return [header, ...lines].join('\n');
 }
 
