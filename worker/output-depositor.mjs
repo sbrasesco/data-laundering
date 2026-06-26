@@ -31,17 +31,17 @@ const COLUMNS = [
 
 // ─── Generadores de archivo ───────────────────────────────────────────────────
 
-// CSV (archivo para importar a otra tabla): separador ';', SIN la columna 'iva' genérica
-// (es el total, confunde y descuadra la importación) y con encabezados legibles para las
-// alícuotas. El xlsx acumulativo NO se toca (mantiene su estructura para no descuadrar appends).
-const CSV_COLUMNS = COLUMNS.filter(c => c !== 'iva');
-const CSV_LABELS = {
+// Salida (CSV y XLSX, mismo criterio): SIN la columna 'iva' genérica (es el total, confunde y
+// descuadra la importación) y con encabezados legibles para las alícuotas.
+const OUT_COLUMNS = COLUMNS.filter(c => c !== 'iva');
+const OUT_LABELS = {
   iva_21:  'IVA 21%',
   iva_105: 'IVA 10,5%',
   iva_27:  'IVA 27%',
   iva_5:   'IVA 5%',
   iva_25:  'IVA 2,5%',
 };
+const outLabel = (col) => OUT_LABELS[col] ?? col;
 
 function escapeCSV(value) {
   if (value === null || value === undefined) return '';
@@ -53,18 +53,19 @@ function escapeCSV(value) {
 }
 
 function rowsToCSV(rows) {
-  const header = CSV_COLUMNS.map(col => CSV_LABELS[col] ?? col).join(';');
-  const lines = rows.map(row => CSV_COLUMNS.map(col => escapeCSV(row[col])).join(';'));
+  const header = OUT_COLUMNS.map(outLabel).join(';');
+  const lines = rows.map(row => OUT_COLUMNS.map(col => escapeCSV(row[col])).join(';'));
   return [header, ...lines].join('\n');
 }
 
 function rowsToXLSX(rows) {
+  const headers = OUT_COLUMNS.map(outLabel);
   const data = rows.map(row => {
     const obj = {};
-    COLUMNS.forEach(col => { obj[col] = row[col] ?? ''; });
+    OUT_COLUMNS.forEach(col => { obj[outLabel(col)] = row[col] ?? ''; });
     return obj;
   });
-  const ws = XLSX.utils.json_to_sheet(data, { header: COLUMNS });
+  const ws = XLSX.utils.json_to_sheet(data, { header: headers });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -180,14 +181,16 @@ async function appendOrCreateXLSXInDrive(drive, targetFolderId, newRows, log) {
     existingRows = XLSX.utils.sheet_to_json(ws, { defval: '' });
   }
 
-  const newMapped = newRows.map(row => {
+  // Re-mapea a los encabezados nuevos: dropea 'iva' y renombra alícuotas (iva_21->'IVA 21%', ...).
+  // Migra archivos viejos en el próximo append. Idempotente: toma el label nuevo si existe, si no la key vieja.
+  const remapRow = (r) => {
     const obj = {};
-    COLUMNS.forEach(col => { obj[col] = row[col] ?? ''; });
+    OUT_COLUMNS.forEach(col => { const lbl = outLabel(col); obj[lbl] = r[lbl] ?? r[col] ?? ''; });
     return obj;
-  });
-  const allRows = [...existingRows, ...newMapped];
+  };
+  const allRows = [...existingRows.map(remapRow), ...newRows.map(remapRow)];
 
-  const ws = XLSX.utils.json_to_sheet(allRows, { header: COLUMNS });
+  const ws = XLSX.utils.json_to_sheet(allRows, { header: OUT_COLUMNS.map(outLabel) });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
