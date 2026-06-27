@@ -80,15 +80,33 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
     return <Badge variant="success">ARS</Badge>;
   };
 
-  // Estado del documento en sí (no del proceso). Las OCs existen porque se extrajeron correctamente → Exitoso.
-  const getDocStatusBadge = (row: DocumentRow) => {
-    const st = row._row_type === 'oc' ? 'ok' : ((row.doc_status as string | undefined) ?? 'ok');
+  const getStatusOnlyBadge = (st: string) => {
     switch (st) {
       case 'failed':           return <Badge variant="destructive">Fallido</Badge>;
       case 'warning':          return <Badge variant="warning">Con advertencia</Badge>;
       case 'pending_approval': return <Badge variant="info">Pendiente de aprobación</Badge>;
       default:                 return <Badge variant="success">Exitoso</Badge>;
     }
+  };
+
+  // Estado del documento en sí (no del proceso). Las OCs existen porque se extrajeron correctamente → Exitoso.
+  // Si el archivo fue detectado como duplicado (mismo CUIT+número ya existente), se suma un badge 'Duplicado'.
+  const getDocStatusBadge = (row: DocumentRow) => {
+    const st = row._row_type === 'oc' ? 'ok' : ((row.doc_status as string | undefined) ?? 'ok');
+    const isDup = row._row_type !== 'oc' && row.is_duplicate === true;
+    if (!isDup) return getStatusOnlyBadge(st);
+    return (
+      <div className="flex flex-col items-start gap-1">
+        {getStatusOnlyBadge(st)}
+        <Badge
+          variant="outline"
+          className="border-orange-400 text-orange-600"
+          title="Documento duplicado: ya existe uno con el mismo CUIT + número de comprobante"
+        >
+          Duplicado
+        </Badge>
+      </div>
+    );
   };
 
   if (documents.length === 0) {

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '@/components/ui/button';
 import { EditRowModal } from './EditRowModal';
@@ -24,6 +25,13 @@ const STATUS_ROW_STYLE: Record<string, React.CSSProperties> = {
   failed:           { borderLeft: '3px solid hsl(var(--destructive))', backgroundColor: 'rgba(220, 53, 69, 0.08)' },
   warning:          { borderLeft: '3px solid #f59e0b',                 backgroundColor: 'rgba(245, 158, 11, 0.08)' },
   pending_approval: { borderLeft: '3px solid #3b82f6',                 backgroundColor: 'rgba(59, 130, 246, 0.08)' },
+};
+
+// Recuadro de documento duplicado: tono de alerta distinto (naranja fuerte) para advertir que
+// NO generó CSV de salida. Distinto del rojo de 'failed' (no es un error) y del verde de 'ok'.
+const DUP_ROW_STYLE: React.CSSProperties = {
+  borderLeft:      '4px solid #ea580c',
+  backgroundColor: 'rgba(234, 88, 12, 0.12)',
 };
 
 const BADGE_CLASS: Record<string, string> = {
@@ -126,6 +134,7 @@ export function JobDocumentsSection({ rows, jobId: _jobId, orgId: _orgId, onRowU
         <div className="rounded-lg border bg-card overflow-hidden">
           {rows.map((row) => {
             const status: string = row.doc_status ?? 'ok';
+            const isDup = row.is_duplicate === true;
             const needsAction = status === 'failed' || status === 'warning' || status === 'pending_approval';
             const fileName = row.source_file
               ? baseName(row.source_file)
@@ -134,14 +143,21 @@ export function JobDocumentsSection({ rows, jobId: _jobId, orgId: _orgId, onRowU
             return (
               <div
                 key={row.id}
-                style={STATUS_ROW_STYLE[status]}
+                style={isDup ? DUP_ROW_STYLE : STATUS_ROW_STYLE[status]}
                 className="flex items-center gap-3 px-4 py-3 border-b last:border-b-0"
               >
                 <span className="text-base shrink-0">📄</span>
 
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" title={fileName}>{fileName}</p>
-                  {row.last_error_message && (
+                  {isDup ? (
+                    <div className="flex items-start gap-1.5 mt-0.5 text-orange-700">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" />
+                      <p className="text-xs">
+                        No se generó archivo de salida (CSV): documento <strong>duplicado</strong>. Esta factura ya fue procesada, así que se omitió la salida para no repetir el registro en tus documentos.
+                      </p>
+                    </div>
+                  ) : row.last_error_message && (
                     <p className="text-xs text-muted-foreground truncate mt-0.5" title={row.last_error_message}>
                       {row.last_error_message}
                     </p>
@@ -151,6 +167,15 @@ export function JobDocumentsSection({ rows, jobId: _jobId, orgId: _orgId, onRowU
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${BADGE_CLASS[status] ?? BADGE_CLASS.ok}`}>
                   {STATUS_LABEL[status] ?? status}
                 </span>
+
+                {row.is_duplicate && (
+                  <span
+                    className="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 border border-orange-400 text-orange-600"
+                    title="Documento duplicado: ya existe uno con el mismo CUIT + número de comprobante"
+                  >
+                    Duplicado
+                  </span>
+                )}
 
                 {needsAction && (
                   <div className="flex gap-1 shrink-0">

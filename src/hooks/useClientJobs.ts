@@ -17,6 +17,8 @@ export interface ClientJobsMetrics {
   documentsWithWarnings: number; // docs con datos incompletos (doc_status = 'warning')
   correctedDocuments: number;    // docs corregidos manualmente (aprobados tras error/advertencia)
   jobsWithError: number;
+  duplicateDocuments: number;    // documentos detectados como duplicados (is_duplicate / has_duplicate)
+  totalExecutionMs: number;      // suma de (finished_at - created_at) de los procesos del tenant
 }
 
 const PDF_JOBS_SELECT = `
@@ -30,8 +32,10 @@ const PDF_JOBS_SELECT = `
   low_confidence_documents,
   corrected_documents,
   has_warnings,
+  has_duplicate,
   error_message,
   created_at,
+  finished_at,
   period_month,
   period_year,
   clients ( id, name )
@@ -48,7 +52,10 @@ export function useClientJobs(filters?: DashboardFilters) {
     processedDocuments: 0,
     failedDocuments: 0,
     documentsWithWarnings: 0,
+    correctedDocuments: 0,
     jobsWithError: 0,
+    duplicateDocuments: 0,
+    totalExecutionMs: 0,
   });
   const { organizationId, loading: authLoading } = useAuth();
   const subscriptionRef = useRef<any>(null);
@@ -82,6 +89,15 @@ export function useClientJobs(filters?: DashboardFilters) {
       0
     );
     const jobsWithError = jobsData.filter((job) => job.status === 'error').length;
+    // Duplicados: hoy un duplicado = un job de 1 documento (1:1), proxy a nivel proceso
+    const duplicateDocuments = jobsData.filter((job) => job.has_duplicate === true).length;
+
+    // Tiempo total de ejecución = suma de (finished_at - created_at) de los procesos finalizados
+    const totalExecutionMs = jobsData.reduce((sum, job) => {
+      if (!job.created_at || !job.finished_at) return sum;
+      const ms = new Date(job.finished_at).getTime() - new Date(job.created_at).getTime();
+      return ms > 0 ? sum + ms : sum;
+    }, 0);
 
     return {
       jobsCount,
@@ -91,6 +107,8 @@ export function useClientJobs(filters?: DashboardFilters) {
       documentsWithWarnings,
       correctedDocuments,
       jobsWithError,
+      duplicateDocuments,
+      totalExecutionMs,
     };
   };
 

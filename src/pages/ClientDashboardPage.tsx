@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useClientJobs, DashboardFilters } from '../hooks/useClientJobs';
 import { useClients } from '../hooks/useClients';
@@ -29,7 +30,7 @@ function InputSourceBadge({ source }: { source: PdfJob['input_source'] }) {
 
 function MetricCard({ value, label, accent = '#22C365' }: { value: number; label: string; accent?: string }) {
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden h-full">
       <div className="h-1.5 w-full" style={{ background: accent }} />
       <CardContent className="pt-4 pb-5 text-center">
         <div className="text-3xl font-bold tracking-tight text-foreground mb-1 font-lora">{value}</div>
@@ -37,6 +38,38 @@ function MetricCard({ value, label, accent = '#22C365' }: { value: number; label
       </CardContent>
     </Card>
   );
+}
+
+// Duración del proceso = finished_at - created_at (datos ya en pdf_jobs). '—' si no finalizó.
+function formatDuration(createdAt?: string | null, finishedAt?: string | null): string {
+  if (!createdAt || !finishedAt) return '—';
+  const ms = new Date(finishedAt).getTime() - new Date(createdAt).getTime();
+  if (!isFinite(ms) || ms < 0) return '—';
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  return `${m}m ${totalSec % 60}s`;
+}
+
+// Tiempo acumulado (puede ser horas/días): muestra las 2 unidades más significativas.
+function formatExecTotal(ms: number): string {
+  if (!ms || ms <= 0) return '0s';
+  const totalSec = Math.round(ms / 1000);
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const sec = totalSec % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+// Promedio de ejecución por documento = tiempo total / documentos totales.
+function formatAvgPerDoc(totalMs: number, docs: number): string {
+  if (!docs || docs <= 0 || !totalMs || totalMs <= 0) return '—';
+  const avgSec = (totalMs / docs) / 1000;
+  return avgSec < 10 ? `${avgSec.toFixed(1)}s` : `${Math.round(avgSec)}s`;
 }
 
 export function ClientDashboardPage() {
@@ -142,15 +175,67 @@ export function ClientDashboardPage() {
 
       {(!loading || jobs.length > 0) && !error && (
         <>
-          {/* Métricas */}
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-            <MetricCard value={metrics.jobsCount}             label="Total de procesos"      accent="#000000" />
-            <MetricCard value={metrics.totalDocuments}        label="Documentos totales"     accent="#22C365" />
-            <MetricCard value={metrics.processedDocuments}    label="Documentos correctos"   accent="#22C365" />
-            <MetricCard value={metrics.failedDocuments}       label="Documentos fallidos"    accent="#e11d48" />
-            <MetricCard value={metrics.documentsWithWarnings} label="Con advertencias"       accent="#FED210" />
-            <MetricCard value={metrics.correctedDocuments}    label="Corregidos manualmente" accent="#A347D1" />
-            <MetricCard value={metrics.jobsWithError}         label="Procesos con error"     accent="#e11d48" />
+          {/* Métricas — 3 columnas: Procesos (índice), Performance (vacío), a definir (vacío).
+              Solo UI/reordenamiento; los datos (metrics) se traen igual que antes. */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* Card 1 · Procesos — estilo índice (label · · · número) */}
+            <Card className="overflow-hidden h-full">
+              <div className="h-1.5 w-full" style={{ background: '#22C365' }} />
+              <CardContent className="pt-4 pb-5">
+                <h3 className="font-sugar text-2xl text-foreground mb-3 text-center">Documentos</h3>
+                <ul className="space-y-2.5">
+                  {[
+                    { label: 'Documentos totales',     value: metrics.totalDocuments,        accent: '#22C365' },
+                    { label: 'Correctos',              value: metrics.processedDocuments,    accent: '#22C365' },
+                    { label: 'Fallidos',               value: metrics.failedDocuments,       accent: '#e11d48' },
+                    { label: 'Con advertencias',       value: metrics.documentsWithWarnings, accent: '#FED210' },
+                    { label: 'Corregidos manualmente', value: metrics.correctedDocuments,    accent: '#A347D1' },
+                    { label: 'Duplicados',             value: metrics.duplicateDocuments,    accent: '#ea580c' },
+                  ].map((row) => (
+                    <li key={row.label} className="flex items-baseline gap-2">
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: row.accent }} />
+                        <span className="text-sm text-foreground">{row.label}</span>
+                      </span>
+                      <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                      <span className="text-sm font-bold font-lora tabular-nums shrink-0">{row.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+
+            {/* Card 2 · Performance — vacío por ahora */}
+            <Card className="overflow-hidden h-full">
+              <div className="h-1.5 w-full" style={{ background: '#A347D1' }} />
+              <CardContent className="pt-4 pb-5">
+                <h3 className="font-sugar text-2xl text-foreground mb-3 text-center">Performance</h3>
+                <ul className="space-y-2.5">
+                  <li className="flex items-baseline gap-2">
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: '#A347D1' }} />
+                      <span className="text-sm text-foreground">Tiempo total de ejecución</span>
+                    </span>
+                    <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                    <span className="text-sm font-bold font-lora tabular-nums shrink-0">{formatExecTotal(metrics.totalExecutionMs)}</span>
+                  </li>
+                  <li className="flex items-baseline gap-2">
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: '#6366f1' }} />
+                      <span className="text-sm text-foreground">Promedio por documento</span>
+                    </span>
+                    <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                    <span className="text-sm font-bold font-lora tabular-nums shrink-0">{formatAvgPerDoc(metrics.totalExecutionMs, metrics.totalDocuments)}</span>
+                  </li>
+                </ul>
+              </CardContent>
+            </Card>
+
+            {/* Card 3 · a definir — vacío (sin título aún) */}
+            <Card className="overflow-hidden h-full">
+              <div className="h-1.5 w-full" style={{ background: '#FED210' }} />
+              <CardContent className="pt-4 pb-5 min-h-[64px]" />
+            </Card>
           </div>
 
           {/* Tabla de procesos */}
@@ -175,6 +260,7 @@ export function ClientDashboardPage() {
                       <TableHead>Origen</TableHead>
                       <TableHead>Período</TableHead>
                       <TableHead>Estado</TableHead>
+                      <TableHead>Tiempo</TableHead>
                       <TableHead>Documentos</TableHead>
                       <TableHead>Acción</TableHead>
                     </TableRow>
@@ -187,13 +273,26 @@ export function ClientDashboardPage() {
                         <TableCell><InputSourceBadge source={job.input_source} /></TableCell>
                         <TableCell className="text-sm text-muted-foreground">{formatPeriod(job.period_month, job.period_year)}</TableCell>
                         <TableCell>
-                          <JobStatusBadge
-                            status={job.status}
-                            total_documents={job.total_documents}
-                            processed_documents={job.processed_documents}
-                            failed_documents={job.failed_documents}
-                            has_warnings={job.has_warnings}
-                          />
+                          <div className="flex items-center gap-1.5">
+                            <JobStatusBadge
+                              status={job.status}
+                              total_documents={job.total_documents}
+                              processed_documents={job.processed_documents}
+                              failed_documents={job.failed_documents}
+                              has_warnings={job.has_warnings}
+                            />
+                            {job.has_duplicate && (
+                              <span
+                                title="Este proceso contiene al menos un documento duplicado (no se generó su CSV de salida)"
+                                className="inline-flex cursor-default"
+                              >
+                                <AlertTriangle className="h-4 w-4 text-orange-500" aria-label="Contiene un documento duplicado" />
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm tabular-nums text-muted-foreground">
+                          {formatDuration(job.created_at, job.finished_at)}
                         </TableCell>
                         <TableCell className="text-sm tabular-nums">
                           {formatDocuments(job)}{correctedBadge(job)}

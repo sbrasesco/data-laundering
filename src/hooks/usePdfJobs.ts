@@ -9,10 +9,12 @@ export interface PdfJob {
   processed_documents: number | null;
   failed_documents: number | null;
   has_warnings: boolean | null;
+  has_duplicate: boolean | null;
   low_confidence_documents: number | null;
   corrected_documents: number | null;
   error_message: string | null;
   created_at: string;
+  finished_at?: string | null;
   period_month: number | null;
   period_year: number | null;
   input_source: 'frontend_upload' | 'integration_drive' | 'ftp' | 'sftp' | 'firebase_storage' | null;
@@ -40,8 +42,10 @@ async function fetchJobsWithRowCounts(): Promise<PdfJob[]> {
       processed_documents,
       failed_documents,
       has_warnings,
+      has_duplicate,
       error_message,
       created_at,
+      finished_at,
       period_month,
       period_year,
       clients ( id, name )

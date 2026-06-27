@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { DocumentRow } from '../hooks/useAllDocuments';
 
 /**
@@ -6,15 +5,18 @@ import { DocumentRow } from '../hooks/useAllDocuments';
  * @param documents Array de documentos a exportar
  * @param filename Nombre del archivo (por defecto 'documentos.xlsx')
  */
-export function exportDocumentsToXlsx(
+export async function exportDocumentsToXlsx(
   documents: DocumentRow[],
   filename: string = 'documentos.xlsx'
-): void {
+): Promise<void> {
   try {
     if (documents.length === 0) {
       alert('No hay documentos para exportar');
       return;
     }
+
+    // xlsx es pesado (~800 KB) — se carga dinámicamente solo al exportar (no entra al bundle inicial)
+    const XLSX = await import('xlsx');
 
     // Mapear documentos a formato plano para Excel
     const excelData = documents.map((doc) => {

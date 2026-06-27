@@ -15,6 +15,7 @@ module.exports = {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         lora: ['Lora', 'Georgia', 'serif'],
+        sugar: ['"Sugar Pie"', 'cursive'],
       },
       colors: {
         // Las variables CSS ya contienen el valor oklch() completo,

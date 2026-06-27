@@ -113,6 +113,49 @@ async function supabaseFetch(path, options = {}) {
   return res;
 }
 
+// FILE-RENAME-BY-DATA Fase 2: ¿esta fila es un duplicado de una factura ya procesada antes en la
+// misma org? (mismo cuit + numero_comprobante, con id menor = anterior). Si lo es, NO se deposita
+// salida (para no entregar un CSV repetido que el cliente levantaría de nuevo). Best-effort.
+async function hasEarlierDuplicate(orgId, rowId, cuit, numero, log) {
+  if (!orgId || !rowId || !cuit || !numero) return false;
+  try {
+    const res = await supabaseFetch(
+      `/rest/v1/pdf_job_rows?select=id,pdf_jobs!inner(organization_id)` +
+      `&cuit=eq.${encodeURIComponent(cuit)}` +
+      `&numero_comprobante=eq.${encodeURIComponent(numero)}` +
+      `&id=lt.${encodeURIComponent(rowId)}` +
+      `&pdf_jobs.organization_id=eq.${encodeURIComponent(orgId)}&limit=1`
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Array.isArray(data) && data.length > 0;
+  } catch (err) {
+    log('warn', 'output.dup_check_failed', { row_id: rowId, error: err.message });
+    return false;
+  }
+}
+
+async function markDuplicate(rowId, jobId, log) {
+  try {
+    const res = await supabaseFetch(`/rest/v1/pdf_job_rows?id=eq.${encodeURIComponent(rowId)}`, {
+      method:  'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body:    JSON.stringify({ is_duplicate: true }),
+    });
+    if (!res.ok) log('warn', 'output.mark_dup_failed', { row_id: rowId, status: res.status });
+    // Flag a nivel proceso para el ⚠️ del dashboard.
+    if (jobId) {
+      await supabaseFetch(`/rest/v1/pdf_jobs?id=eq.${encodeURIComponent(jobId)}`, {
+        method:  'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body:    JSON.stringify({ has_duplicate: true }),
+      });
+    }
+  } catch (err) {
+    log('warn', 'output.mark_dup_error', { row_id: rowId, error: err.message });
+  }
+}
+
 // ─── Google Drive OAuth2 ──────────────────────────────────────────────────────
 
 /**
@@ -493,7 +536,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
   let rows;
   try {
     const res = await supabaseFetch(
-      `/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&doc_status=eq.ok&select=${COLUMNS.join(',')}&order=id.asc`
+      `/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&doc_status=eq.ok&select=id,${COLUMNS.join(',')}&order=id.asc`
     );
     if (!res.ok) throw new Error(`pdf_job_rows fetch failed: ${res.status}`);
     rows = await res.json();
@@ -519,6 +562,17 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       && ['supabase_storage', 'firebase_storage'].includes(outputConfig.integration_type))
     ? buildDocFileBase(rows[0]) : null;
   const baseName = renameBase ?? `resultado_${jobId.slice(0, 8)}_${timestamp}`;
+
+  // FILE-RENAME-BY-DATA Fase 2: si es duplicado (misma factura ya procesada antes en la org), NO
+  // se deposita salida. El doc igual se procesó y se cobra; queda en procesados/ con __DUPLICADO_.
+  if (renameBase) {
+    const dup = await hasEarlierDuplicate(orgId, rows[0].id, rows[0].cuit, rows[0].numero_comprobante, log);
+    if (dup) {
+      await markDuplicate(rows[0].id, jobId, log);
+      log('info', 'output.skip_duplicate', { job_id: jobId, row_id: rows[0].id, base: renameBase });
+      return { outputFeatures };
+    }
+  }
 
   if (!isDriveXLSXAccum) {
     if (outputFormat === 'xlsx') {
@@ -679,6 +733,16 @@ export async function depositSingleApprovedRow(rowId, jobId, orgId, log) {
   // FILE-RENAME-BY-DATA Fase 2: nombre por dato del CSV/xlsx aprobado en storage (Supabase/Firebase).
   const renameBase = ['supabase_storage', 'firebase_storage'].includes(outputConfig.integration_type)
     ? buildDocFileBase(rows[0]) : null;
+
+  // FILE-RENAME-BY-DATA Fase 2: duplicado → no se deposita salida (mismo criterio que el path automático).
+  if (renameBase) {
+    const dup = await hasEarlierDuplicate(orgId, rowId, rows[0].cuit, rows[0].numero_comprobante, log);
+    if (dup) {
+      await markDuplicate(rowId, jobId, log);
+      log('info', 'output.single_row.skip_duplicate', { row_id: rowId, job_id: jobId });
+      return;
+    }
+  }
 
   let clientFolderName = null;
   if (outputConfig.integration_type === 'google_drive') {

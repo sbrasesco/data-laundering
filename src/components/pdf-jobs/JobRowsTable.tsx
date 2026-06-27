@@ -299,29 +299,39 @@ export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableP
                     );
                   })}
                   <td className="px-3 py-2 text-center whitespace-nowrap">
-                    {needsAction ? (
-                      <div className="flex gap-1 justify-center">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-xs"
-                          onClick={() => setEditRow(row)}
-                          disabled={approvingId === row.id}
+                    <div className="flex gap-1 justify-center items-center">
+                      {row.is_duplicate && (
+                        <span
+                          className="text-xs font-medium px-2 py-0.5 rounded-full border border-orange-400 text-orange-600"
+                          title="Documento duplicado: ya existe uno con el mismo CUIT + número de comprobante"
                         >
-                          Editar
-                        </Button>
-                        {status === 'pending_approval' && (
+                          Duplicado
+                        </span>
+                      )}
+                      {needsAction && (
+                        <>
                           <Button
                             size="sm"
-                            className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => handleApprove(row)}
+                            variant="outline"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => setEditRow(row)}
                             disabled={approvingId === row.id}
                           >
-                            {approvingId === row.id ? '...' : 'Aprobar'}
+                            Editar
                           </Button>
-                        )}
-                      </div>
-                    ) : null}
+                          {status === 'pending_approval' && (
+                            <Button
+                              size="sm"
+                              className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => handleApprove(row)}
+                              disabled={approvingId === row.id}
+                            >
+                              {approvingId === row.id ? '...' : 'Aprobar'}
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

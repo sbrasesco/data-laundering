@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { PdfJob } from '../../hooks/usePdfJobs';
 import { getJobStatusLabel, getJobStatusVariant } from '../../utils/status';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,17 @@ export function JobList({ jobs }: JobListProps) {
     return `${months[month - 1]} ${year}`;
   };
 
+  // Duración del proceso = finished_at - created_at (datos ya en pdf_jobs). '—' si no finalizó.
+  const formatDuration = (createdAt?: string | null, finishedAt?: string | null) => {
+    if (!createdAt || !finishedAt) return '—';
+    const ms = new Date(finishedAt).getTime() - new Date(createdAt).getTime();
+    if (!isFinite(ms) || ms < 0) return '—';
+    const totalSec = Math.round(ms / 1000);
+    if (totalSec < 60) return `${totalSec}s`;
+    const m = Math.floor(totalSec / 60);
+    return `${m}m ${totalSec % 60}s`;
+  };
+
   if (jobs.length === 0) {
     return (
       <div className="rounded-lg border bg-card text-card-foreground p-12 text-center">
@@ -56,6 +68,7 @@ export function JobList({ jobs }: JobListProps) {
             <TableHead>Origen</TableHead>
             <TableHead>Período</TableHead>
             <TableHead>Estado</TableHead>
+            <TableHead>Tiempo</TableHead>
             <TableHead>Documentos</TableHead>
             <TableHead>Acción</TableHead>
           </TableRow>
@@ -88,7 +101,20 @@ export function JobList({ jobs }: JobListProps) {
                 <TableCell><InputSourceBadge source={job.input_source} /></TableCell>
                 <TableCell className="text-sm">{formatPeriod(job.period_month, job.period_year)}</TableCell>
                 <TableCell>
-                  <Badge variant={displayVariant}>{displayLabel}</Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={displayVariant}>{displayLabel}</Badge>
+                    {job.has_duplicate && (
+                      <span
+                        title="Este proceso contiene al menos un documento duplicado (no se generó su CSV de salida)"
+                        className="inline-flex cursor-default"
+                      >
+                        <AlertTriangle className="h-4 w-4 text-orange-500" aria-label="Contiene un documento duplicado" />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm tabular-nums text-muted-foreground">
+                  {formatDuration(job.created_at, job.finished_at)}
                 </TableCell>
                 <TableCell className="text-sm tabular-nums">
                   {total > 0 ? `${processed} / ${total}` : '-'}

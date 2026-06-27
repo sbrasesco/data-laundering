@@ -17,6 +17,8 @@ export interface DocumentRow {
   neto_gravado: number | null;
   iva: number | null;
   total: number | null;
+  doc_status?: string | null;
+  is_duplicate?: boolean | null;
   _row_type: 'factura' | 'oc';
   numero_oc?: string | null;
   nombre_adjunto?: string | null;

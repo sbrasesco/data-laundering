@@ -250,6 +250,20 @@ async function markRowDuplicate(jobId, log) {
     );
     if (!res.ok) log('warn', 'file_mover.mark_duplicate_failed', { job_id: jobId, status: res.status });
     else        log('info', 'file_mover.marked_duplicate', { job_id: jobId });
+    // Flag a nivel proceso para el ⚠️ del dashboard.
+    await fetch(
+      `${SUPABASE_URL}/rest/v1/pdf_jobs?id=eq.${encodeURIComponent(jobId)}`,
+      {
+        method:  'PATCH',
+        headers: {
+          'apikey':        SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type':  'application/json',
+          'Prefer':        'return=minimal',
+        },
+        body: JSON.stringify({ has_duplicate: true }),
+      },
+    ).catch(() => {});
   } catch (err) {
     log('warn', 'file_mover.mark_duplicate_error', { job_id: jobId, error: err.message });
   }
