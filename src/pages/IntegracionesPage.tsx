@@ -181,6 +181,7 @@ export function IntegracionesPage() {
   const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
   const [folderError, setFolderError]       = useState<Record<string, string>>({});
   const [selectedFolder, setSelectedFolder] = useState<Record<string, string>>({});
+  const [changingFolder, setChangingFolder] = useState<Record<string, boolean>>({});
   const [savingFolder, setSavingFolder]     = useState<Record<string, boolean>>({});
 
   const loadIntegrations = useCallback(async () => {
@@ -276,6 +277,7 @@ export function IntegracionesPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error guardando carpeta');
       setSuccessMsg(`Carpeta "${folder?.name}" configurada. La integracion esta lista.`);
+      setChangingFolder(prev => ({ ...prev, [integration.id]: false }));
       await loadIntegrations();
     } catch (e: unknown) {
       setFolderError(prev => ({ ...prev, [integration.id]: e instanceof Error ? e.message : 'Error' }));
@@ -589,9 +591,14 @@ export function IntegracionesPage() {
                     </div>
 
                     {/* Drive folder picker */}
-                    {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && !hasDriveFolder(activeInteg) && (
+                    {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && (!hasDriveFolder(activeInteg) || changingFolder[activeInteg.id]) && (
                       <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
-                        <p className="text-xs font-medium text-muted-foreground">Selecciona la carpeta de Drive a monitorear</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-muted-foreground">Selecciona la carpeta de Drive a monitorear</p>
+                          {changingFolder[activeInteg.id] && hasDriveFolder(activeInteg) && (
+                            <button type="button" onClick={() => setChangingFolder(prev => ({ ...prev, [activeInteg.id]: false }))} className="text-xs text-muted-foreground hover:text-foreground underline">Cancelar</button>
+                          )}
+                        </div>
                         {loadingFolders[activeInteg.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
                         {folderError[activeInteg.id] && <p className="text-xs text-destructive">{folderError[activeInteg.id]}</p>}
                         {!loadingFolders[activeInteg.id] && driveFolders[activeInteg.id] && (
@@ -617,11 +624,11 @@ export function IntegracionesPage() {
                     )}
 
                     {/* Carpeta Drive configurada */}
-                    {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && hasDriveFolder(activeInteg) && (
+                    {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && hasDriveFolder(activeInteg) && !changingFolder[activeInteg.id] && (
                       <div className="border-t border-border px-5 py-2 flex items-center gap-2 bg-muted/10">
                         <span className="text-xs text-muted-foreground flex items-center gap-1"><IconFolder /> Carpeta Drive:</span>
                         <span className="text-xs font-mono">{activeInteg.folder_path ?? activeInteg.credentials?.folder_id}</span>
-                        <button type="button" onClick={() => { setDriveFolders(prev => { const n = {...prev}; delete n[activeInteg.id]; return n; }); fetchDriveFolders(activeInteg.id); }} className="ml-auto text-xs text-muted-foreground hover:text-foreground underline">
+                        <button type="button" onClick={() => { setChangingFolder(prev => ({ ...prev, [activeInteg.id]: true })); setDriveFolders(prev => { const n = {...prev}; delete n[activeInteg.id]; return n; }); fetchDriveFolders(activeInteg.id); }} className="ml-auto text-xs text-muted-foreground hover:text-foreground underline">
                           Cambiar
                         </button>
                       </div>
