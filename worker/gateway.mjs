@@ -363,6 +363,46 @@ async function handleSetDriveFolder(body, log) {
   return { status: 200, body: { ok: true } };
 }
 
+// ─── Handler: crear carpeta dedicada en Drive (INT-DRIVE-ONBOARDING) ──────────
+
+async function handleCreateDriveFolder(body, log) {
+  const { integration_id, org_id, folder_name } = body ?? {};
+  if (!integration_id || !org_id || !folder_name) {
+    return { status: 400, body: { error: 'integration_id, org_id, folder_name requeridos' } };
+  }
+  const name = sanitizeFolderName(String(folder_name).trim());
+  if (!name) return { status: 400, body: { error: 'Nombre de carpeta vacío' } };
+
+  let credentials;
+  try {
+    credentials = await callSupabaseRpc('admin_get_integration_credentials', {
+      p_integration_id: integration_id,
+      p_org_id:         org_id,
+    });
+  } catch (err) {
+    log('error', 'drive_create_folder.credentials_error', { integration_id, error: err.message });
+    return { status: 502, body: { error: 'Error obteniendo credenciales' } };
+  }
+  const refreshToken = credentials?.oauth_refresh_token;
+  if (!refreshToken) return { status: 400, body: { error: 'Integración no conectada a Google Drive' } };
+
+  let accessToken;
+  try {
+    accessToken = await getAccessToken(refreshToken);
+  } catch (err) {
+    log('error', 'drive_create_folder.token_refresh_failed', { integration_id, error: err.message });
+    return { status: 502, body: { error: 'Error renovando access token' } };
+  }
+
+  const folderId = await ensureDriveFolder(accessToken, 'root', name);
+  if (!folderId) {
+    log('error', 'drive_create_folder.create_failed', { integration_id, name });
+    return { status: 502, body: { error: 'No se pudo crear la carpeta en Drive' } };
+  }
+  log('info', 'drive_create_folder.created', { integration_id, folderId, name });
+  return { status: 200, body: { id: folderId, name } };
+}
+
 // ─── Handler: init folders de integración (TASK-107) ─────────────────────────
 
 const SYSTEM_INIT_FOLDERS = ['en_proceso', 'procesados', 'fallidos', 'extracciones'];
@@ -1273,6 +1313,18 @@ export function startGateway(queue, log) {
       }
     }
 
+    // Drive: crear carpeta dedicada (INT-DRIVE-ONBOARDING)
+    if (req.method === 'POST' && req.url === '/api/drive/create-folder') {
+      try {
+        const body = await readBody(req);
+        const result = await handleCreateDriveFolder(body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'drive_create_folder.error', { error: err.message });
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     json(res, 404, {
       error:     'Not Found',
       endpoints: [
@@ -1287,6 +1339,7 @@ export function startGateway(queue, log) {
         'GET  /api/auth/google/callback',
         'GET  /api/drive/folders',
         'POST /api/drive/set-folder',
+        'POST /api/drive/create-folder',
         'GET  /api/metrics',
         'GET  /health',
       ],

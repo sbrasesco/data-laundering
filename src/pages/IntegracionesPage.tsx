@@ -182,6 +182,8 @@ export function IntegracionesPage() {
   const [folderError, setFolderError]       = useState<Record<string, string>>({});
   const [selectedFolder, setSelectedFolder] = useState<Record<string, string>>({});
   const [changingFolder, setChangingFolder] = useState<Record<string, boolean>>({});
+  const [newFolderName, setNewFolderName] = useState<Record<string, string>>({});
+  const [creatingDriveFolder, setCreatingDriveFolder] = useState<Record<string, boolean>>({});
   const [savingFolder, setSavingFolder]     = useState<Record<string, boolean>>({});
 
   const loadIntegrations = useCallback(async () => {
@@ -224,10 +226,11 @@ export function IntegracionesPage() {
     if (connected === 'true') {
       setSearchParams({}, { replace: true });
       if (integrationId) {
+        setChangingFolder(prev => ({ ...prev, [integrationId]: true }));
         supabase.rpc('toggle_tenant_integration', { p_integration_id: integrationId, p_active: true })
           .then(() => loadIntegrations());
       }
-      setSuccessMsg('Google Drive conectado. Ahora seleccioná la carpeta a monitorear.');
+      setSuccessMsg('Google Drive conectado. Elegí o creá una carpeta dedicada para Agora.');
     } else if (oauthErr) {
       setError(`Error al conectar con Google Drive: ${oauthErr}`);
       setSearchParams({}, { replace: true });
@@ -237,7 +240,7 @@ export function IntegracionesPage() {
   useEffect(() => {
     if (!organizationId) return;
     integrations.forEach((i) => {
-      if (i.integration_type === 'google_drive' && hasDriveOAuth(i) && !hasDriveFolder(i)) {
+      if (i.integration_type === 'google_drive' && hasDriveOAuth(i) && (!hasDriveFolder(i) || changingFolder[i.id])) {
         if (!driveFolders[i.id] && !loadingFolders[i.id]) fetchDriveFolders(i.id);
       }
     });
@@ -263,20 +266,20 @@ export function IntegracionesPage() {
     }
   };
 
-  const handleSetFolder = async (integration: TenantIntegration) => {
-    const folderId = selectedFolder[integration.id];
+  const handleSetFolder = async (integration: TenantIntegration, folderIdArg?: string, folderNameArg?: string) => {
+    const folderId = folderIdArg ?? selectedFolder[integration.id];
     if (!folderId || !organizationId) return;
-    const folder = driveFolders[integration.id]?.find(f => f.id === folderId);
+    const folderName = folderNameArg ?? driveFolders[integration.id]?.find(f => f.id === folderId)?.name ?? folderId;
     setSavingFolder(prev => ({ ...prev, [integration.id]: true }));
     try {
       const res = await fetch(`${GATEWAY_BASE_URL}/api/drive/set-folder`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${GATEWAY_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_id: integration.id, org_id: organizationId, folder_id: folderId, folder_name: folder?.name ?? folderId }),
+        body: JSON.stringify({ integration_id: integration.id, org_id: organizationId, folder_id: folderId, folder_name: folderName }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error guardando carpeta');
-      setSuccessMsg(`Carpeta "${folder?.name}" configurada. La integracion esta lista.`);
+      setSuccessMsg(`Carpeta "${folderName}" configurada. La integracion esta lista.`);
       setChangingFolder(prev => ({ ...prev, [integration.id]: false }));
       await loadIntegrations();
     } catch (e: unknown) {
@@ -457,6 +460,28 @@ export function IntegracionesPage() {
     window.location.href = buildGoogleOAuthUrl(organizationId, integration.id);
   };
 
+  const handleCreateFolder = async (integration: TenantIntegration) => {
+    const name = (newFolderName[integration.id] ?? '').trim();
+    if (!name || !organizationId) return;
+    setCreatingDriveFolder(prev => ({ ...prev, [integration.id]: true }));
+    setFolderError(prev => ({ ...prev, [integration.id]: '' }));
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/drive/create-folder`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${GATEWAY_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_id: integration.id, org_id: organizationId, folder_name: name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error creando la carpeta');
+      setNewFolderName(prev => ({ ...prev, [integration.id]: '' }));
+      await handleSetFolder(integration, data.id, data.name);
+    } catch (e: unknown) {
+      setFolderError(prev => ({ ...prev, [integration.id]: e instanceof Error ? e.message : 'Error creando la carpeta' }));
+    } finally {
+      setCreatingDriveFolder(prev => ({ ...prev, [integration.id]: false }));
+    }
+  };
+
   const fetchOutputFolderOptions = async (integrationId: string) => {
     if (!organizationId) return;
     setLoadingOutputFolders(true); setOutputFolderOptions([]); setOutputFolderError(null);
@@ -620,6 +645,12 @@ export function IntegracionesPage() {
                         {!loadingFolders[activeInteg.id] && !driveFolders[activeInteg.id] && !folderError[activeInteg.id] && (
                           <Button size="sm" variant="outline" onClick={() => fetchDriveFolders(activeInteg.id)}>Cargar carpetas</Button>
                         )}
+                        <div className="flex items-center gap-2 pt-2 mt-1 border-t border-border/50">
+                          <Input value={newFolderName[activeInteg.id] ?? ''} onChange={(e) => setNewFolderName(prev => ({ ...prev, [activeInteg.id]: e.target.value }))} placeholder="o creá una carpeta dedicada (ej. Agora)" className="flex-1 h-9" />
+                          <Button size="sm" variant="outline" disabled={!(newFolderName[activeInteg.id] ?? '').trim() || creatingDriveFolder[activeInteg.id]} onClick={() => handleCreateFolder(activeInteg)}>
+                            {creatingDriveFolder[activeInteg.id] ? 'Creando...' : 'Crear'}
+                          </Button>
+                        </div>
                       </div>
                     )}
 
