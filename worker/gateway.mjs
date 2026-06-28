@@ -147,11 +147,9 @@ async function ensureDriveFolder(accessToken, parentFolderId, folderName) {
 }
 
 async function createIntegrationFolders(accessToken, parentFolderId, orgId) {
-  // Carpetas raíz (compatibilidad con archivos legados)
-  await ensureDriveFolder(accessToken, parentFolderId, 'procesados');
-  await ensureDriveFolder(accessToken, parentFolderId, 'extracciones');
-
-  // Carpetas por cliente — requiere orgId
+  // INT-DRIVE-ONBOARDING Fase 2: estructura per-cliente alineada con el poller (syncClientFolders).
+  // Cada cliente con sus 4 carpetas de sistema; ya NO se crean procesados/extracciones en la raíz (en Drive
+  // todo el flujo es per-cliente: el poller solo procesa archivos dentro de carpetas de cliente).
   if (!orgId) return;
   let clients;
   try {
@@ -167,7 +165,9 @@ async function createIntegrationFolders(accessToken, parentFolderId, orgId) {
     const folderName = sanitizeFolderName(`${client.name} — ${client.tax_id}`);
     const clientFolderId = await ensureDriveFolder(accessToken, parentFolderId, folderName);
     if (clientFolderId) {
+      await ensureDriveFolder(accessToken, clientFolderId, 'en_proceso');
       await ensureDriveFolder(accessToken, clientFolderId, 'procesados');
+      await ensureDriveFolder(accessToken, clientFolderId, 'fallidos');
       await ensureDriveFolder(accessToken, clientFolderId, 'extracciones');
     }
   }
