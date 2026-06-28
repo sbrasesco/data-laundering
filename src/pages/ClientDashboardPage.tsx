@@ -72,12 +72,18 @@ function formatAvgPerDoc(totalMs: number, docs: number): string {
   return avgSec < 10 ? `${avgSec.toFixed(1)}s` : `${Math.round(avgSec)}s`;
 }
 
+// % de efectividad de extracción = promedio de confidence_score (0..1) del OCR/IA. '—' si no hay datos.
+function formatEffectiveness(avg: number | null): string {
+  if (avg == null) return '—';
+  return `${(avg * 100).toFixed(1).replace('.', ',')}%`;
+}
+
 export function ClientDashboardPage() {
   const navigate = useNavigate();
   const { clients, loading: clientsLoading } = useClients();
   const [filters, setFilters] = useState<DashboardFilters>({});
 
-  const { jobs, loading, error, metrics } = useClientJobs(filters);
+  const { jobs, loading, error, metrics, page, setPage, totalPages, totalJobs, systemAvgConfidence } = useClientJobs(filters);
 
 
   const handleFechaDesdeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -227,6 +233,22 @@ export function ClientDashboardPage() {
                     <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
                     <span className="text-sm font-bold font-lora tabular-nums shrink-0">{formatAvgPerDoc(metrics.totalExecutionMs, metrics.totalDocuments)}</span>
                   </li>
+                  <li className="flex items-baseline gap-2">
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: '#22C365' }} />
+                      <span className="text-sm text-foreground">Efectividad de extracción</span>
+                    </span>
+                    <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                    <span className="text-sm font-bold font-lora tabular-nums shrink-0">{formatEffectiveness(metrics.avgConfidence)}</span>
+                  </li>
+                  <li className="flex items-baseline gap-2">
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: '#94a3b8' }} />
+                      <span className="text-sm text-foreground">Efectividad del sistema</span>
+                    </span>
+                    <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                    <span className="text-sm font-bold font-lora tabular-nums shrink-0">{formatEffectiveness(systemAvgConfidence)}</span>
+                  </li>
                 </ul>
               </CardContent>
             </Card>
@@ -251,6 +273,7 @@ export function ClientDashboardPage() {
                 </CardContent>
               </Card>
             ) : (
+              <>
               <Card>
                 <Table>
                   <TableHeader>
@@ -307,6 +330,22 @@ export function ClientDashboardPage() {
                   </TableBody>
                 </Table>
               </Card>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-3">
+                  <span className="text-sm text-muted-foreground">
+                    Página {page} de {totalPages} · {totalJobs} procesos
+                  </span>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                      Anterior
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+              </>
             )}
           </div>
         </>

@@ -4,7 +4,8 @@
 
 @font-face {
   font-family: 'Sugar Pie';
-  src: url('/fonts/Sugar-Pie.ttf') format('truetype');
+  src: url('/fonts/Sugar-Pie.woff2') format('woff2'),
+       url('/fonts/Sugar-Pie.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
