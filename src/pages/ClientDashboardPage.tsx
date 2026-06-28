@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+import { Switch } from '../components/ui/Switch';
 import { AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useClientJobs, DashboardFilters } from '../hooks/useClientJobs';
@@ -78,12 +80,60 @@ function formatEffectiveness(avg: number | null): string {
   return `${(avg * 100).toFixed(1).replace('.', ',')}%`;
 }
 
+interface PriceFeature { key: string; label: string; cost: number; }
+interface PricePolling { label: string; cost: number; }
+interface PriceBreakdown {
+  base_price: number;
+  features: PriceFeature[];
+  polling: PricePolling | null;
+  total_per_doc: number;
+}
+
+interface DashIntegration { id: string; integration_type: string; is_active: boolean; }
+const INTEGRATION_LABELS: Record<string, string> = {
+  google_drive: 'Google Drive', supabase_storage: 'Supabase Storage',
+  firebase_storage: 'Firebase Storage', ftp: 'FTP', sftp: 'SFTP',
+};
+
 export function ClientDashboardPage() {
   const navigate = useNavigate();
   const { clients, loading: clientsLoading } = useClients();
   const [filters, setFilters] = useState<DashboardFilters>({});
 
   const { jobs, loading, error, metrics, page, setPage, totalPages, totalJobs, systemAvgConfidence } = useClientJobs(filters);
+
+  const [priceBreakdown, setPriceBreakdown] = useState<PriceBreakdown | null>(null);
+  const [integrations, setIntegrations] = useState<DashIntegration[]>([]);
+  const [togglingIntg, setTogglingIntg] = useState<string | null>(null);
+
+  // Costo por documento + integraciones del tenant (para los switches). El precio (get_price_breakdown)
+  // y el poller respetan is_active, así que togglear cambia ambos. Se recarga tras cada toggle.
+  const loadCostData = useCallback(async () => {
+    const [pb, ints] = await Promise.all([
+      supabase.rpc('get_price_breakdown'),
+      supabase.rpc('get_my_integrations'),
+    ]);
+    if (!pb.error && pb.data) setPriceBreakdown(pb.data as PriceBreakdown);
+    if (!ints.error && Array.isArray(ints.data)) {
+      setIntegrations((ints.data as any[]).map((i) => ({
+        id: i.id, integration_type: i.integration_type, is_active: i.is_active,
+      })));
+    }
+  }, []);
+
+  useEffect(() => { loadCostData(); }, [loadCostData]);
+
+  const handleToggleIntegration = async (intg: DashIntegration) => {
+    setTogglingIntg(intg.id);
+    try {
+      const { error: e } = await supabase.rpc('set_integration_active', {
+        p_integration_id: intg.id, p_active: !intg.is_active,
+      });
+      if (!e) await loadCostData();
+    } finally {
+      setTogglingIntg(null);
+    }
+  };
 
 
   const handleFechaDesdeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -253,10 +303,48 @@ export function ClientDashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Card 3 · a definir — vacío (sin título aún) */}
+            {/* Card 3 · Costo por documento — desglose de precios (RPC get_price_breakdown) */}
             <Card className="overflow-hidden h-full">
               <div className="h-1.5 w-full" style={{ background: '#FED210' }} />
-              <CardContent className="pt-4 pb-5 min-h-[64px]" />
+              <CardContent className="pt-4 pb-5">
+                <h3 className="font-sugar text-2xl text-foreground mb-3 text-center">Costo por documento</h3>
+                {priceBreakdown ? (
+                  <ul className="space-y-2.5">
+                    <li className="flex items-baseline gap-2">
+                      <span className="text-sm text-foreground shrink-0">Precio base</span>
+                      <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                      <span className="text-sm font-bold font-lora tabular-nums shrink-0">${priceBreakdown.base_price.toFixed(2)}</span>
+                    </li>
+                    {priceBreakdown.features.map((f) => (
+                      <li key={f.key} className="flex items-baseline gap-2">
+                        <span className="text-sm text-foreground shrink-0">{f.label}</span>
+                        <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                        <span className="text-sm font-bold font-lora tabular-nums shrink-0">${f.cost.toFixed(2)}</span>
+                      </li>
+                    ))}
+                    {priceBreakdown.polling && (
+                      <li className="flex items-baseline gap-2">
+                        <span className="text-sm text-foreground shrink-0">Escucha {priceBreakdown.polling.label}</span>
+                        <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                        <span className="text-sm font-bold font-lora tabular-nums shrink-0">${priceBreakdown.polling.cost.toFixed(2)}</span>
+                      </li>
+                    )}
+                    <li className="flex items-baseline gap-2 border-t border-border pt-2 mt-1">
+                      <span className="text-sm font-medium text-foreground shrink-0">Total por documento</span>
+                      <span className="flex-1 self-end mb-[3px] border-b border-dotted border-muted-foreground/30" />
+                      <span className="text-sm font-bold font-lora tabular-nums shrink-0">${priceBreakdown.total_per_doc.toFixed(2)}</span>
+                    </li>
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground/50">Cargando…</p>
+                )}
+                {integrations.filter((i) => i.is_active).map((i) => (
+                  <div key={i.id} className="flex items-center justify-between gap-2 mt-3 px-2.5 py-2 rounded-lg bg-muted/50">
+                    <span className="text-xs text-muted-foreground">Integración · {INTEGRATION_LABELS[i.integration_type] ?? i.integration_type}</span>
+                    <Switch checked={i.is_active} onChange={() => handleToggleIntegration(i)} disabled={togglingIntg === i.id} />
+                  </div>
+                ))}
+              </CardContent>
             </Card>
           </div>
 
