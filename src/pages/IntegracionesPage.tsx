@@ -461,7 +461,7 @@ export function IntegracionesPage() {
   };
 
   const handleCreateFolder = async (integration: TenantIntegration) => {
-    const name = (newFolderName[integration.id] ?? '').trim();
+    const name = (newFolderName[integration.id] ?? 'Agora').trim();
     if (!name || !organizationId) return;
     setCreatingDriveFolder(prev => ({ ...prev, [integration.id]: true }));
     setFolderError(prev => ({ ...prev, [integration.id]: '' }));
@@ -589,7 +589,9 @@ export function IntegracionesPage() {
                     <div className="border-t border-border divide-y divide-border">
                       <div className="px-5 py-3 space-y-1.5">
                         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Entrada</p>
-                        {activeInteg.folder_path ? (
+                        {changingFolder[activeInteg.id] ? (
+                          <p className="text-xs text-muted-foreground italic">Elegí una carpeta abajo</p>
+                        ) : activeInteg.folder_path ? (
                           <div className="flex items-start gap-1.5 text-xs">
                             <span className="text-muted-foreground flex-shrink-0 mt-px"><IconFolder /></span>
                             <span className="font-mono break-all">{activeInteg.folder_path}</span>
@@ -619,38 +621,37 @@ export function IntegracionesPage() {
                     {activeType === 'google_drive' && hasDriveOAuth(activeInteg) && (!hasDriveFolder(activeInteg) || changingFolder[activeInteg.id]) && (
                       <div className="border-t border-border px-5 py-3 space-y-2 bg-muted/20">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-muted-foreground">Selecciona la carpeta de Drive a monitorear</p>
+                          <p className="text-xs font-medium text-muted-foreground">Carpeta raíz a monitorear</p>
                           {changingFolder[activeInteg.id] && hasDriveFolder(activeInteg) && (
                             <button type="button" onClick={() => setChangingFolder(prev => ({ ...prev, [activeInteg.id]: false }))} className="text-xs text-muted-foreground hover:text-foreground underline">Cancelar</button>
                           )}
                         </div>
-                        {loadingFolders[activeInteg.id] && <p className="text-xs text-muted-foreground">Cargando carpetas...</p>}
                         {folderError[activeInteg.id] && <p className="text-xs text-destructive">{folderError[activeInteg.id]}</p>}
-                        {!loadingFolders[activeInteg.id] && driveFolders[activeInteg.id] && (
+                        <Select value={selectedFolder[activeInteg.id] ?? '__new__'} onValueChange={(v) => setSelectedFolder(prev => ({ ...prev, [activeInteg.id]: v }))}>
+                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__new__">➕ Crear carpeta nueva para Agora</SelectItem>
+                            {(driveFolders[activeInteg.id] ?? []).map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        {(selectedFolder[activeInteg.id] ?? '__new__') === '__new__' ? (
                           <div className="flex gap-2 items-center">
-                            <Select value={selectedFolder[activeInteg.id] || undefined} onValueChange={(v) => setSelectedFolder(prev => ({ ...prev, [activeInteg.id]: v }))}>
-                              <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Elegi una carpeta" /></SelectTrigger>
-                              <SelectContent>
-                                {driveFolders[activeInteg.id].map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                            <Button size="sm" disabled={!selectedFolder[activeInteg.id] || savingFolder[activeInteg.id]} onClick={() => handleSetFolder(activeInteg)}>
-                              {savingFolder[activeInteg.id] ? 'Guardando...' : 'Confirmar'}
+                            <Input value={newFolderName[activeInteg.id] ?? 'Agora'} onChange={(e) => setNewFolderName(prev => ({ ...prev, [activeInteg.id]: e.target.value }))} placeholder="Nombre de la carpeta" className="flex-1 h-9" />
+                            <Button size="sm" disabled={!(newFolderName[activeInteg.id] ?? 'Agora').trim() || creatingDriveFolder[activeInteg.id]} onClick={() => handleCreateFolder(activeInteg)}>
+                              {creatingDriveFolder[activeInteg.id] ? 'Creando...' : 'Crear y usar'}
                             </Button>
-                            <button type="button" onClick={() => fetchDriveFolders(activeInteg.id)} className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-muted-foreground">
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 items-center">
+                            <Button size="sm" className="flex-1" disabled={savingFolder[activeInteg.id]} onClick={() => handleSetFolder(activeInteg)}>
+                              {savingFolder[activeInteg.id] ? 'Guardando...' : 'Usar esta carpeta'}
+                            </Button>
+                            <button type="button" onClick={() => fetchDriveFolders(activeInteg.id)} title="Recargar carpetas" className="h-9 w-9 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors text-muted-foreground">
                               <IconRefresh />
                             </button>
                           </div>
                         )}
-                        {!loadingFolders[activeInteg.id] && !driveFolders[activeInteg.id] && !folderError[activeInteg.id] && (
-                          <Button size="sm" variant="outline" onClick={() => fetchDriveFolders(activeInteg.id)}>Cargar carpetas</Button>
-                        )}
-                        <div className="flex items-center gap-2 pt-2 mt-1 border-t border-border/50">
-                          <Input value={newFolderName[activeInteg.id] ?? ''} onChange={(e) => setNewFolderName(prev => ({ ...prev, [activeInteg.id]: e.target.value }))} placeholder="o creá una carpeta dedicada (ej. Agora)" className="flex-1 h-9" />
-                          <Button size="sm" variant="outline" disabled={!(newFolderName[activeInteg.id] ?? '').trim() || creatingDriveFolder[activeInteg.id]} onClick={() => handleCreateFolder(activeInteg)}>
-                            {creatingDriveFolder[activeInteg.id] ? 'Creando...' : 'Crear'}
-                          </Button>
-                        </div>
+                        <p className="text-[11px] text-muted-foreground">Se crea una carpeta exclusiva para Agora; adentro se arman las subcarpetas de proceso por cliente.</p>
                       </div>
                     )}
 
