@@ -226,11 +226,10 @@ export function IntegracionesPage() {
     if (connected === 'true') {
       setSearchParams({}, { replace: true });
       if (integrationId) {
-        setChangingFolder(prev => ({ ...prev, [integrationId]: true }));
         supabase.rpc('toggle_tenant_integration', { p_integration_id: integrationId, p_active: true })
           .then(() => loadIntegrations());
       }
-      setSuccessMsg('Google Drive conectado. Elegí o creá una carpeta dedicada para Agora.');
+      setSuccessMsg('Google Drive conectado. Se creó la carpeta AGORA_SOFTWARE con la estructura automáticamente.');
     } else if (oauthErr) {
       setError(`Error al conectar con Google Drive: ${oauthErr}`);
       setSearchParams({}, { replace: true });

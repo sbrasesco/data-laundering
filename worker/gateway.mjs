@@ -238,6 +238,35 @@ async function handleGoogleOAuthCallback(req, log) {
   }
 
   log('info', 'google_oauth.connected', { integrationId, orgId });
+
+  // INT-DRIVE-ONBOARDING: crear automáticamente la carpeta raíz AGORA_SOFTWARE + estructura
+  try {
+    const accessToken = await getAccessToken(tokens.refresh_token);
+    const rootName    = 'AGORA_SOFTWARE';
+    const rootId      = await ensureDriveFolder(accessToken, 'root', rootName);
+    if (rootId) {
+      await callSupabaseRpc('admin_update_integration_credentials', {
+        p_integration_id:    integrationId,
+        p_org_id:            orgId,
+        p_merge_credentials: { folder_id: rootId },
+      });
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/tenant_integrations?id=eq.${integrationId}&organization_id=eq.${orgId}`,
+        {
+          method:  'PATCH',
+          headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ folder_path: rootName }),
+        }
+      );
+      // estructura interna (por cliente) en segundo plano para no demorar el redirect
+      createIntegrationFolders(accessToken, rootId, orgId)
+        .catch(e => log('warn', 'google_oauth.auto_structure_failed', { integrationId, error: e.message }));
+      log('info', 'google_oauth.auto_folder_set', { integrationId, rootId, rootName });
+    }
+  } catch (err) {
+    log('warn', 'google_oauth.auto_folder_failed', { integrationId, error: err.message });
+  }
+
   return `${FRONTEND_URL}/integrations?google_connected=true&integration_id=${integrationId}`;
 }
 
