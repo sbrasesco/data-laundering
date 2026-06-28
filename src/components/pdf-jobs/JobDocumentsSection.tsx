@@ -11,7 +11,7 @@ interface JobDocumentsSectionProps {
   onRowUpdated: () => void;
 }
 
-const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
 const WORKER_API_KEY     = import.meta.env.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
 
 const STATUS_LABEL: Record<string, string> = {

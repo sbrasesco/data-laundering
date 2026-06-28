@@ -1122,7 +1122,7 @@ export function startGateway(queue, log) {
     }
 
     // IPN de MercadoPago — EXENTO de auth (MP no envía Bearer token)
-    if (req.method === 'POST' && req.url === '/api/mp/webhook') {
+    if (req.method === 'POST' && req.url?.split('?')[0] === '/api/mp/webhook') {
       try {
         const body = await readBody(req);
         const result = await handleMpWebhook(body, log);

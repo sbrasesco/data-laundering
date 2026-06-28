@@ -70,7 +70,7 @@ export async function uploadFileToWorker(
   clientCuit?: string | null,
   organizationId?: string | null
 ): Promise<{ success: boolean; error: string | null }> {
-  const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+  const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
   const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
 
   try {

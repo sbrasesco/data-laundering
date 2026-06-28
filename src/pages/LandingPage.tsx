@@ -86,7 +86,7 @@ const PLANES = [
   { nombre: 'Básico',      slug: 'basico',       creditos: '200 créditos',   precio: 'USD 60',   porCredito: 'USD 0,30 / crédito', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['200 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Créditos acumulativos'] },
   { nombre: 'Profesional', slug: 'profesional',  creditos: '600 créditos',   precio: 'USD 162',  porCredito: 'USD 0,27 / crédito', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.amarillo, ctaTexto: C.negro, ctaHref: null,                        features: ['600 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Créditos acumulativos'] },
   { nombre: 'Business',    slug: 'business',     creditos: '1.000 créditos', precio: 'USD 220',  porCredito: 'USD 0,22 / crédito', destacado: false, acento: C.lila,     acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.lila,   ctaTexto: C.blanco, ctaHref: null,                        features: ['1.000 documentos', 'Google Drive / FTP / SFTP', 'API access', 'Soporte prioritario', 'Créditos acumulativos'] },
-  { nombre: 'Enterprise',  slug: null,           creditos: 'Personalizado',  precio: 'A medida', porCredito: null,                 destacado: false, acento: C.negro,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contactar',      ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: 'mailto:hola@aignition.net', features: ['Volumen a medida', 'Integraciones específicas', 'SLA garantizado', 'Onboarding dedicado'] },
+  { nombre: 'Enterprise',  slug: null,           creditos: 'Personalizado',  precio: 'A medida', porCredito: null,                 destacado: false, acento: C.negro,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contactar',      ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: 'mailto:hola@agoradigital.io', features: ['Volumen a medida', 'Integraciones específicas', 'SLA garantizado', 'Onboarding dedicado'] },
 ];
 
 const FAQS = [
@@ -236,7 +236,7 @@ function Precios() {
 
       // Call Worker Gateway (MP preference creation moved to DO — Supabase Edge Function blocked by MP PolicyAgent)
       const { data: { session: freshSession } } = await supabase.auth.getSession();
-      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
       const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
       const response = await fetch(
         `${workerGatewayUrl}/api/mp/create-preference`,
@@ -376,7 +376,7 @@ function CTA() {
         <p className="text-lg font-medium mb-10" style={{ color: C.gris }}>Tu competencia ya lo está usando.</p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <a href="/login" className="font-black px-8 py-4 rounded-xl text-base" style={{ background: C.verde, color: C.blanco }}>Comenzar ahora</a>
-          <a href="mailto:hola@aignition.net" className="font-black px-8 py-4 rounded-xl text-base border-2" style={{ borderColor: C.blanco, color: C.blanco }}>Hablar con ventas</a>
+          <a href="mailto:hola@agoradigital.io" className="font-black px-8 py-4 rounded-xl text-base border-2" style={{ borderColor: C.blanco, color: C.blanco }}>Hablar con ventas</a>
         </div>
       </div>
     </section>

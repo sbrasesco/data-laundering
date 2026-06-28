@@ -37,7 +37,7 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
   const [loadingCustom, setLoadingCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+  const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
   const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
 
   useEffect(() => {

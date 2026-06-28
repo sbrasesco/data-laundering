@@ -70,7 +70,7 @@ function HeaderLabel({ text }: { text: string }) {
   return <>{words.map((w, i) => <span key={i}>{i > 0 && <br />}{w}</span>)}</>;
 }
 
-const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
 const WORKER_API_KEY     = import.meta.env.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
 
 export function JobRowsTable({ rows, jobId, orgId, onRowUpdated }: JobRowsTableProps) {

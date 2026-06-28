@@ -65,7 +65,7 @@ export function LoginPage() {
       }
 
       // Call Worker Gateway (MP preference creation moved to DO — Supabase Edge Function blocked by MP PolicyAgent)
-      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
       const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
       const response = await fetch(
         `${workerGatewayUrl}/api/mp/create-preference`,
