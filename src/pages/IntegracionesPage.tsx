@@ -391,8 +391,8 @@ export function IntegracionesPage() {
       const { data: integrationId, error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
         p_type: selectedType, p_config: {}, p_credentials: credentials,
         p_folder_path: folderPath || null, p_interval: pollingInterval,
-        p_output_enabled: outputEnabled,
-        p_output_folder: outputEnabled ? (outputFolder || 'output') : null,
+        p_output_enabled: selectedType === 'google_drive' ? true : outputEnabled,
+        p_output_folder: selectedType === 'google_drive' ? 'extracciones' : (outputEnabled ? (outputFolder || 'output') : null),
         p_output_format: outputFormat,
       });
       if (rpcError) throw rpcError;
@@ -441,8 +441,8 @@ export function IntegracionesPage() {
       const { data: integrationId, error: rpcError } = await supabase.rpc('upsert_tenant_integration', {
         p_type: 'google_drive', p_config: {}, p_credentials: {},
         p_folder_path: null, p_interval: pollingInterval,
-        p_output_enabled: outputEnabled,
-        p_output_folder: outputEnabled ? (outputFolder || 'output') : null,
+        p_output_enabled: selectedType === 'google_drive' ? true : outputEnabled,
+        p_output_folder: selectedType === 'google_drive' ? 'extracciones' : (outputEnabled ? (outputFolder || 'output') : null),
         p_output_format: outputFormat,
       });
       if (rpcError) throw rpcError;
@@ -889,21 +889,31 @@ export function IntegracionesPage() {
 
             {/* Salida automatica */}
             <div className="space-y-3 border-t pt-4">
-              <div className="flex items-center justify-between">
+              {selectedType === 'google_drive' ? (
                 <div>
                   <Label className="text-sm font-medium flex items-center gap-1.5">
-                    <IconUpload size={13} /> Salida automatica
+                    <IconUpload size={13} /> Formato de salida
                   </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">Depositar el resultado al terminar el procesamiento.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">El resultado se deposita automaticamente en <span className="font-mono">extracciones</span> (dentro de la carpeta de cada cliente).</p>
                 </div>
-                <button type="button" onClick={() => { const next = !outputEnabled; setOutputEnabled(next); if (!next) setOutputFormat('csv'); }}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-slate-300'}`}>
-                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                </button>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm font-medium flex items-center gap-1.5">
+                      <IconUpload size={13} /> Salida automatica
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Depositar el resultado al terminar el procesamiento.</p>
+                  </div>
+                  <button type="button" onClick={() => { const next = !outputEnabled; setOutputEnabled(next); if (!next) setOutputFormat('csv'); }}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${outputEnabled ? 'bg-primary' : 'bg-slate-300'}`}>
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${outputEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
+              )}
 
-              {outputEnabled && (
-                <div className="grid grid-cols-[2fr_1fr] gap-3">
+              {(outputEnabled || selectedType === 'google_drive') && (
+                <div className={selectedType === 'google_drive' ? '' : 'grid grid-cols-[2fr_1fr] gap-3'}>
+                  {selectedType !== 'google_drive' && (
                   <div className="space-y-1.5">
                     <Label className="text-sm">Carpeta de salida</Label>
                     <div className="flex gap-1.5 items-center">
@@ -955,6 +965,7 @@ export function IntegracionesPage() {
                       </p>
                     )}
                   </div>
+                  )}
                   <div className="space-y-1.5">
                     <Label className="text-sm">Formato</Label>
                     <Select
