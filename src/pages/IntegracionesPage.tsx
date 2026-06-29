@@ -596,7 +596,9 @@ export function IntegracionesPage() {
                             <span className="font-mono break-all">{activeInteg.folder_path}</span>
                           </div>
                         ) : (
-                          <p className="text-xs text-muted-foreground italic">Sin carpeta configurada</p>
+                          <p className="text-xs text-muted-foreground italic">
+                            {(activeType === 'supabase_storage' || activeType === 'firebase_storage') ? 'Raíz del bucket' : 'Sin carpeta configurada'}
+                          </p>
                         )}
                         <p className="text-xs text-muted-foreground">Intervalo: cada {activeInteg.polling_interval_minutes} min</p>
                       </div>
