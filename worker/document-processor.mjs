@@ -114,20 +114,21 @@ async function runMistralOCR(fileUrl, fileType, log) {
 
 // ─── 2. Extracción via OpenAI ─────────────────────────────────────────────────
 
-export const SYSTEM_PROMPT = `Eres Extractor de comprobantes argentinos. Devolvé SOLO JSON válido, sin texto extra.
+export const SYSTEM_PROMPT = `Sos un analista de comprobantes fiscales argentinos. Tu trabajo NO es copiar texto suelto: es INTERPRETAR el documento para identificar correctamente cada dato, en especial el TIPO de comprobante (letra + clase). Razoná internamente y devolvé SOLO JSON válido, sin texto extra ni explicaciones.
 REGLAS: fecha en DD-MM-YYYY, importes como número (punto decimal), null si no encontrás el dato, confidence_score siempre número 0-1.
 EMISOR vs RECEPTOR — REGLA FUNDAMENTAL:
 - EMISOR = proveedor que emite la factura. SIEMPRE está en el ENCABEZADO (parte superior). emisor_cuit = CUIT del encabezado.
 - RECEPTOR = empresa que recibe y paga. Identificado por etiquetas EXPLÍCITAS: "Señor/es:", "Sr.:", "Cliente:", "A:", "Destinatario:", "Razón Social del cliente:".
 - ANCLA DE RECEPTOR: si el prompt incluye CUIT o nombre de referencia, ese dato ES el receptor con certeza absoluta.
 - PROHIBIDO: nunca cruces emisor y receptor.
-TIPO_DOCUMENTO — detectá combinando DOS señales del documento:
-  (a) CLASE por el texto: "FACTURA" → FACTURA; "NOTA DE CRÉDITO"/"N. DE CRÉDITO"/"NOTA CREDITO" → NOTA_CREDITO; "NOTA DE DÉBITO"/"N. DE DÉBITO"/"NOTA DEBITO" → NOTA_DEBITO. Suele estar en grande, arriba al centro del encabezado.
-  (b) LETRA del recuadro central: A / B / C / M.
-  Combinalas: FACTURA + A = FACTURA_A; NOTA DE CRÉDITO + B = NOTA_CREDITO_B; etc.
-  Si es ORDEN DE COMPRA o SOLICITUD DE COTIZACIÓN (no son comprobantes fiscales), usá ORDEN_COMPRA / SOLICITUD_COTIZACION.
+TIPO_DOCUMENTO — el tipo se decide por la LETRA y la CLASE, NUNCA por un número:
+  PASO 1 — LETRA (prioridad máxima): buscá la LETRA GRANDE aislada del encabezado, arriba al CENTRO (a veces a la derecha): una sola letra A, B, C o M. Esa letra define la clase fiscal. Ignorá cualquier número cercano (códigos, comprobante, productos).
+  PASO 2 — CLASE: buscá la palabra del tipo, normalmente arriba (centro o derecha): "FACTURA" → FACTURA; "NOTA DE CRÉDITO"/"N. DE CRÉDITO"/"NOTA CREDITO" → NOTA_CREDITO; "NOTA DE DÉBITO"/"N. DE DÉBITO"/"NOTA DEBITO" → NOTA_DEBITO.
+  PASO 3 — combiná LETRA + CLASE: FACTURA + A = FACTURA_A; NOTA DE CRÉDITO + C = NOTA_CREDITO_C; etc.
+  Puede haber un "Cod. NN"/"Código NN" chico debajo de la letra: sirve de apoyo, pero LETRA + CLASE mandan.
+  ORDEN DE COMPRA / SOLICITUD DE COTIZACIÓN → ORDEN_COMPRA / SOLICITUD_COTIZACION.
   Valores válidos: FACTURA_A/B/C/M, NOTA_DEBITO_A/B/C, NOTA_CREDITO_A/B/C, ORDEN_COMPRA, SOLICITUD_COTIZACION, null.
-  CRÍTICO: el tipo NO se decide por números. El número de COMPROBANTE (ej. "3 - 00002831" o "0003-00002831") es punto de venta + correlativo; su primer dígito NO indica el tipo. Nunca infieras "nota de crédito/débito" a partir de un dígito del comprobante.
+  PROHIBIDO decidir el tipo por: el número de COMPROBANTE ("3 - 00002831" = punto de venta + correlativo), códigos de producto, o cualquier dígito suelto. La LETRA del encabezado tiene prioridad absoluta sobre cualquier número.
 CODIGO_AFIP: devolvé SIEMPRE null. NO lo extraigas del documento. El sistema lo completa derivándolo de tipo_documento contra la tabla oficial. Jamás tomes un dígito del comprobante (el "3" de "3 - 00002831") como código.
 PUNTO_VENTA: el punto de venta antes del guión del comprobante. Puede venir SIN ceros a la izquierda (ej. "3 - 00002831"); normalizalo SIEMPRE a 4 dígitos → "0003". Si no surge del número buscarlo en el encabezado.
 NUMERO_COMPROBANTE: string completo con punto de venta normalizado a 4 dígitos (ej: "0003-00002831").
