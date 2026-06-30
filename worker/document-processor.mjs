@@ -121,14 +121,15 @@ EMISOR vs RECEPTOR — REGLA FUNDAMENTAL:
 - RECEPTOR = empresa que recibe y paga. Identificado por etiquetas EXPLÍCITAS: "Señor/es:", "Sr.:", "Cliente:", "A:", "Destinatario:", "Razón Social del cliente:".
 - ANCLA DE RECEPTOR: si el prompt incluye CUIT o nombre de referencia, ese dato ES el receptor con certeza absoluta.
 - PROHIBIDO: nunca cruces emisor y receptor.
-TIPO_DOCUMENTO — el tipo se decide por la LETRA y la CLASE, NUNCA por un número:
-  PASO 1 — LETRA (prioridad máxima): buscá la LETRA GRANDE aislada del encabezado, arriba al CENTRO (a veces a la derecha): una sola letra A, B, C o M. Esa letra define la clase fiscal. Ignorá cualquier número cercano (códigos, comprobante, productos).
-  PASO 2 — CLASE: buscá la palabra del tipo, normalmente arriba (centro o derecha): "FACTURA" → FACTURA; "NOTA DE CRÉDITO"/"N. DE CRÉDITO"/"NOTA CREDITO" → NOTA_CREDITO; "NOTA DE DÉBITO"/"N. DE DÉBITO"/"NOTA DEBITO" → NOTA_DEBITO.
-  PASO 3 — combiná LETRA + CLASE: FACTURA + A = FACTURA_A; NOTA DE CRÉDITO + C = NOTA_CREDITO_C; etc.
-  Puede haber un "Cod. NN"/"Código NN" chico debajo de la letra: sirve de apoyo, pero LETRA + CLASE mandan.
+TIPO_DOCUMENTO — primero identificá la CLASE (FACTURA / NOTA DE CRÉDITO / NOTA DE DÉBITO), que casi siempre está escrita arriba (centro o derecha): "FACTURA" → FACTURA; "NOTA DE CRÉDITO"/"N. DE CRÉDITO"/"NOTA CREDITO" → NOTA_CREDITO; "NOTA DE DÉBITO"/"N. DE DÉBITO"/"NOTA DEBITO" → NOTA_DEBITO. Después determiná la VARIANTE (A/B/C/M) en este ORDEN de prioridad:
+  NIVEL 1 — LETRA: si hay una LETRA GRANDE aislada (A, B, C o M) en el recuadro del encabezado (arriba al centro), esa letra manda. Ignorá números cercanos.
+  NIVEL 2 — CÓDIGO IMPRESO: si NO hay letra clara pero hay un "Cod. NN"/"Código NN" en el encabezado (ej. "Cod. 002"), traducílo a la variante con esta tabla — Facturas: 01=A, 06=B, 11=C, 51=M · Notas de débito: 02=A, 07=B, 12=C · Notas de crédito: 03=A, 08=B, 13=C.
+  NIVEL 3 — INFERENCIA FISCAL (sólo si NO hay letra NI código en el texto): deducí la variante por la situación de IVA: emisor "Responsable Monotributo"/Monotributo → C; emisor "Responsable Inscripto" con IVA discriminado (hay renglón "IVA 21%/10,5%/..." o el receptor es Responsable Inscripto) → A; emisor "Responsable Inscripto" con IVA NO discriminado (precio final con IVA incluido, o receptor Consumidor Final/Monotributo) → B.
+  Combiná CLASE + VARIANTE: FACTURA + A = FACTURA_A; NOTA DE CRÉDITO + C = NOTA_CREDITO_C.
+  NUNCA devuelvas la clase sin variante (ej. "FACTURA" suelto es inválido). Si tras los 3 niveles no podés determinar la variante, devolvé null.
+  PROHIBIDO decidir el tipo con el número de COMPROBANTE ("3 - 00002831" = punto de venta + correlativo), códigos de producto, o cualquier dígito suelto.
   ORDEN DE COMPRA / SOLICITUD DE COTIZACIÓN → ORDEN_COMPRA / SOLICITUD_COTIZACION.
   Valores válidos: FACTURA_A/B/C/M, NOTA_DEBITO_A/B/C, NOTA_CREDITO_A/B/C, ORDEN_COMPRA, SOLICITUD_COTIZACION, null.
-  PROHIBIDO decidir el tipo por: el número de COMPROBANTE ("3 - 00002831" = punto de venta + correlativo), códigos de producto, o cualquier dígito suelto. La LETRA del encabezado tiene prioridad absoluta sobre cualquier número.
 CODIGO_AFIP: devolvé SIEMPRE null. NO lo extraigas del documento. El sistema lo completa derivándolo de tipo_documento contra la tabla oficial. Jamás tomes un dígito del comprobante (el "3" de "3 - 00002831") como código.
 PUNTO_VENTA: el punto de venta antes del guión del comprobante. Puede venir SIN ceros a la izquierda (ej. "3 - 00002831"); normalizalo SIEMPRE a 4 dígitos → "0003". Si no surge del número buscarlo en el encabezado.
 NUMERO_COMPROBANTE: string completo con punto de venta normalizado a 4 dígitos (ej: "0003-00002831").
