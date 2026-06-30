@@ -147,3 +147,6 @@ SESION-CONTEXTO-*.md
 
 # Archivos temporales
 temp_workflow.json
+
+# Carpeta de fuentes duplicada en la raíz — la fuente real vive en public/fonts/ (housekeeping 2026-06-30)
+/fonts/

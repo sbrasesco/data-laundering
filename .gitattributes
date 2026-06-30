@@ -1,0 +1,17 @@
+# Normalización de fin de línea — fix del ruido CRLF recurrente de OneDrive/Windows.
+# Fuerza LF en el repo y en el working tree (sin esto, cada toque de OneDrive en
+# Windows reaparece como "modified" sin cambio real). Housekeeping 2026-06-30.
+* text=auto eol=lf
+
+# Binarios: nunca tocar (evita corrupción al normalizar)
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.rar   binary
