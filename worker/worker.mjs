@@ -31,7 +31,7 @@ import { buildDocFileBase }               from './doc-naming.mjs';
 // DEC-012: chequeo de créditos antes de llamar a Mistral/OpenAI.
 const WORKER_VERSION           = process.env.WORKER_VERSION     ?? '0.8.0';
 const INTEGRATION_POLL_INTERVAL_MS = 60 * 1000; // 1 min — el poller filtra qué tenants están "due"
-const GATEWAY_URL              = process.env.GATEWAY_URL ?? 'https://automation.aignition.net/worker';
+const GATEWAY_URL              = process.env.GATEWAY_URL ?? 'https://api.agoradigital.io';
 const GATEWAY_API_KEY          = process.env.GATEWAY_API_KEY ?? '';
 const QUEUE_NAME      = 'pdf-processing';
 const CONCURRENCY     = Number(process.env.WORKER_CONCURRENCY ?? 3);
