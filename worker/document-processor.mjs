@@ -42,6 +42,33 @@ function toIsoDate(ddmmyyyy) {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
+// ─── Mapa codigo_afip por tipo de comprobante (document_types, cacheado) ──────
+// codigo_afip pasa a ser atributo del tipo en DB; lo deriva el worker, no la IA.
+let _afipCodeMap   = null;
+let _afipCodeMapAt = 0;
+const AFIP_MAP_TTL_MS = 10 * 60 * 1000; // 10 min
+
+async function getAfipCodeMap(log) {
+  const now = Date.now();
+  if (_afipCodeMap && (now - _afipCodeMapAt) < AFIP_MAP_TTL_MS) return _afipCodeMap;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/document_types?select=code,codigo_afip`,
+      { headers: supabaseHeaders('return=representation') },
+    );
+    if (!res.ok) throw new Error(`document_types ${res.status}`);
+    const rows = await res.json();
+    const map = {};
+    for (const r of rows) if (r?.code) map[r.code] = r.codigo_afip ?? null;
+    _afipCodeMap   = map;
+    _afipCodeMapAt = now;
+    return map;
+  } catch (e) {
+    if (log) log('warn', 'afip_map.fetch_failed', { error: String(e?.message ?? e) });
+    return _afipCodeMap ?? {}; // fallback: cache previo o vacío (codigo_afip -> null)
+  }
+}
+
 // ─── 1. OCR via Mistral ───────────────────────────────────────────────────────
 
 /**
@@ -94,10 +121,16 @@ EMISOR vs RECEPTOR — REGLA FUNDAMENTAL:
 - RECEPTOR = empresa que recibe y paga. Identificado por etiquetas EXPLÍCITAS: "Señor/es:", "Sr.:", "Cliente:", "A:", "Destinatario:", "Razón Social del cliente:".
 - ANCLA DE RECEPTOR: si el prompt incluye CUIT o nombre de referencia, ese dato ES el receptor con certeza absoluta.
 - PROHIBIDO: nunca cruces emisor y receptor.
-TIPO_DOCUMENTO: FACTURA_A/B/C/M, NOTA_DEBITO_A/B/C, NOTA_CREDITO_A/B/C, ORDEN_COMPRA, SOLICITUD_COTIZACION, null.
-CODIGO_AFIP: código numérico que aparece debajo de la letra del comprobante (A/B/C) en el recuadro central del encabezado. Ejemplos: "01"=Factura A, "02"=Nota Débito A, "03"=Nota Crédito A, "06"=Factura B, "07"=Nota Débito B, "08"=Nota Crédito B, "11"=Factura C, "12"=Nota Débito C, "13"=Nota Crédito C, "51"=Factura M. Devolver como string con ceros a la izquierda (ej: "01").
-PUNTO_VENTA: 4 dígitos antes del guión en el número de comprobante (ej: de "0003-00001234" → "0003"). Si no surge del número buscarlo en el encabezado.
-NUMERO_COMPROBANTE: string completo con punto de venta (ej: "0001-00001234").
+TIPO_DOCUMENTO — detectá combinando DOS señales del documento:
+  (a) CLASE por el texto: "FACTURA" → FACTURA; "NOTA DE CRÉDITO"/"N. DE CRÉDITO"/"NOTA CREDITO" → NOTA_CREDITO; "NOTA DE DÉBITO"/"N. DE DÉBITO"/"NOTA DEBITO" → NOTA_DEBITO. Suele estar en grande, arriba al centro del encabezado.
+  (b) LETRA del recuadro central: A / B / C / M.
+  Combinalas: FACTURA + A = FACTURA_A; NOTA DE CRÉDITO + B = NOTA_CREDITO_B; etc.
+  Si es ORDEN DE COMPRA o SOLICITUD DE COTIZACIÓN (no son comprobantes fiscales), usá ORDEN_COMPRA / SOLICITUD_COTIZACION.
+  Valores válidos: FACTURA_A/B/C/M, NOTA_DEBITO_A/B/C, NOTA_CREDITO_A/B/C, ORDEN_COMPRA, SOLICITUD_COTIZACION, null.
+  CRÍTICO: el tipo NO se decide por números. El número de COMPROBANTE (ej. "3 - 00002831" o "0003-00002831") es punto de venta + correlativo; su primer dígito NO indica el tipo. Nunca infieras "nota de crédito/débito" a partir de un dígito del comprobante.
+CODIGO_AFIP: devolvé SIEMPRE null. NO lo extraigas del documento. El sistema lo completa derivándolo de tipo_documento contra la tabla oficial. Jamás tomes un dígito del comprobante (el "3" de "3 - 00002831") como código.
+PUNTO_VENTA: el punto de venta antes del guión del comprobante. Puede venir SIN ceros a la izquierda (ej. "3 - 00002831"); normalizalo SIEMPRE a 4 dígitos → "0003". Si no surge del número buscarlo en el encabezado.
+NUMERO_COMPROBANTE: string completo con punto de venta normalizado a 4 dígitos (ej: "0003-00002831").
 MONEDA: "USD" si aparece USD/U$S/DÓLARES, si no "ARS". es_moneda_ars/es_moneda_usd = boolean.
 CONDICIÓN IVA: buscar junto al CUIT del emisor y del receptor. Valores posibles: "IVA Responsable Inscripto", "IVA Responsable No Inscripto", "IVA No Responsable", "IVA Sujeto Exento", "Consumidor Final", "Responsable Monotributo", "Proveedor del Exterior", "Cliente del Exterior", null.
 IMPORTES — extraer todos los que aparezcan:
@@ -196,6 +229,9 @@ async function extractWithOpenAI(ocrText, { clientCuit, clientName, ocEntries },
 async function insertJobRow(jobId, orgId, extracted, meta) {
   const { ocrModel, llmModel, sourceFile, rawOcrText, inputSource } = meta;
 
+  // codigo_afip se deriva del tipo (tabla document_types), no de la IA.
+  const afipMap = await getAfipCodeMap();
+
   const payload = {
     org_id:                    orgId,
     job_id:                    jobId,
@@ -205,7 +241,7 @@ async function insertJobRow(jobId, orgId, extracted, meta) {
     es_moneda_ars:             extracted.es_moneda_ars          ?? true,
     es_moneda_usd:             extracted.es_moneda_usd          ?? false,
     tipo_documento:            extracted.tipo_documento          ?? null,
-    codigo_afip:               extracted.codigo_afip             ?? null,
+    codigo_afip:               afipMap[extracted.tipo_documento]             ?? null,
     punto_venta:               extracted.punto_venta             ?? null,
     numero_comprobante:        extracted.numero_comprobante      ?? null,
     proveedor:                 extracted.emisor_nombre           ?? null,  // emisor → proveedor
