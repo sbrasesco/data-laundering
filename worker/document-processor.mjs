@@ -69,6 +69,55 @@ async function getAfipCodeMap(log) {
   }
 }
 
+// ─── Guardrail: corregir la VARIANTE del tipo con el código AFIP impreso ──────
+// Cuando el documento imprime "Cód./Código Nº: NN" y ese NN es un código AFIP
+// válido (existe en document_types), lo usamos para corregir la variante A/B/C/M
+// que a veces la IA elige mal. Solo corrige dentro de la MISMA clase
+// (Factura/NC/ND) o cuando la IA no dio una variante válida. Descarta números
+// que no son códigos AFIP (ej. "Código: 464" = código de cliente).
+function claseDeTipo(t) {
+  if (!t) return null;
+  if (t.startsWith('FACTURA'))      return 'FACTURA';
+  if (t.startsWith('NOTA_CREDITO')) return 'NOTA_CREDITO';
+  if (t.startsWith('NOTA_DEBITO'))  return 'NOTA_DEBITO';
+  return null;
+}
+
+export function correctTipoByPrintedCode(tipo, ocrText, afipMap, log) {
+  if (!ocrText || !afipMap) return tipo;
+  // reverse: codigo_afip -> tipo (ej. "03" -> "NOTA_CREDITO_A")
+  const rev = {};
+  for (const [t, c] of Object.entries(afipMap)) if (c) rev[String(c)] = t;
+
+  const re = /c[oó]d(?:igo)?\.?\s*(?:n[ºo°]?)?\s*:?\s*(\d{1,3})/gi;
+  const found = new Set();
+  let m;
+  while ((m = re.exec(ocrText)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (Number.isNaN(n)) continue;
+    const norm = n < 10 ? '0' + n : String(n); // 002->02, 3->03, 011->11, 051->51
+    if (rev[norm]) found.add(norm);            // solo códigos AFIP reales (descarta 464)
+  }
+  if (found.size === 0) return tipo;
+
+  const claseLLM = claseDeTipo(tipo);
+  let chosen = null;
+  if (claseLLM) {
+    const matching = [...found].filter(c => claseDeTipo(rev[c]) === claseLLM);
+    if (matching.length === 1) chosen = matching[0]; // misma clase, corrige variante
+  } else if (found.size === 1) {
+    chosen = [...found][0]; // la IA no dio variante válida y hay un único código
+  }
+  if (!chosen) return tipo;
+
+  const tipoDelCodigo = rev[chosen];
+  if (tipoDelCodigo && tipoDelCodigo !== tipo) {
+    if (log) log('info', 'tipo.corrected_by_code', { from: tipo, to: tipoDelCodigo, codigo: chosen });
+    return tipoDelCodigo;
+  }
+  return tipo;
+}
+
 // ─── 1. OCR via Mistral ───────────────────────────────────────────────────────
 
 /**
@@ -233,6 +282,8 @@ async function insertJobRow(jobId, orgId, extracted, meta) {
 
   // codigo_afip se deriva del tipo (tabla document_types), no de la IA.
   const afipMap = await getAfipCodeMap();
+  // Corregir la variante (A/B/C) con el código AFIP impreso, si está en el OCR.
+  const tipoDoc = correctTipoByPrintedCode(extracted.tipo_documento, rawOcrText, afipMap);
 
   const payload = {
     org_id:                    orgId,
@@ -242,8 +293,8 @@ async function insertJobRow(jobId, orgId, extracted, meta) {
     moneda:                    extracted.moneda                 ?? 'ARS',
     es_moneda_ars:             extracted.es_moneda_ars          ?? true,
     es_moneda_usd:             extracted.es_moneda_usd          ?? false,
-    tipo_documento:            extracted.tipo_documento          ?? null,
-    codigo_afip:               afipMap[extracted.tipo_documento]             ?? null,
+    tipo_documento:            tipoDoc                           ?? null,
+    codigo_afip:               afipMap[tipoDoc]                              ?? null,
     punto_venta:               extracted.punto_venta             ?? null,
     numero_comprobante:        extracted.numero_comprobante      ?? null,
     proveedor:                 extracted.emisor_nombre           ?? null,  // emisor → proveedor
