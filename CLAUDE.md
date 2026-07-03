@@ -173,6 +173,7 @@ Tabla `document_types` (code, label, sort_order, active), RLS read `authenticate
 | Task | Descripción | Prioridad |
 |---|---|---|
 | **TASK-102** | AI-REFINE-PROMPT: ajustar prompt para facturas de servicios | 🟡 Media |
+| **VISION-TYPE-DETECTION** | Pasarle la IMAGEN a GPT-4.1-mini (multimodal) para leer la LETRA A/B/C/M que el OCR de texto (Mistral) pierde cuando está dibujada en un recuadro. ⚠️ **RENDER = PyMuPDF (fitz), NUNCA pdftoppm**: en el contenedor Alpine del worker, pdftoppm sin fuentes (ej. Courier New Bold) deja el PNG **en blanco** → los modelos ven un form vacío → 0% acierto; PyMuPDF (ya está en el worker) sustituye fuentes → 100%. Probado 9/9 con gpt-4.1-mini/5-mini/5-nano (script read-only `worker/scripts/vision-type-test.mjs`, commit 08bfc84). Falta tanda B/C/M/monotributo para elegir modelo (nano vs mini; costo ~$0.36–1.33/1000 docs, irrelevante vs $300 que factura). Es el fix de fondo de AFIP-CODE-CONSISTENCY. | 🟠 Alta |
 | **TASK-103** | RESEARCH-AFIP: investigar integración validación AFIP | 🟢 Baja |
 | **TASK-113** | ÉPICO REGIONALIZACIÓN multi-país (escalado futuro, DEC-018): país como dimensión (prompt/document_types/campos por país). Solo AR hoy | 🟢 Baja |
 | **TASK-66** | Landing visual refinement — dejar para el final | — |
