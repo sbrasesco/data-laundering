@@ -249,7 +249,7 @@ async function appendOrCreateXLSXInDrive(drive, targetFolderId, newRows, log) {
     });
     log('info', 'output.drive_xlsx_appended', {
       file_id:    existing.id,
-      new_rows:   newMapped.length,
+      new_rows:   newRows.length,
       total_rows: allRows.length,
     });
     return existing.id;
