@@ -27,6 +27,22 @@ function supabaseHeaders() {
   };
 }
 
+// LINE-ITEMS: ¿el tenant tiene la feature de detalle de renglones activada? (solo afecta el COBRO)
+async function getLineItemsFlag(organizationId) {
+  if (!organizationId) return false;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/tenant_feature_flags?organization_id=eq.${encodeURIComponent(organizationId)}&select=line_items_enabled`,
+      { headers: supabaseHeaders() }
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data[0]?.line_items_enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 // Mapeo input_source → feature_key (los precios viven en feature_pricing_multipliers en DB)
 const INPUT_SOURCE_TO_FEATURE = {
   integration_drive:  'integration_drive',
@@ -203,7 +219,8 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
   // ── TASK-75: Detectar features activas para multiplicador de créditos ─────
   const inputSource = await fetchJobInputSource(jobId);
   const inputFeature = inputSource ? (INPUT_SOURCE_TO_FEATURE[inputSource] ?? null) : null;
-  const activeFeatures = [...new Set([inputFeature, ...outputFeatures].filter(Boolean))];
+  const lineItemsOn = await getLineItemsFlag(orgId);  // LINE-ITEMS: cobra solo si el tenant lo tiene ON
+  const activeFeatures = [...new Set([inputFeature, ...outputFeatures, lineItemsOn ? 'line_items' : null].filter(Boolean))];
 
   // ── TASK-18: Descuento de créditos post-procesamiento ─────────────────────
   // Orden: procesar → finalizar job → descontar crédito. Nunca al revés.
