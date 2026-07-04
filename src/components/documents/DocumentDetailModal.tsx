@@ -76,7 +76,7 @@ export function DocumentDetailModal({ document: doc, onClose }: DocumentDetailMo
 
             {lineItemsOn && lineItems.length > 0 && (
               <section>
-                <h3 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Detalle de renglones</h3>
+                <h3 className="text-sm font-semibold text-foreground mb-3 border-b pb-1">Detalle de productos</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
