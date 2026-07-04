@@ -688,8 +688,8 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     const dup = await hasEarlierDuplicate(orgId, rows[0].id, rows[0].cuit, rows[0].punto_venta, rows[0].numero_comprobante, log);
     if (dup) {
       await markDuplicate(rows[0].id, jobId, log);
-      log('info', 'output.duplicate_marked', { job_id: jobId, row_id: rows[0].id, skip_output: !!renameBase });
-      if (renameBase) return { outputFeatures };
+      log('info', 'output.duplicate_marked', { job_id: jobId, row_id: rows[0].id, skip_output: true });
+      return { outputFeatures };  // duplicado -> NO deposita salida (ni facturas ni productos) en ningún flujo
     }
   }
 
