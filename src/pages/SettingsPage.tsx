@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { THEMES, applyTheme, getStoredTheme } from '@/lib/themes';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { Switch } from '@/components/ui/Switch';
 
 interface PriceFeature {
   key: string;
@@ -60,6 +61,8 @@ export function SettingsPage() {
   const [activeTheme, setActiveTheme] = useState(getStoredTheme);
   const [breakdown, setBreakdown] = useState<PriceBreakdown | null>(null);
   const [breakdownLoading, setBreakdownLoading] = useState(true);
+  const [lineItemsOn, setLineItemsOn] = useState(false);
+  const [lineItemsSaving, setLineItemsSaving] = useState(false);
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -83,6 +86,29 @@ export function SettingsPage() {
     fetchBreakdown();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('tenant_feature_flags').select('line_items_enabled').maybeSingle();
+      if (!cancelled) setLineItemsOn(data?.line_items_enabled === true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleLineItems = async (value: boolean) => {
+    setLineItemsSaving(true);
+    const prev = lineItemsOn;
+    setLineItemsOn(value);
+    const { error } = await supabase.rpc('set_own_line_items', { p_value: value });
+    if (error) {
+      setLineItemsOn(prev);
+    } else {
+      const { data } = await supabase.rpc('get_price_breakdown');
+      if (data) setBreakdown(data as PriceBreakdown);
+    }
+    setLineItemsSaving(false);
+  };
 
   const handleThemeSelect = (themeName: string) => {
     applyTheme(themeName);
@@ -145,6 +171,21 @@ export function SettingsPage() {
         ) : (
           <p className="text-sm text-muted-foreground">No se pudo cargar el desglose de precios.</p>
         )}
+      </SettingsSection>
+
+      {/* Detalle de productos (feature opcional paga) */}
+      <SettingsSection
+        title="Detalle de productos"
+        description="Extrae el detalle de renglones (producto, cantidad y precio) de cada comprobante y lo incluye en la app y en el archivo de salida. Suma un costo por documento."
+      >
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            {lineItemsOn
+              ? 'Activado: se cobra el costo adicional por documento y se entrega el detalle.'
+              : 'Desactivado: no se cobra ni se entrega el detalle.'}
+          </p>
+          <Switch checked={lineItemsOn} onChange={toggleLineItems} disabled={lineItemsSaving} />
+        </div>
       </SettingsSection>
 
       {/* Apariencia */}
