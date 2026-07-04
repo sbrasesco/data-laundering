@@ -78,7 +78,7 @@ Validado y estabilizado. No tocar sin tarea explícita.
 
 ## Stack
 
-React 18 + TS + Vite + shadcn/ui + Tailwind · Supabase (PostgreSQL + RLS + Realtime) · Worker Node ESM (`worker/*.mjs`) en Docker (VPS DigitalOcean) · BullMQ + Redis Cloud (sa-east-1), queue `pdf-processing` · MercadoPago IPN · Integraciones: Google Drive ✅, Firebase Storage ✅, Supabase Storage ✅, SFTP ⛔.
+React 18 + TS + Vite + shadcn/ui + Tailwind · Supabase (PostgreSQL + RLS + Realtime) · Worker Node ESM (`worker/*.mjs`) en Docker (VPS DigitalOcean) · BullMQ + Redis Cloud (sa-east-1, DB renombrada `data-land`→`agora`; `maxmemory-policy=noeviction` desde 2026-07-04 para que BullMQ no pierda jobs por eviction), queue `pdf-processing` · MercadoPago IPN · Integraciones: Google Drive ✅, Firebase Storage ✅, Supabase Storage ✅, SFTP ⛔.
 
 ## Producción
 
