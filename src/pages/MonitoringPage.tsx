@@ -27,6 +27,8 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
     'Genera el resultado en formato Excel (.xlsx) y lo mantiene actualizado en Drive. La descarga básica (CSV o Excel puntual) es parte del servicio base; este adicional escribe y actualiza el archivo en la nube.',
   polling_interval_1min:
     'Determina cada cuánto el sistema escanea carpetas en busca de nuevos archivos. El intervalo mínimo (1 min) implica mayor carga continua en el sistema. A mayor frecuencia de escucha, mayor costo por el uso de infraestructura.',
+  line_items:
+    'Extrae el detalle de renglones de cada comprobante (producto, cantidad y precio) y lo incluye en la app y en un archivo de salida aparte. Diferenciador: AFIP no entrega este detalle.',
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
