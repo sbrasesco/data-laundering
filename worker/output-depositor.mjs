@@ -72,6 +72,24 @@ function rowsToXLSX(rows) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// ─── LINE-ITEMS Fase 4: archivo de PRODUCTOS (detalle de renglones), gateado por line_items_enabled ───
+const PRODUCT_COLUMNS = ['cuit', 'numero_comprobante', 'descripcion', 'cantidad', 'precio_unitario', 'importe'];
+const PRODUCT_LABELS  = { cuit: 'CUIT', numero_comprobante: 'Nro Comprobante', descripcion: 'Descripción', cantidad: 'Cantidad', precio_unitario: 'Precio Unitario', importe: 'Importe' };
+
+function productsToCSV(prods) {
+  const header = PRODUCT_COLUMNS.map(c => PRODUCT_LABELS[c]).join(';');
+  const lines  = prods.map(p => PRODUCT_COLUMNS.map(c => escapeCSV(p[c])).join(';'));
+  return [header, ...lines].join('\n');
+}
+function productsToXLSX(prods) {
+  const headers = PRODUCT_COLUMNS.map(c => PRODUCT_LABELS[c]);
+  const data = prods.map(p => { const o = {}; PRODUCT_COLUMNS.forEach(c => { o[PRODUCT_LABELS[c]] = p[c] ?? ''; }); return o; });
+  const ws = XLSX.utils.json_to_sheet(data, { header: headers });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
 // ─── Helpers generales ───────────────────────────────────────────────────────
 
 function sanitizeFolderName(name) {
@@ -283,6 +301,103 @@ async function depositToDriveAccumulative(credentials, outputFolderName, rows, l
   const targetFolderId = await ensureOutputFolder(drive, parentFolderId, outputFolderName || 'extracciones', log);
 
   return await appendOrCreateXLSXInDrive(drive, targetFolderId, rows, log);
+}
+
+// ¿El tenant tiene la feature de productos ON? (gatea la salida de productos)
+async function lineItemsEnabledForOrg(orgId) {
+  try {
+    const res = await supabaseFetch(`/rest/v1/tenant_feature_flags?organization_id=eq.${encodeURIComponent(orgId)}&select=line_items_enabled`);
+    if (!res.ok) return false;
+    const d = await res.json();
+    return d?.[0]?.line_items_enabled === true;
+  } catch { return false; }
+}
+
+// Renglones de las facturas del job, con cuit+numero de referencia.
+async function fetchProductsForRows(rows) {
+  const ids = rows.map(r => r.id).filter(v => v != null);
+  if (ids.length === 0) return [];
+  try {
+    const res = await supabaseFetch(`/rest/v1/pdf_job_row_items?row_id=in.(${ids.join(',')})&select=row_id,descripcion,cantidad,precio_unitario,importe,orden&order=row_id.asc,orden.asc`);
+    if (!res.ok) return [];
+    const items = await res.json();
+    const byRow = new Map(rows.map(r => [r.id, r]));
+    return items.map(it => {
+      const r = byRow.get(it.row_id) ?? {};
+      return { cuit: r.cuit ?? '', numero_comprobante: r.numero_comprobante ?? '', descripcion: it.descripcion ?? '', cantidad: it.cantidad ?? '', precio_unitario: it.precio_unitario ?? '', importe: it.importe ?? '' };
+    });
+  } catch { return []; }
+}
+
+// Drive acumulativo de productos (espeja resultados.xlsx pero con productos.xlsx; sin migracion de columnas).
+async function appendOrCreateProductsXLSXInDrive(drive, targetFolderId, newProds, log) {
+  const FILE = 'productos.xlsx';
+  const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const searchRes = await drive.files.list({ q: `name='${FILE}' and '${targetFolderId}' in parents and trashed=false`, fields: 'files(id)', spaces: 'drive' });
+  const existing = searchRes.data.files?.[0];
+  let existingRows = [];
+  if (existing) {
+    const dlRes = await drive.files.get({ fileId: existing.id, alt: 'media' }, { responseType: 'arraybuffer' });
+    const wb0 = XLSX.read(Buffer.from(dlRes.data), { type: 'buffer' });
+    existingRows = XLSX.utils.sheet_to_json(wb0.Sheets[wb0.SheetNames[0]], { defval: '' });
+  }
+  const mapRow = (p) => { const o = {}; PRODUCT_COLUMNS.forEach(c => { const lbl = PRODUCT_LABELS[c]; o[lbl] = p[lbl] ?? p[c] ?? ''; }); return o; };
+  const allRows = [...existingRows.map(mapRow), ...newProds.map(mapRow)];
+  const ws = XLSX.utils.json_to_sheet(allRows, { header: PRODUCT_COLUMNS.map(c => PRODUCT_LABELS[c]) });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const { Readable } = await import('node:stream');
+  if (existing) {
+    await drive.files.update({ fileId: existing.id, media: { mimeType, body: Readable.from(buffer) } });
+    return existing.id;
+  }
+  const cr = await drive.files.create({ requestBody: { name: FILE, parents: [targetFolderId], mimeType }, media: { mimeType, body: Readable.from(buffer) }, fields: 'id' });
+  return cr.data.id;
+}
+
+async function depositProductsToDriveAccumulative(credentials, outputFolderName, prods, log, clientFolderName) {
+  const refreshToken = credentials.oauth_refresh_token;
+  const folderId = credentials.folder_id;
+  if (!refreshToken || !folderId) return null;
+  const drive = createDriveClient(refreshToken);
+  let parentFolderId = folderId;
+  if (clientFolderName) parentFolderId = await ensureOutputFolder(drive, folderId, clientFolderName, log);
+  const targetFolderId = await ensureOutputFolder(drive, parentFolderId, outputFolderName || 'extracciones', log);
+  return await appendOrCreateProductsXLSXInDrive(drive, targetFolderId, prods, log);
+}
+
+// Orquestador: deposita el archivo de productos aparte, gateado por el flag. Best-effort.
+async function depositProducts(orgId, jobId, rows, outputConfig, outputFormat, clientFolderName, baseName, isDriveXLSXAccum, log) {
+  if (!(await lineItemsEnabledForOrg(orgId))) return;
+  const prods = await fetchProductsForRows(rows);
+  if (prods.length === 0) return;
+  const type = outputConfig.integration_type;
+  try {
+    if (type === 'google_drive' && isDriveXLSXAccum) {
+      const fid = await depositProductsToDriveAccumulative(outputConfig.credentials, outputConfig.output_folder_path || 'extracciones', prods, log, clientFolderName);
+      log('info', 'output.products_deposited', { job_id: jobId, filename: 'productos.xlsx', format: 'xlsx_accum', drive_file_id: fid, count: prods.length });
+      return;
+    }
+    const isXlsx  = outputFormat === 'xlsx';
+    const content = isXlsx ? productsToXLSX(prods) : productsToCSV(prods);
+    const fname   = `${baseName}_productos.${isXlsx ? 'xlsx' : 'csv'}`;
+    const mime    = isXlsx ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv';
+    if (type === 'google_drive') {
+      await depositToDrive(outputConfig.credentials, outputConfig.output_folder_path || 'extracciones', fname, content, mime, log, clientFolderName);
+    } else if (type === 'sftp') {
+      await depositToSftp(outputConfig.credentials, outputConfig.folder_path ?? '/', outputConfig.output_folder_path, fname, content, log);
+    } else if (type === 'ftp') {
+      await depositToFtp(outputConfig.credentials, outputConfig.folder_path ?? '/', outputConfig.output_folder_path, fname, content, log);
+    } else if (type === 'firebase_storage') {
+      await depositToFirebaseStorage(outputConfig.credentials, outputConfig.output_folder_path || 'extracciones', fname, content, log);
+    } else if (type === 'supabase_storage') {
+      await depositToSupabaseStorage(outputConfig.credentials, outputConfig, fname, content, log);
+    } else { return; }
+    log('info', 'output.products_deposited', { job_id: jobId, filename: fname, format: outputFormat, count: prods.length });
+  } catch (err) {
+    log('warn', 'output.products_failed', { job_id: jobId, error: err.message });
+  }
 }
 
 async function depositToDrive(credentials, outputFolderName, filename, fileContent, mimeType, log, clientFolderName = null) {
@@ -691,6 +806,9 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
       format: outputFormat, error: err.message,
     });
   }
+
+  // LINE-ITEMS Fase 4: archivo de productos aparte (gateado por line_items_enabled). Best-effort.
+  await depositProducts(orgId, jobId, rows, outputConfig, outputFormat, clientFolderName, baseName, isDriveXLSXAccum, log);
 
   return { outputFeatures };
 }
