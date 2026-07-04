@@ -64,7 +64,7 @@ async function getAfipCodeMap(log) {
   if (_afipCodeMap && (now - _afipCodeMapAt) < AFIP_MAP_TTL_MS) return _afipCodeMap;
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/document_types?select=code,codigo_afip`,
+      `${SUPABASE_URL}/rest/v1/document_types?select=code,codigo_afip&active=eq.true`, // solo tipos activos (no el catálogo)
       { headers: supabaseHeaders('return=representation') },
     );
     if (!res.ok) throw new Error(`document_types ${res.status}`);
