@@ -53,6 +53,15 @@ function correlativoDe(numero) {
   return last || s;
 }
 
+/** Coacciona a número (acepta number o string es/en: "30,0", "2.948,84", "2948.84"). null si no parsea. */
+function toNum(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const t = String(v).trim().replace(/\s/g, '');
+  const n = t.includes(',') ? parseFloat(t.replace(/\./g, '').replace(',', '.')) : parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ─── Mapa codigo_afip por tipo de comprobante (document_types, cacheado) ──────
 // codigo_afip pasa a ser atributo del tipo en DB; lo deriva el worker, no la IA.
 let _afipCodeMap   = null;
@@ -213,9 +222,10 @@ CAE — al pie de la factura:
 - fecha_vto_cae: fecha de vencimiento. Buscar "Fecha de Vto. de C.A.E.", "Vto. CAE". Formato DD-MM-YYYY.
 documento_relacionado: OC/remito mencionado como string breve, null si no hay.
 orden_compra: array con TODOS los números de OC. Si hay sección "[ADJUNTOS OC CONFIRMADAS: X, Y]", incluir SIEMPRE esos números. Usar [] si no hay.
+DETALLE DE RENGLONES (items): array con CADA renglón de producto/servicio del cuerpo del comprobante, en orden. Por renglón: {"descripcion": texto del producto/servicio, "cantidad": número o null, "precio_unitario": número o null, "importe": subtotal del renglón número o null}. Sacá descripción + cantidad + al menos un precio (unitario y/o importe); si falta uno, null (se calcula después). NO incluyas subtotales/totales generales ni líneas que no sean productos. [] si no hay renglones.
 DATOS PARCIALES: completá lo que encontrás, null el resto. Bajá confidence_score si faltan campos clave.
 ESTRUCTURA EXACTA:
-{"fecha":null,"moneda":"ARS","es_moneda_ars":true,"es_moneda_usd":false,"tipo_documento":null,"codigo_afip":null,"punto_venta":null,"numero_comprobante":null,"emisor_nombre":null,"emisor_cuit":null,"condicion_iva_emisor":null,"receptor_nombre":null,"receptor_cuit":null,"condicion_iva_receptor":null,"cliente":null,"neto_gravado":null,"monto_exento":null,"iva_21":null,"iva_105":null,"iva_27":null,"iva_5":null,"iva_25":null,"iva":null,"percepcion_ingresos_brutos":null,"percepcion_iva":null,"impuestos_internos":null,"total":null,"nro_cae":null,"fecha_vto_cae":null,"documento_relacionado":null,"orden_compra":[],"confidence_score":0.95}`;
+{"fecha":null,"moneda":"ARS","es_moneda_ars":true,"es_moneda_usd":false,"tipo_documento":null,"codigo_afip":null,"punto_venta":null,"numero_comprobante":null,"emisor_nombre":null,"emisor_cuit":null,"condicion_iva_emisor":null,"receptor_nombre":null,"receptor_cuit":null,"condicion_iva_receptor":null,"cliente":null,"neto_gravado":null,"monto_exento":null,"iva_21":null,"iva_105":null,"iva_27":null,"iva_5":null,"iva_25":null,"iva":null,"percepcion_ingresos_brutos":null,"percepcion_iva":null,"impuestos_internos":null,"total":null,"nro_cae":null,"fecha_vto_cae":null,"documento_relacionado":null,"orden_compra":[],"items":[],"confidence_score":0.95}`;
 
 /**
  * Construye el user message con el ancla de receptor + texto OCR + OCs confirmadas,
@@ -391,6 +401,35 @@ async function insertOcEntries(rowId, ocEntries) {
   return rows.length;
 }
 
+// ─── 4b. Escritura de renglones (LINE-ITEMS) ─────────────────────────────────
+/**
+ * Inserta los renglones (producto/cantidad/precio) en pdf_job_row_items. Best-effort:
+ * un fallo acá NO rompe el job (el detalle es dato accesorio). Extracción SIEMPRE.
+ */
+async function insertItems(rowId, orgId, items) {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  const rows = items.map((it, i) => ({
+    row_id:          rowId,
+    organization_id: orgId,
+    descripcion:     it?.descripcion ?? null,
+    cantidad:        toNum(it?.cantidad),
+    precio_unitario: toNum(it?.precio_unitario),
+    importe:         toNum(it?.importe),
+    orden:           i + 1,
+  }));
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/pdf_job_row_items`, {
+      method:  'POST',
+      headers: supabaseHeaders('return=minimal'),
+      body:    JSON.stringify(rows),
+    });
+    if (!res.ok) return 0;
+    return rows.length;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Export principal ─────────────────────────────────────────────────────────
 
 /**
@@ -450,6 +489,10 @@ export async function processDocument(docData, log) {
 
   // ── 4. Escribir OC entries en pdf_job_row_oc ──────────────────────────────
   const ocCount = await insertOcEntries(rowId, oc_entries);
+
+  // ── 4b. Renglones (LINE-ITEMS): extracción SIEMPRE (dato propio); entrega/cobro se gatean aparte
+  const itemCount = await insertItems(rowId, organization_id, extracted.items);
+  if (log && itemCount > 0) log('info', 'doc.items_inserted', { job_id, row_id: rowId, items: itemCount });
 
   if (log && ocCount > 0) log('info', 'doc.oc_inserted', {
     job_id,
