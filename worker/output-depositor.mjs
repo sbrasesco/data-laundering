@@ -564,14 +564,17 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
     ? buildDocFileBase(rows[0]) : null;
   const baseName = renameBase ?? `resultado_${jobId.slice(0, 8)}_${timestamp}`;
 
-  // FILE-RENAME-BY-DATA Fase 2: si es duplicado (misma factura ya procesada antes en la org), NO
-  // se deposita salida. El doc igual se procesó y se cobra; queda en procesados/ con __DUPLICADO_.
-  if (renameBase) {
+  // DEDUP (marcado UNIVERSAL): misma factura (cuit + punto_venta + numero) ya procesada antes en la
+  // org -> se marca is_duplicate/has_duplicate (badge "Duplicado" en la app) en CUALQUIER flujo con
+  // salida (storage/Drive/etc.), no solo storage. El "no depositar la salida del duplicado" se mantiene
+  // por ahora SOLO en storage (renameBase); Drive/otros marcan pero siguen depositando (excluir el
+  // duplicado de la salida en Drive = paso aparte).
+  if (rows.length === 1 && rows[0].cuit && rows[0].numero_comprobante) {
     const dup = await hasEarlierDuplicate(orgId, rows[0].id, rows[0].cuit, rows[0].punto_venta, rows[0].numero_comprobante, log);
     if (dup) {
       await markDuplicate(rows[0].id, jobId, log);
-      log('info', 'output.skip_duplicate', { job_id: jobId, row_id: rows[0].id, base: renameBase });
-      return { outputFeatures };
+      log('info', 'output.duplicate_marked', { job_id: jobId, row_id: rows[0].id, skip_output: !!renameBase });
+      if (renameBase) return { outputFeatures };
     }
   }
 
