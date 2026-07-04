@@ -356,7 +356,7 @@ export async function renameProcessedInputOnApproval({ jobId, log }) {
   // 2. fila única del job → base por dato
   let rows;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=cuit,numero_comprobante,codigo_afip`, { headers: H });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=cuit,numero_comprobante,codigo_afip,punto_venta`, { headers: H });
     if (!res.ok) return;
     rows = await res.json();
   } catch { return; }

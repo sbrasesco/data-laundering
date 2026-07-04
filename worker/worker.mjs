@@ -101,7 +101,7 @@ async function getExtractAttachmentsFlag(organizationId) {
 async function getSingleDocRenameBase(jobId) {
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=cuit,numero_comprobante,codigo_afip`,
+      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=cuit,numero_comprobante,codigo_afip,punto_venta`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     if (!res.ok) return null;

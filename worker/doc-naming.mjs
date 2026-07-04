@@ -26,8 +26,10 @@ export function sanitizeNamePart(v) {
  */
 export function buildDocFileBase(row) {
   const cuit = sanitizeNamePart(row?.cuit);
-  const num  = sanitizeNamePart(row?.numero_comprobante);
+  const corr = sanitizeNamePart(row?.numero_comprobante); // correlativo (lo de después del último "-")
   const afip = sanitizeNamePart(row?.codigo_afip);
-  if (!cuit || !num || !afip) return null;
+  if (!cuit || !corr || !afip) return null;               // sin correlativo -> no renombra
+  const pv  = sanitizeNamePart(row?.punto_venta);
+  const num = pv ? `${pv}-${corr}` : corr;                // punto_venta-correlativo (branch-aware)
   return `${cuit}_${num}_${afip}`;
 }

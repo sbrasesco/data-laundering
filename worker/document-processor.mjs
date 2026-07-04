@@ -42,6 +42,17 @@ function toIsoDate(ddmmyyyy) {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
+/** Devuelve el CORRELATIVO del comprobante: lo de después del último "-".
+ *  "0004-A00004-00012150" -> "00012150"; "0004-00012216" -> "00012216"; sin "-" -> tal cual.
+ *  La sucursal se conserva aparte en punto_venta. */
+function correlativoDe(numero) {
+  if (numero == null) return null;
+  const s = String(numero).trim();
+  if (!s) return null;
+  const last = s.split('-').pop().trim();
+  return last || s;
+}
+
 // ─── Mapa codigo_afip por tipo de comprobante (document_types, cacheado) ──────
 // codigo_afip pasa a ser atributo del tipo en DB; lo deriva el worker, no la IA.
 let _afipCodeMap   = null;
@@ -411,6 +422,10 @@ export async function processDocument(docData, log) {
     { clientCuit: client_cuit, clientName: client_name, ocEntries: oc_entries },
     log
   );
+
+  // Normalizar numero_comprobante al CORRELATIVO (lo de después del último "-").
+  // La sucursal queda en punto_venta; nombre/duplicados reconstruyen punto_venta-correlativo.
+  extracted.numero_comprobante = correlativoDe(extracted.numero_comprobante);
 
   // ── 3. Escribir fila en pdf_job_rows ──────────────────────────────────────
   const rowId = await insertJobRow(job_id, organization_id, extracted, {

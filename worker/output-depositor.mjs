@@ -116,12 +116,13 @@ async function supabaseFetch(path, options = {}) {
 // FILE-RENAME-BY-DATA Fase 2: ¿esta fila es un duplicado de una factura ya procesada antes en la
 // misma org? (mismo cuit + numero_comprobante, con id menor = anterior). Si lo es, NO se deposita
 // salida (para no entregar un CSV repetido que el cliente levantaría de nuevo). Best-effort.
-async function hasEarlierDuplicate(orgId, rowId, cuit, numero, log) {
+async function hasEarlierDuplicate(orgId, rowId, cuit, puntoVenta, numero, log) {
   if (!orgId || !rowId || !cuit || !numero) return false;
   try {
     const res = await supabaseFetch(
       `/rest/v1/pdf_job_rows?select=id,pdf_jobs!inner(organization_id)` +
       `&cuit=eq.${encodeURIComponent(cuit)}` +
+      (puntoVenta ? `&punto_venta=eq.${encodeURIComponent(puntoVenta)}` : '') +
       `&numero_comprobante=eq.${encodeURIComponent(numero)}` +
       `&id=lt.${encodeURIComponent(rowId)}` +
       `&pdf_jobs.organization_id=eq.${encodeURIComponent(orgId)}&limit=1`
@@ -566,7 +567,7 @@ export async function depositOutputIfConfigured(jobId, orgId, log) {
   // FILE-RENAME-BY-DATA Fase 2: si es duplicado (misma factura ya procesada antes en la org), NO
   // se deposita salida. El doc igual se procesó y se cobra; queda en procesados/ con __DUPLICADO_.
   if (renameBase) {
-    const dup = await hasEarlierDuplicate(orgId, rows[0].id, rows[0].cuit, rows[0].numero_comprobante, log);
+    const dup = await hasEarlierDuplicate(orgId, rows[0].id, rows[0].cuit, rows[0].punto_venta, rows[0].numero_comprobante, log);
     if (dup) {
       await markDuplicate(rows[0].id, jobId, log);
       log('info', 'output.skip_duplicate', { job_id: jobId, row_id: rows[0].id, base: renameBase });
@@ -736,7 +737,7 @@ export async function depositSingleApprovedRow(rowId, jobId, orgId, log) {
 
   // FILE-RENAME-BY-DATA Fase 2: duplicado → no se deposita salida (mismo criterio que el path automático).
   if (renameBase) {
-    const dup = await hasEarlierDuplicate(orgId, rowId, rows[0].cuit, rows[0].numero_comprobante, log);
+    const dup = await hasEarlierDuplicate(orgId, rowId, rows[0].cuit, rows[0].punto_venta, rows[0].numero_comprobante, log);
     if (dup) {
       await markDuplicate(rowId, jobId, log);
       log('info', 'output.single_row.skip_duplicate', { row_id: rowId, job_id: jobId });
