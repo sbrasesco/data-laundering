@@ -72,7 +72,7 @@ async function moveSupabaseFile(integration, fileMeta, targetFolder, log, rename
   const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : '';
   // FILE-RENAME-BY-DATA (Fase 1): renombrar solo al ir a procesados/ y con base provista
   // (storage, 1 doc, 3 datos). original_path = "{prefix}en_proceso/{filename}".
-  const wantRename = !!renameBase && targetFolder === 'procesados';
+  const wantRename = !!renameBase && (targetFolder === 'procesados' || targetFolder === 'duplicados');
   let destName = wantRename ? `${renameBase}${ext}` : filename;
   const buildDest = (name) => sourcePath.replace(/en_proceso\/[^/]+$/, `${targetFolder}/${name}`);
 
@@ -131,7 +131,7 @@ async function moveFirebaseFile(integration, fileMeta, targetFolder, log, rename
 
   const filename = sourcePath.split('/').pop();
   const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : '';
-  const wantRename = !!renameBase && targetFolder === 'procesados';
+  const wantRename = !!renameBase && (targetFolder === 'procesados' || targetFolder === 'duplicados');
   let destName = wantRename ? `${renameBase}${ext}` : filename;
   const buildDest = (name) => sourcePath.replace(/en_proceso\/[^/]+$/, `${targetFolder}/${name}`);
   let destPath = buildDest(destName);
@@ -276,11 +276,12 @@ async function markRowDuplicate(jobId, log) {
  * Se llama desde worker.mjs después de finalizeJob (success=true) o failJob (success=false).
  * Best-effort: nunca lanza — loguea warn si algo falla.
  */
-export async function moveIntegrationFile({ integrationId, protocol, fileMeta, success, log, renameBase, jobId }) {
+export async function moveIntegrationFile({ integrationId, protocol, fileMeta, success, log, renameBase, jobId, isDuplicate }) {
   // Jobs sin integración (frontend_upload, api_direct) no tienen archivos que mover
   if (!integrationId || !protocol || !fileMeta) return;
 
-  const targetFolder = success ? 'procesados' : 'fallidos';
+  // Duplicado -> carpeta duplicados/. Si no: procesados/ (éxito) o fallidos/ (error).
+  const targetFolder = isDuplicate ? 'duplicados' : (success ? 'procesados' : 'fallidos');
 
   let integration;
   try {

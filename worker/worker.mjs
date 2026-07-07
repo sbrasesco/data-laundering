@@ -113,6 +113,21 @@ async function getSingleDocRenameBase(jobId) {
   }
 }
 
+// ¿La (única) fila del job quedó marcada como duplicada? (para rutear el archivo a duplicados/)
+async function getSingleDocIsDuplicate(jobId) {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/pdf_job_rows?job_id=eq.${encodeURIComponent(jobId)}&select=is_duplicate`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (!res.ok) return false;
+    const rows = await res.json();
+    return Array.isArray(rows) && rows.length === 1 && rows[0]?.is_duplicate === true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Logger estructurado (Pino-compatible) ───────────────────────────────────
 function log(level, event, data = {}) {
   console.log(JSON.stringify({
@@ -309,7 +324,8 @@ const worker = new Worker(
 
         // Mover archivo original a procesados/ en el storage del cliente (best-effort).
         // FILE-RENAME-BY-DATA (Fase 1): si es 1 doc con los 3 datos, renombrar a {cuit}_{numero}_{afip}.
-        const renameBase = await getSingleDocRenameBase(jobId);
+        const renameBase  = await getSingleDocRenameBase(jobId);
+        const isDuplicate = await getSingleDocIsDuplicate(jobId);
         await moveIntegrationFile({
           integrationId: job.data.metadata?.integration_id,
           protocol:      job.data.metadata?.protocol,
@@ -318,6 +334,7 @@ const worker = new Worker(
           log,
           renameBase,
           jobId,
+          isDuplicate,
         });
 
         const result = { ...data, worker_version: WORKER_VERSION };

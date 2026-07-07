@@ -169,6 +169,7 @@ async function createIntegrationFolders(accessToken, parentFolderId, orgId) {
       await ensureDriveFolder(accessToken, clientFolderId, 'procesados');
       await ensureDriveFolder(accessToken, clientFolderId, 'fallidos');
       await ensureDriveFolder(accessToken, clientFolderId, 'extracciones');
+      await ensureDriveFolder(accessToken, clientFolderId, 'duplicados');
     }
   }
 }
@@ -434,7 +435,7 @@ async function handleCreateDriveFolder(body, log) {
 
 // ─── Handler: init folders de integración (TASK-107) ─────────────────────────
 
-const SYSTEM_INIT_FOLDERS = ['en_proceso', 'procesados', 'fallidos', 'extracciones'];
+const SYSTEM_INIT_FOLDERS = ['en_proceso', 'procesados', 'fallidos', 'extracciones', 'duplicados'];
 
 async function initSupabaseFolders({ projectUrl, serviceRoleKey, bucketName, prefix }, log) {
   for (const folder of SYSTEM_INIT_FOLDERS) {
@@ -561,7 +562,7 @@ async function handleInitFolders(body, log) {
 // ─── Handler: comprobar conexión de una integración (test-connection) ─────────
 // Valida con las credenciales que vienen en el body (lo que el usuario carga en
 // IntegracionesPage ANTES de guardar). Devuelve { ok, folders } o { ok:false, error }.
-const TEST_CONN_SYSTEM_FOLDERS = new Set(['en_proceso', 'procesados', 'fallidos', 'extracciones']);
+const TEST_CONN_SYSTEM_FOLDERS = new Set(['en_proceso', 'procesados', 'fallidos', 'extracciones', 'duplicados']);
 
 function jwtRefFromKey(key) {
   try {
