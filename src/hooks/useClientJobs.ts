@@ -116,9 +116,12 @@ export function useClientJobs(filters?: DashboardFilters) {
       if (clientId)   query = query.eq('client_id', clientId);
       if (fechaDesde) query = query.gte('created_at', fechaDesde);
       if (fechaHasta) {
-        const h = new Date(fechaHasta);
-        h.setHours(23, 59, 59, 999);
-        query = query.lte('created_at', h.toISOString());
+        // Cota superior inclusiva del día SIN bug de zona horaria: created_at < (fechaHasta + 1 día).
+        // (new Date(fechaHasta) parsea en UTC pero setHours es local → desfasaba el fin de día en UTC-3,
+        //  por eso una sola fecha no traía nada.) Coincide con get_dashboard_metrics.
+        const [yy, mm, dd] = fechaHasta.split('-').map(Number);
+        const nextDay = new Date(Date.UTC(yy, mm - 1, dd + 1)).toISOString().slice(0, 10);
+        query = query.lt('created_at', nextDay);
       }
       query = query
         .order('created_at', { ascending: false })
@@ -126,8 +129,16 @@ export function useClientJobs(filters?: DashboardFilters) {
 
       const { data, error: fetchError, count } = await query;
       if (fetchError) {
-        setError(fetchError.message);
-        if (!hasLoadedOnce.current) setJobs([]);
+        // PGRST103 = "Requested range not satisfiable": la página pedida excede el total (0 filas por
+        // el filtro). No es un error real → mostrar vacío en vez del JSON crudo ({"...).
+        if ((fetchError as { code?: string }).code === 'PGRST103') {
+          setJobs([]);
+          setTotalJobs(0);
+          setError(null);
+        } else {
+          setError(fetchError.message);
+          if (!hasLoadedOnce.current) setJobs([]);
+        }
       } else {
         setJobs((data || []) as unknown as PdfJob[]);
         setTotalJobs(count ?? 0);
