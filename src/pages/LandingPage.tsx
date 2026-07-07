@@ -82,16 +82,16 @@ const PASOS = [
 
 // planSlug matches billing_plans.name in DB
 const PLANES = [
-  { nombre: 'Gratuito',    slug: 'free',         creditos: '20 créditos',    precio: '$0',       porCredito: null,                 destacado: false, acento: C.gris,     acentoText: '#444',   fondo: C.blanco, ctaLabel: 'Empezar gratis', ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: '/login',                    features: ['20 documentos', 'PDF, JPG, PNG', 'Exportación CSV', 'Soporte por email'] },
-  { nombre: 'Básico',      slug: 'basico',       creditos: '200 créditos',   precio: 'USD 60',   porCredito: 'USD 0,30 / crédito', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['200 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Créditos acumulativos'] },
-  { nombre: 'Profesional', slug: 'profesional',  creditos: '600 créditos',   precio: 'USD 162',  porCredito: 'USD 0,27 / crédito', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.amarillo, ctaTexto: C.negro, ctaHref: null,                        features: ['600 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Créditos acumulativos'] },
-  { nombre: 'Business',    slug: 'business',     creditos: '1.000 créditos', precio: 'USD 220',  porCredito: 'USD 0,22 / crédito', destacado: false, acento: C.lila,     acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.lila,   ctaTexto: C.blanco, ctaHref: null,                        features: ['1.000 documentos', 'Google Drive / FTP / SFTP', 'API access', 'Soporte prioritario', 'Créditos acumulativos'] },
-  { nombre: 'Enterprise',  slug: null,           creditos: 'Personalizado',  precio: 'A medida', porCredito: null,                 destacado: false, acento: C.negro,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contactar',      ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: 'mailto:hola@agoradigital.io', features: ['Volumen a medida', 'Integraciones específicas', 'SLA garantizado', 'Onboarding dedicado'] },
+  { nombre: 'Gratuito',    slug: 'free',         creditos: '20 documentos gratis',    precio: '$0',       porCredito: null,                 destacado: false, acento: C.gris,     acentoText: '#444',   fondo: C.blanco, ctaLabel: 'Empezar gratis', ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: '/login',                    features: ['20 documentos', 'PDF, JPG, PNG', 'Exportación CSV', 'Soporte por email'] },
+  { nombre: 'Básico',      slug: 'basico',       creditos: '~180 documentos',   precio: 'USD 50',   porCredito: 'Acreditás USD 55 · +10%', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['~180 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Saldo acumulable'] },
+  { nombre: 'Profesional', slug: 'profesional',  creditos: '~380 documentos',   precio: 'USD 100',  porCredito: 'Acreditás USD 115 · +15%', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.amarillo, ctaTexto: C.negro, ctaHref: null,                        features: ['~380 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Saldo acumulable'] },
+  { nombre: 'Business',    slug: 'business',     creditos: '~800 documentos', precio: 'USD 200',  porCredito: 'Acreditás USD 240 · +20%', destacado: false, acento: C.lila,     acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.lila,   ctaTexto: C.blanco, ctaHref: null,                        features: ['~800 documentos', 'Google Drive / FTP / SFTP', 'API access', 'Soporte prioritario', 'Saldo acumulable'] },
+  { nombre: 'Enterprise',  slug: null,           creditos: 'Bonus a medida',  precio: 'A medida', porCredito: null,                 destacado: false, acento: C.negro,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contactar',      ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: 'mailto:hola@agoradigital.io', features: ['Volumen a medida', 'Integraciones específicas', 'SLA garantizado', 'Onboarding dedicado'] },
 ];
 
 const FAQS = [
-  { color: C.amarillo, q: '¿Qué es un crédito?',           a: 'Un crédito equivale a un documento procesado. Si subís un ZIP con 50 facturas, se consumen 50 créditos.' },
-  { color: C.verde,    q: '¿Los créditos vencen?',          a: 'No se resetean mensualmente. Son acumulativos y solo caducan tras 6 meses de inactividad en la cuenta.' },
+  { color: C.amarillo, q: '¿Cómo se cobra?',           a: 'Pagás por documento procesado. Si subís un ZIP con 50 facturas, se cobran 50 documentos.' },
+  { color: C.verde,    q: '¿El saldo vence?',          a: 'No se resetea mensualmente. Tu saldo es acumulable y solo caduca tras 6 meses de inactividad en la cuenta.' },
   { color: C.lila,     q: '¿Qué formatos acepta?',          a: 'PDF, JPG, PNG y archivos ZIP o RAR con múltiples documentos. También imágenes escaneadas.' },
   { color: C.amarillo, q: '¿Puedo integrar mis carpetas?',  a: 'Sí. Los planes Profesional y superiores incluyen Google Drive, FTP y SFTP. El sistema monitorea y procesa automáticamente.' },
   { color: C.verde,    q: '¿Qué datos extrae exactamente?', a: 'Fecha, tipo de comprobante, código AFIP, punto de venta, proveedor, CUIT, IVA discriminado (21%, 10.5%, 27%), percepciones, totales, moneda, CAE y más. 28 campos.' },
@@ -283,7 +283,7 @@ function Precios() {
           <h2 className="text-3xl font-black mb-3" style={{ color: C.negro }}>Planes para cada necesidad</h2>
           <p className="font-medium mb-4" style={{ color: C.grisTexto }}>Comenzá gratis y escalá según crezcas.</p>
           <div className="inline-flex items-center gap-2 text-sm font-black px-5 py-3 rounded-full" style={{ background: C.amarillo, color: C.negro }}>
-            Créditos acumulativos — no vencen al mes
+            Bonus en cada recarga · el saldo no vence
           </div>
         </div>
 
