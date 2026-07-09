@@ -204,15 +204,24 @@ PUNTO_VENTA: el punto de venta antes del guión del comprobante. Puede venir SIN
 NUMERO_COMPROBANTE: string completo con punto de venta normalizado a 4 dígitos (ej: "0003-00002831").
 MONEDA: "USD" si aparece USD/U$S/DÓLARES, si no "ARS". es_moneda_ars/es_moneda_usd = boolean.
 CONDICIÓN IVA: buscar junto al CUIT del emisor y del receptor. Valores posibles: "IVA Responsable Inscripto", "IVA Responsable No Inscripto", "IVA No Responsable", "IVA Sujeto Exento", "Consumidor Final", "Responsable Monotributo", "Proveedor del Exterior", "Cliente del Exterior", null.
-IMPORTES — extraer todos los que aparezcan:
-- neto_gravado: "Neto Gravado" / "Base imponible" / "Gravado X%"
+REGLA GENERAL DE INTERPRETACIÓN: No copies importes únicamente por la etiqueta. Analizá la estructura de la factura y la relación entre subtotal, neto gravado, IVA, exentos, percepciones y total para identificar correctamente el significado de cada importe.
+IMPORTES — interpretar los importes, no sólo copiar etiquetas:
+- neto_gravado:
+  1. Buscar primero un campo explícito: "Neto Gravado", "Importe Neto Gravado", "Base Imponible", "Gravado", "Gravado 21%", "Gravado 10,5%", etc.
+  2. Si no existe, identificar el subtotal correspondiente únicamente a los conceptos gravados antes del IVA.
+  3. Si existen importes exentos, no gravados, percepciones, impuestos internos u otros tributos, NO asumir que el subtotal o el total corresponden al neto gravado.
+  4. Sólo cuando la factura contenga exclusivamente conceptos gravados y no existan otros importes adicionales, el subtotal antes del IVA puede considerarse el neto gravado.
+  5. Nunca utilizar el importe TOTAL como neto gravado, salvo que el documento demuestre claramente que ambos coinciden.
 - monto_exento: "Exento" / "No Gravado" / "Monto Exento"
 - iva_21: monto correspondiente a IVA 21%
 - iva_105: monto correspondiente a IVA 10,5%
 - iva_27: monto correspondiente a IVA 27%
 - iva_5: monto correspondiente a IVA 5%
 - iva_25: monto correspondiente a IVA 2,5%
-- iva: suma total de todos los IVA (o monto global si no está discriminado)
+- iva:
+  1. Si existe un campo "IVA", "IVA Total" o equivalente, usar ese valor.
+  2. Si el IVA está discriminado por alícuotas (21%, 10,5%, 27%, 5%, 2,5%), calcular la suma de todas ellas.
+  3. Si la factura es tipo B o C y el IVA no está discriminado, devolver null. No estimarlo matemáticamente.
 - percepcion_ingresos_brutos: "Percepción IIBB" / "Perc. Ing. Brutos"
 - percepcion_iva: "Percepción IVA"
 - impuestos_internos: "Impuestos Internos" / "Imp. Internos" (común en combustibles, tabacos)
