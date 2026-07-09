@@ -194,6 +194,7 @@ export async function finalizeJob(jobId, orgId, { total, successful, failed, low
           total_documents:     okRows + warnRows + failedRows + ocRelations,
           processed_documents: okRows + warnRows + ocRelations,
           failed_documents:    failedRows,
+          low_confidence_documents: warnRows,
           oc_relations:        ocRelations,
           finished_at:         new Date().toISOString(),
           file_manifest:       fileManifest,
