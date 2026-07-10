@@ -20,7 +20,7 @@ export function DocumentsPage() {
   const [searchText, setSearchText] = useState('');
 
   const { clients, loading: clientsLoading } = useClients();
-  const { documents, loading, error, totalCount } = useAllDocuments(filters, page, PAGE_SIZE);
+  const { documents, loading, error, totalCount, refetch } = useAllDocuments(filters, page, PAGE_SIZE);
 
   const filteredDocuments = useMemo(() => {
     if (!searchText.trim()) return documents;
@@ -103,7 +103,7 @@ export function DocumentsPage() {
 
       {!loading && !error && (
         <div className="space-y-4">
-          <DocumentsTable documents={filteredDocuments} />
+          <DocumentsTable documents={filteredDocuments} onDocsChanged={refetch} />
 
           {totalPages > 1 && (
             <div className="flex justify-between items-center rounded-lg border bg-card px-4 py-3">

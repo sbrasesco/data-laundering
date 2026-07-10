@@ -60,6 +60,7 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     async function fetchDocuments() {
@@ -182,7 +183,8 @@ export function useAllDocuments(filters?: DocumentFilters, page: number = 1, pag
     }
 
     fetchDocuments();
-  }, [filters, page, pageSize]);
+  }, [filters, page, pageSize, tick]);
 
-  return { documents, loading, error, totalCount };
+  const refetch = () => setTick(t => t + 1);
+  return { documents, loading, error, totalCount, refetch };
 }

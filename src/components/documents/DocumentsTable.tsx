@@ -5,9 +5,16 @@ import { formatDisplayDate } from '../../utils/dateFormat';
 import { Badge } from '@/components/ui/badge';
 import { warningReasonLabel } from '../../lib/documentClassification';
 import { Button } from '@/components/ui/button';
+import { EditRowModal } from '../pdf-jobs/EditRowModal';
+import { supabase } from '../../lib/supabase';
+
+const WORKER_GATEWAY_URL = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
+const WORKER_API_KEY     = import.meta.env.VITE_WORKER_API_KEY     ?? 'staging-key-2026';
+const ACTIONABLE = new Set(['warning', 'failed', 'pending_approval']);
 
 interface DocumentsTableProps {
   documents: DocumentRow[];
+  onDocsChanged?: () => void;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -36,8 +43,45 @@ const COLS: ColDef[] = [
   { id: 'accion',    header: 'Acción',                                          sortable: false, getVal: () => null },
 ];
 
-export function DocumentsTable({ documents }: DocumentsTableProps) {
+export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps) {
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
+  const [editRow, setEditRow] = useState<DocumentRow | null>(null);
+  const [saving, setSaving]   = useState(false);
+
+  const handleSaveEdit = async (rowId: number, updates: Record<string, any>) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('pdf_job_rows').update({ ...updates, doc_status: 'pending_approval' }).eq('id', rowId);
+      if (error) throw error;
+      setEditRow(null);
+      onDocsChanged?.();
+    } catch (err) {
+      console.error('Error guardando fila:', err);
+      alert('Error al guardar. Intentá nuevamente.');
+    } finally { setSaving(false); }
+  };
+
+  const handleSaveAndProcess = async (rowId: number, updates: Record<string, any>) => {
+    setSaving(true);
+    try {
+      const { error: updateError } = await supabase.from('pdf_job_rows').update({ ...updates, doc_status: 'pending_approval' }).eq('id', rowId);
+      if (updateError) throw updateError;
+      const { data, error: approveError } = await supabase.rpc('approve_document_row', { p_row_id: rowId });
+      if (approveError) throw approveError;
+      if (data?.job_id && data?.org_id) {
+        fetch(`${WORKER_GATEWAY_URL}/api/deposit-row`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${WORKER_API_KEY}` },
+          body: JSON.stringify({ row_id: rowId, job_id: data.job_id, org_id: data.org_id }),
+        }).catch(() => {});
+      }
+      setEditRow(null);
+      onDocsChanged?.();
+    } catch (err) {
+      console.error('Error guardando y procesando:', err);
+      alert('Error al guardar y procesar. Intentá nuevamente.');
+    } finally { setSaving(false); }
+  };
   // Scroll horizontal arrastrando con el mouse (grab & pan).
   const scrollRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ down: false, moved: false, startX: 0, startLeft: 0 });
@@ -228,7 +272,9 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
                   <td className="px-3 py-2">
                     {isOC
                       ? <span className="text-xs text-muted-foreground">{doc.nombre_adjunto || '-'}</span>
-                      : <Button size="sm" onClick={() => setSelectedDoc(doc)}>Ver documento</Button>
+                      : (ACTIONABLE.has((doc.doc_status as string) ?? 'ok')
+                          ? <Button size="sm" variant="outline" onClick={() => setEditRow(doc)}>Editar</Button>
+                          : <Button size="sm" onClick={() => setSelectedDoc(doc)}>Ver documento</Button>)
                     }
                   </td>
                 </tr>
@@ -238,6 +284,13 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
         </table>
       </div>
       <DocumentDetailModal document={selectedDoc} onClose={() => setSelectedDoc(null)} />
+      <EditRowModal
+        row={editRow}
+        onClose={() => setEditRow(null)}
+        onSave={handleSaveEdit}
+        onSaveAndProcess={handleSaveAndProcess}
+        saving={saving}
+      />
     </div>
   );
 }
