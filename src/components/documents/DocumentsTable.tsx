@@ -224,7 +224,7 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
                 <th
                   key={col.id}
                   className={[
-                    'px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap',
+                    'px-3 py-2.5 text-center text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap',
                     col.className || '',
                     col.sortable ? 'sort-th cursor-pointer select-none' : '',
                   ].filter(Boolean).join(' ')}
