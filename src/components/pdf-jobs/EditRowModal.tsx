@@ -30,6 +30,7 @@ const FIELDS: { key: string; label: string; type: 'text' | 'number' | 'date' | '
   { key: 'iva_105',              label: 'IVA 10,5%',         type: 'number' },
   { key: 'iva_27',               label: 'IVA 27%',           type: 'number' },
   { key: 'monto_exento',         label: 'Monto Exento',      type: 'number' },
+  { key: 'descuento',            label: 'Descuento',         type: 'number' },
   { key: 'total',                label: 'Total',             type: 'number' },
   { key: 'nro_cae',              label: 'Nro. CAE',          type: 'text' },
   { key: 'fecha_vto_cae',        label: 'Vto. CAE',          type: 'date' },

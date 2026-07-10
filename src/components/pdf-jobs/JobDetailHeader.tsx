@@ -67,7 +67,7 @@ export function JobDetailHeader({ job }: JobDetailHeaderProps) {
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Advertencia</AlertTitle>
           <AlertDescription>
-            Este proceso se completó con advertencias. Algunos documentos no pudieron procesarse correctamente.
+            Este proceso se completó con advertencias. Algunos documentos se procesaron pero requieren tu revisión (por ejemplo, importes que no cierran o facturas con descuento).
           </AlertDescription>
         </Alert>
       )}

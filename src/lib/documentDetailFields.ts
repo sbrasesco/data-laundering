@@ -101,6 +101,7 @@ export const DOCUMENT_DETAIL_SECTIONS: DocumentDetailSection[] = [
     fields: [
       { label: 'Neto gravado', getValue: (d) => d.neto_gravado, format: 'currency' },
       { label: 'Monto exento', getValue: (d) => d.monto_exento, format: 'currency' },
+      { label: 'Descuento', getValue: (d) => d.descuento, format: 'currency' },
       { label: 'IVA 27%', getValue: (d) => d.iva_27, format: 'currency' },
       { label: 'IVA 21%', getValue: (d) => d.iva_21, format: 'currency' },
       { label: 'IVA 10,5%', getValue: (d) => d.iva_105, format: 'currency' },
