@@ -28,6 +28,7 @@ interface ColDef {
 }
 
 const COLS: ColDef[] = [
+  { id: 'fecha_proceso', header: 'Fecha proceso',                              sortable: true,  getVal: (d) => d.pdf_jobs?.created_at ?? null },
   { id: 'fecha',     header: 'Fecha',        className: 'doc-table-date',      sortable: true,  getVal: (d) => d.fecha },
   { id: 'estado',    header: 'Estado',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'ok' : ((d.doc_status as string | undefined) ?? null) },
   { id: 'tipo',      header: 'Tipo',                                            sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'OC' : (d.tipo_documento || '') },
@@ -240,6 +241,7 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
               const isOC = doc._row_type === 'oc';
               return (
                 <tr key={doc.id} className={isOC ? 'oc-row' : 'hover:bg-muted/30 transition-colors'}>
+                  <td className="px-3 py-2 text-sm whitespace-nowrap">{doc.pdf_jobs?.created_at ? formatDisplayDate(doc.pdf_jobs.created_at) : '-'}</td>
                   <td className="doc-table-date px-3 py-2 text-sm whitespace-nowrap">{formatDisplayDate(doc.fecha)}</td>
                   <td className="px-3 py-2">
                     {getDocStatusBadge(doc)}
