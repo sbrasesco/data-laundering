@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { DocumentRow } from '../../hooks/useAllDocuments';
 import { DocumentDetailModal } from './DocumentDetailModal';
 import { formatDisplayDate } from '../../utils/dateFormat';
@@ -38,6 +38,29 @@ const COLS: ColDef[] = [
 
 export function DocumentsTable({ documents }: DocumentsTableProps) {
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
+  // Scroll horizontal arrastrando con el mouse (grab & pan).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ down: false, moved: false, startX: 0, startLeft: 0 });
+
+  const onDragStart = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const el = scrollRef.current; if (!el) return;
+    drag.current = { down: true, moved: false, startX: e.pageX, startLeft: el.scrollLeft };
+    el.style.cursor = 'grabbing'; el.style.userSelect = 'none';
+  };
+  const onDragMove = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const el = scrollRef.current; if (!el || !drag.current.down) return;
+    const dx = e.pageX - drag.current.startX;
+    if (Math.abs(dx) > 4) drag.current.moved = true;
+    el.scrollLeft = drag.current.startLeft - dx;
+  };
+  const onDragEnd = () => {
+    const el = scrollRef.current;
+    drag.current.down = false;
+    if (el) { el.style.cursor = 'grab'; el.style.userSelect = ''; }
+  };
+  const onClickCaptureGuard = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (drag.current.moved) { e.preventDefault(); e.stopPropagation(); drag.current.moved = false; }
+  };
   const [sortCol, setSortCol] = useState<string>('fecha');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -138,8 +161,18 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
         }
         tr.oc-row { background-color: rgba(99,102,241,0.04); border-left: 3px solid #6366f1; }
         .sort-th:hover { background-color: hsl(var(--muted)); }
+        thead th { position: sticky; top: 0; z-index: 10; background: hsl(var(--muted)); }
       `}</style>
-      <div className="rounded-lg border bg-card overflow-x-auto">
+      <div
+        ref={scrollRef}
+        onMouseDown={onDragStart}
+        onMouseMove={onDragMove}
+        onMouseUp={onDragEnd}
+        onMouseLeave={onDragEnd}
+        onClickCapture={onClickCaptureGuard}
+        className="rounded-lg border bg-card overflow-auto"
+        style={{ cursor: 'grab', maxHeight: '70vh' }}
+      >
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b bg-muted/50">
