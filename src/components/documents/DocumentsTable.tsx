@@ -33,7 +33,7 @@ const COLS: ColDef[] = [
   { id: 'proveedor', header: 'Proveedor',     className: 'doc-table-proveedor', sortable: true,  getVal: (d) => d.proveedor },
   { id: 'cuit',      header: 'CUIT',          className: 'doc-table-cuit',      sortable: true,  getVal: (d) => d.cuit },
   { id: 'receptor',  header: 'Receptor',      className: 'doc-table-receptor',  sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.receptor_nombre },
-  { id: 'numero',    header: 'Número / OC',   className: 'doc-table-numero',    sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.numero_oc || null) : d.numero_comprobante },
+  { id: 'numero',    header: 'Comprobante',   className: 'doc-table-numero',    sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.numero_oc || null) : d.numero_comprobante },
   { id: 'obra',      header: 'Cód. Obra',                                       sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.codigo_obra || null) : null },
   { id: 'moneda',    header: 'Moneda',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : (d.es_moneda_usd ? 'USD' : 'ARS') },
   { id: 'neto',      header: 'Neto',          className: 'doc-table-neto',      sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.neto_gravado },
