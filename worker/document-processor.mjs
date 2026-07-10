@@ -11,6 +11,9 @@
  *            numero_comprobante, total }
  */
 
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+
 const MISTRAL_API_KEY      = process.env.MISTRAL_API_KEY;
 const OPENAI_API_KEY       = process.env.OPENAI_API_KEY;
 const SUPABASE_URL         = process.env.SUPABASE_URL;
@@ -136,6 +139,92 @@ export function correctTipoByPrintedCode(tipo, ocrText, afipMap, log) {
     return tipoDelCodigo;
   }
   return tipo;
+}
+
+// ─── VISION: deteccion AISLADA del tipo (TASK-139, arquitectura B) ───────────
+// La imagen se usa SOLO para leer la letra A/B/C/M del recuadro (lo que el OCR de
+// texto pierde). La extraccion de importes/CUIT/etc queda en su llamada de texto
+// INTACTA -> la imagen no puede correr ningun importe (a diferencia de la hibrida).
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? 'gpt-4.1-mini';
+
+// Render con PyMuPDF (fitz) — mismo motor que zip-processor. NO pdftoppm: en Alpine
+// sin fuentes omite el texto -> PNG en blanco -> el modelo ve un form vacio.
+const FITZ_RENDER = 'import fitz,sys\npix=fitz.open(sys.argv[1])[0].get_pixmap(dpi=int(sys.argv[3]))\npix.save(sys.argv[2])';
+
+const VALID_TIPOS = new Set([
+  'FACTURA_A','FACTURA_B','FACTURA_C','FACTURA_M',
+  'NOTA_DEBITO_A','NOTA_DEBITO_B','NOTA_DEBITO_C',
+  'NOTA_CREDITO_A','NOTA_CREDITO_B','NOTA_CREDITO_C',
+  'ORDEN_COMPRA','SOLICITUD_COTIZACION',
+]);
+
+const VISION_TIPO_SYSTEM = 'Sos un analista de comprobantes fiscales argentinos. Mira la IMAGEN del documento e identifica SOLO el TIPO de comprobante. La LETRA grande (A/B/C/M) suele estar arriba al centro en un recuadro; tambien puede haber "Cod. NN". Devolve SOLO JSON: {"tipo_documento":"FACTURA_A|FACTURA_B|FACTURA_C|FACTURA_M|NOTA_CREDITO_A|NOTA_CREDITO_B|NOTA_CREDITO_C|NOTA_DEBITO_A|NOTA_DEBITO_B|NOTA_DEBITO_C|ORDEN_COMPRA|SOLICITUD_COTIZACION|null","letra":"A|B|C|M|null","visto_en":"letra|codigo|texto"}. No expliques nada.';
+
+/**
+ * Devuelve una URL de imagen para el canal visual, o null si no se pudo.
+ * Imagen (jpg/jpeg/png): se pasa la propia URL. PDF: descarga + render 1a pagina
+ * con PyMuPDF -> data URL base64. NUNCA lanza: ante cualquier error devuelve null.
+ */
+async function renderFirstPageDataUrl(fileUrl, fileType, log) {
+  const ft = String(fileType || '').toLowerCase();
+  if (['jpg', 'jpeg', 'png'].includes(ft)) return fileUrl;
+  if (ft !== 'pdf') return null;
+  const base   = `/tmp/vision_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const tmpPdf = `${base}.pdf`;
+  const tmpPng = `${base}.png`;
+  try {
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error(`download ${res.status}`);
+    writeFileSync(tmpPdf, Buffer.from(await res.arrayBuffer()));
+    execFileSync('python3', ['-c', FITZ_RENDER, tmpPdf, tmpPng, '150']);
+    if (!existsSync(tmpPng)) throw new Error('PyMuPDF no genero PNG');
+    const b64 = readFileSync(tmpPng).toString('base64');
+    return `data:image/png;base64,${b64}`;
+  } catch (e) {
+    if (log) log('warn', 'vision.render_failed', { error: String(e?.message ?? e) });
+    return null;
+  } finally {
+    rmSync(tmpPdf, { force: true });
+    rmSync(tmpPng, { force: true });
+  }
+}
+
+/**
+ * Llamada de vision AISLADA: mira la imagen y devuelve SOLO el tipo_documento
+ * (string valido) o null. No toca ningun otro campo. NUNCA lanza.
+ */
+async function detectTipoWithVision(imageDataUrl, log) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        model:           OPENAI_VISION_MODEL,
+        messages: [
+          { role: 'system', content: VISION_TIPO_SYSTEM },
+          { role: 'user',   content: [
+            { type: 'text',      text: 'Identifica el tipo de comprobante de esta imagen.' },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+          ] },
+        ],
+        temperature:     0,
+        response_format: { type: 'json_object' },
+      }),
+    });
+    if (!res.ok) throw new Error(`vision ${res.status}: ${(await res.text()).slice(0, 150)}`);
+    const data = await res.json();
+    const raw  = data.choices?.[0]?.message?.content ?? '{}';
+    const parsed = JSON.parse(raw);
+    const tipo = parsed?.tipo_documento ?? null;
+    if (log) log('info', 'vision.tipo', { tipo, letra: parsed?.letra ?? null, visto_en: parsed?.visto_en ?? null, model: data.model ?? OPENAI_VISION_MODEL });
+    return tipo || null;
+  } catch (e) {
+    if (log) log('warn', 'vision.tipo_failed', { error: String(e?.message ?? e) });
+    return null;
+  }
 }
 
 // ─── 1. OCR via Mistral ───────────────────────────────────────────────────────
@@ -457,6 +546,7 @@ export async function processDocument(docData, log) {
     client_name   = null,
     oc_entries    = [],
     input_source  = 'worker',
+    vision_enabled = false,
   } = docData;
 
   // ── 1. OCR ────────────────────────────────────────────────────────────────
@@ -464,12 +554,27 @@ export async function processDocument(docData, log) {
     file_url, file_type, log
   );
 
-  // ── 2. Extracción IA ──────────────────────────────────────────────────────
+  // ── 2. Extracción IA (texto OCR) — INTACTA, produce todos los campos ────────
   const { extracted, model: llmModel } = await extractWithOpenAI(
     ocrText,
     { clientCuit: client_cuit, clientName: client_name, ocEntries: oc_entries },
     log
   );
+
+  // ── 2b. VISION (TASK-139, arq. B): si el tenant lo tiene activo, una llamada
+  // AISLADA mira la imagen y corrige SOLO tipo_documento (lee la letra que el OCR
+  // pierde). Gateado + fail-safe: flag OFF o render/vision fallan -> no toca nada.
+  // Los importes/CUIT/etc salen de la extraccion de texto de arriba, sin tocar.
+  if (vision_enabled) {
+    const imageDataUrl = await renderFirstPageDataUrl(file_url, file_type, log);
+    if (imageDataUrl) {
+      const visionTipo = await detectTipoWithVision(imageDataUrl, log);
+      if (visionTipo && VALID_TIPOS.has(visionTipo) && visionTipo !== extracted.tipo_documento) {
+        if (log) log('info', 'vision.tipo_override', { job_id, file: original_filename, from: extracted.tipo_documento, to: visionTipo });
+        extracted.tipo_documento = visionTipo;
+      }
+    }
+  }
 
   // Normalizar numero_comprobante al CORRELATIVO (lo de después del último "-").
   // La sucursal queda en punto_venta; nombre/duplicados reconstruyen punto_venta-correlativo.

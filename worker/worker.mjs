@@ -94,6 +94,28 @@ async function getExtractAttachmentsFlag(organizationId) {
   }
 }
 
+// Feature flag por org: deteccion de tipo por VISION (TASK-139).
+// Default OFF: si no hay fila o la lectura falla, NO se usa vision (fail-safe -> solo
+// texto OCR, comportamiento historico). Gatea TODA la ruta de vision (render + imagen).
+async function getVisionFlag(organizationId) {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/tenant_feature_flags?organization_id=eq.${encodeURIComponent(organizationId)}&select=vision_type_detection`,
+      {
+        headers: {
+          'apikey':        SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+        },
+      }
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data[0]?.vision_type_detection === true;
+  } catch {
+    return false;
+  }
+}
+
 // FILE-RENAME-BY-DATA (Fase 1): base de nombre por dato para un job de UN documento.
 // Devuelve {cuit}_{numero}_{codigo_afip} (saneado) o null si el job tiene != 1 fila,
 // le falta alguno de los 3 datos, o la lectura falla. Se usa para renombrar el archivo
@@ -168,6 +190,8 @@ const worker = new Worker(
 
         const extractAttachments = await getExtractAttachmentsFlag(job.data.organization_id);
         log('info', 'job.attachments_flag', { job_id: jobId, organization_id: job.data.organization_id, extract_embedded_attachments: extractAttachments });
+        const visionEnabled = await getVisionFlag(job.data.organization_id);
+        log('info', 'job.vision_flag', { job_id: jobId, organization_id: job.data.organization_id, vision_type_detection: visionEnabled });
         const { documents, failedUploads, detectedFiles = [], unsupportedFiles = [] } = await processZip(job.data, log, extractAttachments);
         log('info', 'job.zip_extracted', {
           job_id: jobId,
@@ -218,6 +242,7 @@ const worker = new Worker(
               client_name:       doc.client_name,
               oc_entries:        doc.oc_entries,
               input_source:      job.data.metadata?.source ?? 'frontend_upload',
+              vision_enabled:    visionEnabled,
             };
 
             const data = await processDocument(docPayload, log);
@@ -278,6 +303,8 @@ const worker = new Worker(
         let ocEntries = job.data.oc_entries ?? [];
         const tmpDir = `/tmp/worker-single/${jobId}`;
         const extractAttachments = await getExtractAttachmentsFlag(job.data.organization_id);
+        const visionEnabled = await getVisionFlag(job.data.organization_id);
+        log('info', 'job.vision_flag', { job_id: jobId, organization_id: job.data.organization_id, vision_type_detection: visionEnabled });
         if (fileType === 'pdf' && extractAttachments) {
           try {
             await mkdir(tmpDir, { recursive: true });
@@ -305,6 +332,7 @@ const worker = new Worker(
           client_name:       job.data.client_name  ?? null,
           oc_entries:        ocEntries,
           input_source:      job.data.metadata?.source ?? 'frontend_upload',
+          vision_enabled:    visionEnabled,
         };
 
         const data = await processDocument(singlePayload, log);
