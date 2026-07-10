@@ -33,8 +33,8 @@ const COLS: ColDef[] = [
   { id: 'proveedor', header: 'Proveedor',     className: 'doc-table-proveedor', sortable: true,  getVal: (d) => d.proveedor },
   { id: 'cuit',      header: 'CUIT',          className: 'doc-table-cuit',      sortable: true,  getVal: (d) => d.cuit },
   { id: 'receptor',  header: 'Receptor',      className: 'doc-table-receptor',  sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.receptor_nombre },
+  { id: 'punto_venta', header: 'Punto de venta',                                sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.punto_venta },
   { id: 'numero',    header: 'Comprobante',   className: 'doc-table-numero',    sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.numero_oc || null) : d.numero_comprobante },
-  { id: 'obra',      header: 'Cód. Obra',                                       sortable: true,  getVal: (d) => d._row_type === 'oc' ? (d.codigo_obra || null) : null },
   { id: 'moneda',    header: 'Moneda',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : (d.es_moneda_usd ? 'USD' : 'ARS') },
   { id: 'neto',      header: 'Neto',          className: 'doc-table-neto',      sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.neto_gravado },
   { id: 'iva',       header: 'IVA',           className: 'doc-table-iva',       sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.iva },
@@ -250,16 +250,13 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
                   <td className="doc-table-proveedor px-3 py-2 text-sm">{doc.proveedor || '-'}</td>
                   <td className="doc-table-cuit px-3 py-2 text-sm">{doc.cuit || '-'}</td>
                   <td className="doc-table-receptor px-3 py-2 text-sm">{isOC ? '-' : (doc.receptor_nombre || '-')}</td>
+                  <td className="px-3 py-2 text-sm">
+                    {isOC ? <span className="text-muted-foreground">-</span> : (doc.punto_venta || '-')}
+                  </td>
                   <td className="doc-table-numero px-3 py-2 text-sm">
                     {isOC
                       ? <span className="font-medium">{doc.numero_oc || '-'}</span>
                       : (doc.numero_comprobante || '-')
-                    }
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    {isOC && doc.codigo_obra
-                      ? <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#A347D1' }}>{doc.codigo_obra}</span>
-                      : <span className="text-muted-foreground">-</span>
                     }
                   </td>
                   <td className="px-3 py-2">{getMonedaBadge(doc)}</td>
