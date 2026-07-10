@@ -301,7 +301,9 @@ IMPORTES — interpretar los importes, no sólo copiar etiquetas:
   3. Si existen importes exentos, no gravados, percepciones, impuestos internos u otros tributos, NO asumir que el subtotal o el total corresponden al neto gravado.
   4. Sólo cuando la factura contenga exclusivamente conceptos gravados y no existan otros importes adicionales, el subtotal antes del IVA puede considerarse el neto gravado.
   5. Nunca utilizar el importe TOTAL como neto gravado, salvo que el documento demuestre claramente que ambos coinciden.
+  6. Si la factura aplica un DESCUENTO o BONIFICACIÓN general, el neto_gravado es la BASE GRAVADA YA CON EL DESCUENTO APLICADO (la base sobre la que se calcula el IVA), NO el subtotal bruto previo al descuento. Coherencia esperada: neto_gravado + IVA + exentos + percepciones + imp. internos = TOTAL.
 - monto_exento: "Exento" / "No Gravado" / "Monto Exento"
+- descuento: monto del DESCUENTO o BONIFICACIÓN general aplicado sobre el subtotal (etiquetas "Descuento", "Bonificación", "Desc.", "Bonif."). Es lo que se resta del subtotal bruto para llegar a la base gravada. null si no hay descuento.
 - iva_21: monto correspondiente a IVA 21%
 - iva_105: monto correspondiente a IVA 10,5%
 - iva_27: monto correspondiente a IVA 27%
@@ -323,7 +325,7 @@ orden_compra: array con TODOS los números de OC. Si hay sección "[ADJUNTOS OC 
 DETALLE DE RENGLONES (items): array con CADA renglón de producto/servicio del cuerpo del comprobante, en orden. Por renglón: {"descripcion": texto del producto/servicio, "cantidad": número o null, "precio_unitario": número o null, "importe": subtotal del renglón número o null}. Sacá descripción + cantidad + al menos un precio (unitario y/o importe); si falta uno, null (se calcula después). NO incluyas subtotales/totales generales ni líneas que no sean productos. [] si no hay renglones.
 DATOS PARCIALES: completá lo que encontrás, null el resto. Bajá confidence_score si faltan campos clave.
 ESTRUCTURA EXACTA:
-{"fecha":null,"moneda":"ARS","es_moneda_ars":true,"es_moneda_usd":false,"tipo_documento":null,"codigo_afip":null,"punto_venta":null,"numero_comprobante":null,"emisor_nombre":null,"emisor_cuit":null,"condicion_iva_emisor":null,"receptor_nombre":null,"receptor_cuit":null,"condicion_iva_receptor":null,"cliente":null,"neto_gravado":null,"monto_exento":null,"iva_21":null,"iva_105":null,"iva_27":null,"iva_5":null,"iva_25":null,"iva":null,"percepcion_ingresos_brutos":null,"percepcion_iva":null,"impuestos_internos":null,"total":null,"nro_cae":null,"fecha_vto_cae":null,"documento_relacionado":null,"orden_compra":[],"items":[],"confidence_score":0.95}`;
+{"fecha":null,"moneda":"ARS","es_moneda_ars":true,"es_moneda_usd":false,"tipo_documento":null,"codigo_afip":null,"punto_venta":null,"numero_comprobante":null,"emisor_nombre":null,"emisor_cuit":null,"condicion_iva_emisor":null,"receptor_nombre":null,"receptor_cuit":null,"condicion_iva_receptor":null,"cliente":null,"neto_gravado":null,"monto_exento":null,"descuento":null,"iva_21":null,"iva_105":null,"iva_27":null,"iva_5":null,"iva_25":null,"iva":null,"percepcion_ingresos_brutos":null,"percepcion_iva":null,"impuestos_internos":null,"total":null,"nro_cae":null,"fecha_vto_cae":null,"documento_relacionado":null,"orden_compra":[],"items":[],"confidence_score":0.95}`;
 
 /**
  * Construye el user message con el ancla de receptor + texto OCR + OCs confirmadas,
@@ -425,6 +427,7 @@ async function insertJobRow(jobId, orgId, extracted, meta) {
     cliente:                   extracted.cliente                 ?? null,
     neto_gravado:              extracted.neto_gravado            ?? null,
     monto_exento:              extracted.monto_exento            ?? null,
+    descuento:                 extracted.descuento               ?? null,
     iva_21:                    extracted.iva_21                  ?? null,
     iva_105:                   extracted.iva_105                 ?? null,
     iva_27:                    extracted.iva_27                  ?? null,

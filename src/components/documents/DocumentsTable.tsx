@@ -3,6 +3,7 @@ import { DocumentRow } from '../../hooks/useAllDocuments';
 import { DocumentDetailModal } from './DocumentDetailModal';
 import { formatDisplayDate } from '../../utils/dateFormat';
 import { Badge } from '@/components/ui/badge';
+import { warningReasonLabel } from '../../lib/documentClassification';
 import { Button } from '@/components/ui/button';
 
 interface DocumentsTableProps {
@@ -80,10 +81,18 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
     return <Badge variant="success">ARS</Badge>;
   };
 
-  const getStatusOnlyBadge = (st: string) => {
+  const getStatusOnlyBadge = (st: string, reason?: string | null) => {
     switch (st) {
       case 'failed':           return <Badge variant="destructive">Fallido</Badge>;
-      case 'warning':          return <Badge variant="warning">Con advertencia</Badge>;
+      case 'warning': {
+        const rl = warningReasonLabel(reason);
+        return (
+          <div className="flex flex-col items-start gap-0.5">
+            <Badge variant="warning" title={rl ?? undefined}>Con advertencia</Badge>
+            {rl && <span className="text-[11px] leading-tight text-muted-foreground">{rl}</span>}
+          </div>
+        );
+      }
       case 'pending_approval': return <Badge variant="info">Pendiente de aprobación</Badge>;
       default:                 return <Badge variant="success">Exitoso</Badge>;
     }
@@ -94,10 +103,10 @@ export function DocumentsTable({ documents }: DocumentsTableProps) {
   const getDocStatusBadge = (row: DocumentRow) => {
     const st = row._row_type === 'oc' ? 'ok' : ((row.doc_status as string | undefined) ?? 'ok');
     const isDup = row._row_type !== 'oc' && row.is_duplicate === true;
-    if (!isDup) return getStatusOnlyBadge(st);
+    if (!isDup) return getStatusOnlyBadge(st, row.warning_reason);
     return (
       <div className="flex flex-col items-start gap-1">
-        {getStatusOnlyBadge(st)}
+        {getStatusOnlyBadge(st, row.warning_reason)}
         <Badge
           variant="outline"
           className="border-orange-400 text-orange-600"

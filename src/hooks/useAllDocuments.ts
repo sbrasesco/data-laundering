@@ -19,6 +19,7 @@ export interface DocumentRow {
   total: number | null;
   doc_status?: string | null;
   is_duplicate?: boolean | null;
+  warning_reason?: string | null;
   _row_type: 'factura' | 'oc';
   numero_oc?: string | null;
   nombre_adjunto?: string | null;

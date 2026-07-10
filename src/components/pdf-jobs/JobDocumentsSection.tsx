@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '@/components/ui/button';
 import { EditRowModal } from './EditRowModal';
+import { warningReasonLabel } from '../../lib/documentClassification';
 
 interface JobDocumentsSectionProps {
   rows: any[];
@@ -160,6 +161,11 @@ export function JobDocumentsSection({ rows, jobId: _jobId, orgId: _orgId, onRowU
                   ) : row.last_error_message && (
                     <p className="text-xs text-muted-foreground truncate mt-0.5" title={row.last_error_message}>
                       {row.last_error_message}
+                    </p>
+                  )}
+                  {!isDup && status === 'warning' && warningReasonLabel(row.warning_reason) && (
+                    <p className="text-xs text-yellow-700 truncate mt-0.5" title={warningReasonLabel(row.warning_reason)!}>
+                      {warningReasonLabel(row.warning_reason)}
                     </p>
                   )}
                 </div>

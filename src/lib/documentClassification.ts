@@ -44,3 +44,17 @@ export function buildRowCountMaps(rowCountsData: any[]): RowCountMaps {
 // Incluye doc_status para que el frontend no tenga que recalcularlo
 export const ROWS_CLASSIFICATION_SELECT =
   'job_id, doc_status, pdf_job_row_oc(numero_oc)';
+
+// Razón legible por la que un documento quedó "Con advertencia" (warning_reason del trigger).
+export function warningReasonLabel(code?: string | null): string | null {
+  switch (code) {
+    case 'REVISAR_DESCUENTO': return 'Tiene descuento — revisá los importes';
+    case 'IMPORTE_NO_CIERRA': return 'El total no cierra con neto + IVA';
+    case 'CAMPOS_FALTANTES':  return 'Faltan datos clave';
+    case 'BAJA_CONFIANZA':    return 'Baja confianza de lectura';
+    case 'DATOS_INCOMPLETOS': return 'Datos incompletos';
+    case 'REVISION':          return 'Requiere revisión';
+    default:                  return null;
+  }
+}
+

@@ -26,7 +26,7 @@ const COLUMNS = [
   'proveedor', 'cuit', 'receptor_nombre', 'receptor_cuit', 'cliente',
   'neto_gravado', 'iva', 'iva_21', 'iva_105', 'iva_27', 'iva_5', 'iva_25',
   'percepcion_iva', 'percepcion_ingresos_brutos', 'impuestos_internos',
-  'monto_exento', 'total', 'moneda', 'orden_compra', 'nro_cae',
+  'monto_exento', 'descuento', 'total', 'moneda', 'orden_compra', 'nro_cae',
   'fecha_vto_cae', 'confidence_score', 'doc_status',
 ];
 
@@ -36,6 +36,7 @@ const COLUMNS = [
 // descuadra la importación) y con encabezados legibles para las alícuotas.
 const OUT_COLUMNS = COLUMNS.filter(c => c !== 'iva');
 const OUT_LABELS = {
+  descuento: 'Descuento',
   iva_21:  'IVA 21%',
   iva_105: 'IVA 10,5%',
   iva_27:  'IVA 27%',
