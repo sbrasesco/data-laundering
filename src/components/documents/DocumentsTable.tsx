@@ -29,6 +29,7 @@ interface ColDef {
 
 const COLS: ColDef[] = [
   { id: 'fecha',     header: 'Fecha',        className: 'doc-table-date',      sortable: true,  getVal: (d) => d.fecha },
+  { id: 'estado',    header: 'Estado',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'ok' : ((d.doc_status as string | undefined) ?? null) },
   { id: 'tipo',      header: 'Tipo',                                            sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'OC' : (d.tipo_documento || '') },
   { id: 'proveedor', header: 'Proveedor',     className: 'doc-table-proveedor', sortable: true,  getVal: (d) => d.proveedor },
   { id: 'cuit',      header: 'CUIT',          className: 'doc-table-cuit',      sortable: true,  getVal: (d) => d.cuit },
@@ -39,7 +40,6 @@ const COLS: ColDef[] = [
   { id: 'neto',      header: 'Neto',          className: 'doc-table-neto',      sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.neto_gravado },
   { id: 'iva',       header: 'IVA',           className: 'doc-table-iva',       sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.iva },
   { id: 'total',     header: 'Total',                                           sortable: true,  getVal: (d) => d._row_type === 'oc' ? null : d.total },
-  { id: 'estado',    header: 'Estado',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'ok' : ((d.doc_status as string | undefined) ?? null) },
   { id: 'accion',    header: 'Acción',                                          sortable: false, getVal: () => null },
 ];
 
@@ -242,6 +242,9 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
                 <tr key={doc.id} className={isOC ? 'oc-row' : 'hover:bg-muted/30 transition-colors'}>
                   <td className="doc-table-date px-3 py-2 text-sm whitespace-nowrap">{formatDisplayDate(doc.fecha)}</td>
                   <td className="px-3 py-2">
+                    {getDocStatusBadge(doc)}
+                  </td>
+                  <td className="px-3 py-2">
                     {isOC
                       ? <Badge className="border-transparent text-white" style={{ background: '#A347D1' }}>OC</Badge>
                       : <span className="text-xs text-muted-foreground">{doc.tipo_documento || 'Comprobante'}</span>
@@ -263,9 +266,6 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
                   <td className="doc-table-neto px-3 py-2 text-sm tabular-nums">{isOC ? '-' : fmtCurrency(doc.neto_gravado)}</td>
                   <td className="doc-table-iva px-3 py-2 text-sm tabular-nums">{isOC ? '-' : fmtCurrency(doc.iva)}</td>
                   <td className="px-3 py-2 text-sm font-medium tabular-nums">{isOC ? '-' : fmtCurrency(doc.total)}</td>
-                  <td className="px-3 py-2">
-                    {getDocStatusBadge(doc)}
-                  </td>
                   <td className="px-3 py-2">
                     {isOC
                       ? <span className="text-xs text-muted-foreground">{doc.nombre_adjunto || '-'}</span>
