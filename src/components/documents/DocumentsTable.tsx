@@ -204,7 +204,7 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
           .doc-table-numero, .doc-table-proveedor { display: none; }
         }
         tr.oc-row { background-color: rgba(99,102,241,0.04); border-left: 3px solid #6366f1; }
-        .sort-th:hover { background-color: var(--accent); }
+        .sort-th:hover { background-color: var(--primary); color: var(--primary-foreground); }
         thead th { position: sticky; top: 0; z-index: 10; background: var(--muted); }
       `}</style>
       <div
