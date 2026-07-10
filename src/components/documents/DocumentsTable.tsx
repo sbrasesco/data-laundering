@@ -204,8 +204,8 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
           .doc-table-numero, .doc-table-proveedor { display: none; }
         }
         tr.oc-row { background-color: rgba(99,102,241,0.04); border-left: 3px solid #6366f1; }
-        .sort-th:hover { background-color: hsl(var(--muted)); }
-        thead th { position: sticky; top: 0; z-index: 10; background: hsl(var(--muted)); }
+        .sort-th:hover { background-color: var(--accent); }
+        thead th { position: sticky; top: 0; z-index: 10; background: var(--muted); }
       `}</style>
       <div
         ref={scrollRef}
