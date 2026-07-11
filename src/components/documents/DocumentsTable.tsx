@@ -28,7 +28,6 @@ interface ColDef {
 }
 
 const COLS: ColDef[] = [
-  { id: 'fecha_proceso', header: 'Fecha proceso',                              sortable: true,  getVal: (d) => d.pdf_jobs?.created_at ?? null },
   { id: 'fecha',     header: 'Fecha',        className: 'doc-table-date',      sortable: true,  getVal: (d) => d.fecha },
   { id: 'estado',    header: 'Estado',                                          sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'ok' : ((d.doc_status as string | undefined) ?? null) },
   { id: 'tipo',      header: 'Tipo',                                            sortable: true,  getVal: (d) => d._row_type === 'oc' ? 'OC' : (d.tipo_documento || '') },
@@ -205,7 +204,6 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
           .doc-table-numero, .doc-table-proveedor { display: none; }
         }
         tr.oc-row { background-color: rgba(99,102,241,0.04); border-left: 3px solid #6366f1; }
-        .sort-th:hover { background-color: var(--primary); color: var(--primary-foreground); }
         thead th { position: sticky; top: 0; z-index: 10; background: var(--muted); }
       `}</style>
       <div
@@ -241,7 +239,6 @@ export function DocumentsTable({ documents, onDocsChanged }: DocumentsTableProps
               const isOC = doc._row_type === 'oc';
               return (
                 <tr key={doc.id} className={isOC ? 'oc-row' : 'hover:bg-muted/30 transition-colors'}>
-                  <td className="px-3 py-2 text-sm whitespace-nowrap">{doc.pdf_jobs?.created_at ? formatDisplayDate(doc.pdf_jobs.created_at) : '-'}</td>
                   <td className="doc-table-date px-3 py-2 text-sm whitespace-nowrap">{formatDisplayDate(doc.fecha)}</td>
                   <td className="px-3 py-2">
                     {getDocStatusBadge(doc)}
