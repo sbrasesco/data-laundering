@@ -45,15 +45,47 @@ function toIsoDate(ddmmyyyy) {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
-/** Devuelve el CORRELATIVO del comprobante: lo de después del último "-".
- *  "0004-A00004-00012150" -> "00012150"; "0004-00012216" -> "00012216"; sin "-" -> tal cual.
- *  La sucursal se conserva aparte en punto_venta. */
-function correlativoDe(numero) {
-  if (numero == null) return null;
-  const s = String(numero).trim();
-  if (!s) return null;
-  const last = s.split('-').pop().trim();
-  return last || s;
+/** Normaliza el punto de venta a numerico con 4 digitos ("39" -> "0039"). null si no hay digitos. */
+export function normalizePuntoVenta(pv) {
+  if (pv == null) return null;
+  const d = String(pv).replace(/\D/g, '');
+  if (!d) return null;
+  return d.length >= 4 ? d : d.padStart(4, '0');
+}
+
+/**
+ * Descompone el comprobante en { puntoVenta, correlativo } segun formato AFIP:
+ * punto de venta NUMERICO (4-5 digitos) + correlativo de 8 digitos ("PPPP-NNNNNNNN").
+ * La LETRA (A/B/C/M/E) es la CLASE del comprobante -> ya va en tipo_documento/codigo_afip;
+ * NO es punto de venta, se descarta de estos campos.
+ *   "0004-00012216"       -> { 0004, 00012216 }
+ *   "003900075132"        -> { 0039, 00075132 }  (12 digitos PEGADOS, sin separador)
+ *   "A0039-00075132"      -> { 0039, 00075132 }
+ *   "A 0039 00075132"     -> { 0039, 00075132 }
+ *   "0004-A00004-00012150"-> { 0004, 00012150 }
+ *   "0003-003900075132"   -> { 0039, 00075132 }  (PV suelto + ultimo bloque PEGADO: gana el pegado)
+ *   "00012150"            -> { null, 00012150 }  (solo correlativo; el PV lo aporta el modelo)
+ */
+export function splitComprobante(numero) {
+  const vacio = { puntoVenta: null, correlativo: null };
+  if (numero == null) return vacio;
+  const grupos = String(numero).match(/\d+/g);   // bloques de digitos; ignora letras y separadores
+  if (!grupos || grupos.length === 0) return vacio;
+
+  // El ULTIMO bloque es el que manda: si viene PEGADO (>8 dig = PV+correlativo), se recorta.
+  // Los ultimos 8 son el correlativo y su prefijo es el PV, que le gana a cualquier PV suelto
+  // que haya emitido el modelo (suele ser un misread, ej. "0003-003900075132" -> PV real 0039).
+  const ultimo = grupos[grupos.length - 1];
+  if (ultimo.length > 8) {
+    return { puntoVenta: normalizePuntoVenta(ultimo.slice(0, -8)), correlativo: ultimo.slice(-8) };
+  }
+
+  // El ultimo bloque ya es el correlativo (<=8 dig).
+  if (grupos.length >= 2) {
+    return { puntoVenta: normalizePuntoVenta(grupos[0]), correlativo: ultimo };
+  }
+  // Un solo bloque <=8 -> solo correlativo; el punto de venta lo aporta el modelo (del encabezado).
+  return { puntoVenta: null, correlativo: ultimo };
 }
 
 /** Coacciona a número (acepta number o string es/en: "30,0", "2.948,84", "2948.84"). null si no parsea. */
@@ -579,9 +611,14 @@ export async function processDocument(docData, log) {
     }
   }
 
-  // Normalizar numero_comprobante al CORRELATIVO (lo de después del último "-").
-  // La sucursal queda en punto_venta; nombre/duplicados reconstruyen punto_venta-correlativo.
-  extracted.numero_comprobante = correlativoDe(extracted.numero_comprobante);
+  // Normalizar el comprobante segun AFIP: punto de venta (4 dig) + correlativo (8 dig).
+  // Puede venir PEGADO ("003900075132") o con la letra de clase ("A0039-00075132"); la letra
+  // es la CLASE (ya va en tipo_documento/codigo_afip), no el punto de venta.
+  // El PV derivado del numero impreso le gana al que adivino el modelo; si el numero no lo trae,
+  // se conserva el del modelo (normalizado a 4 digitos).
+  const { puntoVenta: pvDelNumero, correlativo } = splitComprobante(extracted.numero_comprobante);
+  if (correlativo) extracted.numero_comprobante = correlativo;
+  extracted.punto_venta = pvDelNumero ?? normalizePuntoVenta(extracted.punto_venta);
 
   // ── 3. Escribir fila en pdf_job_rows ──────────────────────────────────────
   const rowId = await insertJobRow(job_id, organization_id, extracted, {
