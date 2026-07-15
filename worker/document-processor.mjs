@@ -88,6 +88,23 @@ export function splitComprobante(numero) {
   return { puntoVenta: null, correlativo: ultimo };
 }
 
+/**
+ * Recupera el PUNTO DE VENTA del texto OCR (fuente de verdad de lo impreso), anclando en el
+ * correlativo que el modelo saca bien. Busca en el OCR un bloque contiguo de digitos que TERMINE
+ * exactamente en el correlativo (8 dig) y tenga 4-5 digitos de PV adelante (formato AFIP pegado,
+ * ej. impreso "A003900076104" -> PV 0039). Solo dispara si encuentra ese patron exacto -> no
+ * puede romper otros casos (facturas con separador "0004-00012216" no matchean el pegado).
+ * Devuelve el PV normalizado a 4 dig, o null si no lo encuentra con confianza.
+ */
+export function puntoVentaFromOcr(ocrText, correlativo) {
+  if (!ocrText || !correlativo) return null;
+  const corr = String(correlativo).replace(/\D/g, '');
+  if (corr.length !== 8) return null;                 // solo anclamos con correlativo de 8 digitos
+  const re = new RegExp('(?<!\\d)(\\d{4,5})' + corr + '(?!\\d)');
+  const m = re.exec(String(ocrText));
+  return m ? normalizePuntoVenta(m[1]) : null;
+}
+
 /** Coacciona a número (acepta number o string es/en: "30,0", "2.948,84", "2948.84"). null si no parsea. */
 function toNum(v) {
   if (v == null) return null;
@@ -323,6 +340,7 @@ TIPO_DOCUMENTO — primero identificá la CLASE (FACTURA / NOTA DE CRÉDITO / NO
 CODIGO_AFIP: devolvé SIEMPRE null. NO lo extraigas del documento. El sistema lo completa derivándolo de tipo_documento contra la tabla oficial. Jamás tomes un dígito del comprobante (el "3" de "3 - 00002831") como código.
 PUNTO_VENTA: el punto de venta antes del guión del comprobante. Puede venir SIN ceros a la izquierda (ej. "3 - 00002831"); normalizalo SIEMPRE a 4 dígitos → "0003". Si no surge del número buscarlo en el encabezado.
 NUMERO_COMPROBANTE: string completo con punto de venta normalizado a 4 dígitos (ej: "0003-00002831").
+COMPROBANTE PEGADO (sin guión): a veces el número se imprime como una sola tira larga de dígitos, a veces con la letra de clase adelante (ej. "A003900076104"). Regla AFIP: los ÚLTIMOS 8 dígitos son el correlativo y los 4-5 dígitos anteriores son el PUNTO DE VENTA (en "003900076104" → punto_venta "0039", correlativo "00076104"). La letra inicial (A/B/C/M/E) es la CLASE del comprobante, NO forma parte del número. En ese caso devolvé numero_comprobante CON el punto de venta incluido (ej. "0039-00076104") y punto_venta "0039". PROHIBIDO tomar como punto de venta un número suelto del cuerpo (vendedor "Vend: 66", "Codigo", nº interno, etc.); el punto de venta SIEMPRE sale del propio número de comprobante impreso.
 MONEDA: "USD" si aparece USD/U$S/DÓLARES, si no "ARS". es_moneda_ars/es_moneda_usd = boolean.
 CONDICIÓN IVA: buscar junto al CUIT del emisor y del receptor. Valores posibles: "IVA Responsable Inscripto", "IVA Responsable No Inscripto", "IVA No Responsable", "IVA Sujeto Exento", "Consumidor Final", "Responsable Monotributo", "Proveedor del Exterior", "Cliente del Exterior", null.
 REGLA GENERAL DE INTERPRETACIÓN: No copies importes únicamente por la etiqueta. Analizá la estructura de la factura y la relación entre subtotal, neto gravado, IVA, exentos, percepciones y total para identificar correctamente el significado de cada importe.
@@ -618,7 +636,11 @@ export async function processDocument(docData, log) {
   // se conserva el del modelo (normalizado a 4 digitos).
   const { puntoVenta: pvDelNumero, correlativo } = splitComprobante(extracted.numero_comprobante);
   if (correlativo) extracted.numero_comprobante = correlativo;
-  extracted.punto_venta = pvDelNumero ?? normalizePuntoVenta(extracted.punto_venta);
+  // Prioridad del punto de venta: (1) lo IMPRESO en el OCR anclado al correlativo (fuente de
+  // verdad; corrige misreads del modelo, ej. ELSENER 0039 que el modelo leia 0009), (2) el PV
+  // embebido en el numero, (3) el que emitio el modelo.
+  const pvOcr = puntoVentaFromOcr(ocrText, correlativo);
+  extracted.punto_venta = pvOcr ?? pvDelNumero ?? normalizePuntoVenta(extracted.punto_venta);
 
   // ── 3. Escribir fila en pdf_job_rows ──────────────────────────────────────
   const rowId = await insertJobRow(job_id, organization_id, extracted, {

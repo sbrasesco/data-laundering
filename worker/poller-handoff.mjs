@@ -97,8 +97,12 @@ export async function uploadAndEnqueue({ buffer, filename, orgId, integrationId,
   const extInfo = SUPPORTED_EXTENSIONS[ext];
   if (!extInfo) throw new Error(`Extensión no soportada: ${ext}`);
 
-  // Upload a Aurora Storage (bucket documents propio de Aurora)
-  const uniqueName  = `${Date.now()}_${filename}`;
+  // Upload a Aurora Storage (bucket documents propio de Aurora).
+  // Sanear el nombre para la CLAVE de storage: espacios y caracteres no URL-safe rompen la URL
+  // publica que se le pasa a Mistral (400 "File could not be fetched"). El nombre REAL se conserva
+  // aparte en original_filename (para mostrar). Solo afecta la ruta interna de Aurora.
+  const safeName    = String(filename).replace(/\s+/g, '_').replace(/[^\w.\-]/g, '_');
+  const uniqueName  = `${Date.now()}_${safeName}`;
   const storagePath = `${orgId}/integrations/${uniqueName}`;
   const uploadRes   = await fetch(`${supabaseUrl}/storage/v1/object/documents/${storagePath}`, {
     method:  'POST',
