@@ -105,6 +105,24 @@ export function puntoVentaFromOcr(ocrText, correlativo) {
   return m ? normalizePuntoVenta(m[1]) : null;
 }
 
+/**
+ * Extrae el COMPROBANTE IMPRESO directamente del texto OCR (fuente de verdad). El modelo a veces
+ * transpone digitos o toma un PV suelto del cuerpo (ej. "Ing. Brutos: 0000" -> PV 0000). Busca dos
+ * formatos AFIP inequivocos: (1) clase A/B/C/M/E + 12-13 digitos pegados ("A000200040110");
+ * (2) punto de venta + correlativo con separador ("0019-00015207"). Devuelve el token crudo (para
+ * splitComprobante) o null si no hay patron claro (ahi manda el modelo). No matchea CUIT
+ * (30-8dig-1, lleva 2 digitos antes del guion) ni CAE (14 digitos).
+ */
+export function comprobanteFromOcr(ocrText) {
+  if (!ocrText) return null;
+  const s = String(ocrText);
+  let m = s.match(/(?:^|[^A-Za-z0-9])[ABCMEabcme][ ]?(\d{12,13})(?!\d)/);
+  if (m) return m[1];
+  m = s.match(/(?:^|[^\d])(\d{4,5}-\d{8})(?!\d)/);
+  if (m) return m[1];
+  return null;
+}
+
 /** Coacciona a número (acepta number o string es/en: "30,0", "2.948,84", "2948.84"). null si no parsea. */
 function toNum(v) {
   if (v == null) return null;
@@ -634,13 +652,20 @@ export async function processDocument(docData, log) {
   // es la CLASE (ya va en tipo_documento/codigo_afip), no el punto de venta.
   // El PV derivado del numero impreso le gana al que adivino el modelo; si el numero no lo trae,
   // se conserva el del modelo (normalizado a 4 digitos).
-  const { puntoVenta: pvDelNumero, correlativo } = splitComprobante(extracted.numero_comprobante);
+  // El COMPROBANTE IMPRESO en el OCR es la FUENTE DE VERDAD (el modelo a veces transpone digitos
+  // o toma un PV suelto del cuerpo, ej. "Ing. Brutos: 0000"). Si el OCR trae un patron claro, MANDA
+  // sobre el numero del modelo; si no, cae al modelo. La letra es la CLASE (ya va en tipo/codigo_afip).
+  const ocrComp   = comprobanteFromOcr(ocrText);
+  const fromOcr   = splitComprobante(ocrComp);                 // {null,null} si no hubo patron
+  const fromModel = splitComprobante(extracted.numero_comprobante);
+
+  const correlativo = fromOcr.correlativo ?? fromModel.correlativo;
   if (correlativo) extracted.numero_comprobante = correlativo;
-  // Prioridad del punto de venta: (1) lo IMPRESO en el OCR anclado al correlativo (fuente de
-  // verdad; corrige misreads del modelo, ej. ELSENER 0039 que el modelo leia 0009), (2) el PV
-  // embebido en el numero, (3) el que emitio el modelo.
-  const pvOcr = puntoVentaFromOcr(ocrText, correlativo);
-  extracted.punto_venta = pvOcr ?? pvDelNumero ?? normalizePuntoVenta(extracted.punto_venta);
+  extracted.punto_venta =
+       fromOcr.puntoVenta                                      // (1) PV impreso del comprobante OCR
+    ?? puntoVentaFromOcr(ocrText, correlativo)                 // (2) recuperacion anclada al correlativo
+    ?? fromModel.puntoVenta                                    // (3) PV embebido en el numero del modelo
+    ?? normalizePuntoVenta(extracted.punto_venta);             // (4) el que emitio el modelo
 
   // ── 3. Escribir fila en pdf_job_rows ──────────────────────────────────────
   const rowId = await insertJobRow(job_id, organization_id, extracted, {
