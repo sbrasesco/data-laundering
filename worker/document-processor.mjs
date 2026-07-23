@@ -48,8 +48,11 @@ function toIsoDate(ddmmyyyy) {
 /** Normaliza el punto de venta a numerico con 4 digitos ("39" -> "0039"). null si no hay digitos. */
 export function normalizePuntoVenta(pv) {
   if (pv == null) return null;
-  const d = String(pv).replace(/\D/g, '');
+  let d = String(pv).replace(/\D/g, '');
   if (!d) return null;
+  // Canonico a 4 digitos: un PV de 5 que arranca en 0 (ej. "00004") se recorta a "0004";
+  // los PV genuinos de 5 digitos (ej. "10039") se mantienen. Menos de 4 -> padding a la izquierda.
+  if (d.length === 5 && d[0] === '0') d = d.slice(1);
   return d.length >= 4 ? d : d.padStart(4, '0');
 }
 
@@ -666,6 +669,32 @@ export async function processDocument(docData, log) {
     ?? puntoVentaFromOcr(ocrText, correlativo)                 // (2) recuperacion anclada al correlativo
     ?? fromModel.puntoVenta                                    // (3) PV embebido en el numero del modelo
     ?? normalizePuntoVenta(extracted.punto_venta);             // (4) el que emitio el modelo
+
+  // NETO por IDENTIDAD (solo con DESCUENTO): la factura suele imprimir Subtotal + Bonificacion SIN
+  // linea de "Neto Gravado", asi que el modelo lo CALCULA (subtotal - descuento) y a veces yerra la
+  // aritmetica (ej. 1039977.26 en vez de 1040077.26). Si hay descuento + total + IVA, derivamos el
+  // neto por identidad AFIP (total = neto + iva + exento + percepciones + internos) para que cierre
+  // exacto. Salvaguarda: solo corrige desvios CHICOS (aritmetica), no estructurales (asi no rompe
+  // facturas con conceptos no contemplados, ej. intereses). Sin descuento el neto impreso no se toca.
+  {
+    const _n    = toNum(extracted.neto_gravado);
+    const _iva  = toNum(extracted.iva);
+    const _tot  = toNum(extracted.total);
+    const _desc = toNum(extracted.descuento);
+    if (_desc && _desc !== 0 && _tot != null && _iva != null) {
+      const _otros = (toNum(extracted.monto_exento) ?? 0)
+                   + (toNum(extracted.percepcion_iva) ?? 0)
+                   + (toNum(extracted.percepcion_ingresos_brutos) ?? 0)
+                   + (toNum(extracted.impuestos_internos) ?? 0);
+      const netoDerivado = Math.round((_tot - _iva - _otros) * 100) / 100;
+      const bound = Math.max(1000, Math.abs(_tot) * 0.02);
+      const dif = _n == null ? null : Math.abs(netoDerivado - _n);
+      if (netoDerivado > 0 && (_n == null || (dif > 0.5 && dif < bound))) {
+        if (log) log('info', 'neto.derived_from_total', { from: _n, to: netoDerivado, descuento: _desc });
+        extracted.neto_gravado = netoDerivado;
+      }
+    }
+  }
 
   // ── 3. Escribir fila en pdf_job_rows ──────────────────────────────────────
   const rowId = await insertJobRow(job_id, organization_id, extracted, {
