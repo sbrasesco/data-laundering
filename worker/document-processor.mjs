@@ -384,9 +384,9 @@ IMPORTES — interpretar los importes, no sólo copiar etiquetas:
   1. Si existe un campo "IVA", "IVA Total" o equivalente, usar ese valor.
   2. Si el IVA está discriminado por alícuotas (21%, 10,5%, 27%, 5%, 2,5%), calcular la suma de todas ellas.
   3. Si la factura es tipo B o C y el IVA no está discriminado, devolver null. No estimarlo matemáticamente.
-- percepcion_ingresos_brutos: "Percepción IIBB" / "Perc. Ing. Brutos"
+- percepcion_ingresos_brutos: "Percepción IIBB" / "Perc. Ing. Brutos". OJO: puede venir en VARIAS líneas, una por jurisdicción (ej. "PERC. I.B. BS. AS.", "PERC. I.B. NEUQUEN", "PERC. I.B. SALTA"); en ese caso percepcion_ingresos_brutos = la SUMA de TODAS esas líneas (sumá con cuidado, dígito a dígito)
 - percepcion_iva: "Percepción IVA"
-- impuestos_internos: "Impuestos Internos" / "Imp. Internos" (común en combustibles, tabacos)
+- impuestos_internos: "Impuestos Internos" / "Imp. Internos" (común en combustibles, tabacos). En facturas de COMBUSTIBLES, los renglones "IDC" (imp. dióxido de carbono) e "ITC" (imp. transferencia de combustibles) SON impuestos internos: impuestos_internos = IDC + ITC (+ cualquier otro impuesto interno)
 - total: importe final "Total" / "TOTAL A PAGAR"
 CAE — al pie de la factura:
 - nro_cae: número de 14 dígitos. Buscar "CAE N°:", "CAE:", "Código de Autorización".
@@ -692,6 +692,32 @@ export async function processDocument(docData, log) {
       if (netoDerivado > 0 && (_n == null || (dif > 0.5 && dif < bound))) {
         if (log) log('info', 'neto.derived_from_total', { from: _n, to: netoDerivado, descuento: _desc });
         extracted.neto_gravado = netoDerivado;
+      }
+    }
+  }
+
+  // PERC-IIBB por IDENTIDAD (sin descuento): proveedores como Loma Negra imprimen las percepciones
+  // de IIBB en VARIAS lineas por jurisdiccion (BS.AS. + NEUQUEN + SALTA...) y el modelo debe
+  // SUMARLAS — a veces yerra la suma (+100/+200). Si hay percepcion IIBB y la cuenta no cierra por
+  // un desvio CHICO, derivarla por identidad: percIIBB = total - neto - iva - exento - percIVA -
+  // internos. Misma salvaguarda que el neto (ajuste de aritmetica, no estructural). Sin percepciones
+  // o con descuento (ya lo maneja el bloque anterior) no se toca nada.
+  {
+    const _desc = toNum(extracted.descuento);
+    const _iva  = toNum(extracted.iva);
+    const _tot  = toNum(extracted.total);
+    const _pib  = toNum(extracted.percepcion_ingresos_brutos);
+    const _neto = toNum(extracted.neto_gravado);
+    if ((!_desc || _desc === 0) && _pib != null && _pib !== 0 && _tot != null && _iva != null && _neto != null) {
+      const _resto = (toNum(extracted.monto_exento) ?? 0)
+                   + (toNum(extracted.percepcion_iva) ?? 0)
+                   + (toNum(extracted.impuestos_internos) ?? 0);
+      const pibDerivada = Math.round((_tot - _neto - _iva - _resto) * 100) / 100;
+      const bound = Math.max(1000, Math.abs(_tot) * 0.02);
+      const dif = Math.abs(pibDerivada - _pib);
+      if (pibDerivada > 0 && dif > 0.5 && dif < bound) {
+        if (log) log('info', 'perc_iibb.derived_from_total', { from: _pib, to: pibDerivada });
+        extracted.percepcion_ingresos_brutos = pibDerivada;
       }
     }
   }

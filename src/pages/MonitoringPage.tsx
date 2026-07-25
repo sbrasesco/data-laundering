@@ -41,6 +41,9 @@ interface StuckJob      { job_id: string; org_name: string | null; created_at: s
 interface WorkerHealth  { status: 'ok' | 'error' | 'timeout' | 'checking'; worker_version?: string; google_oauth?: boolean; latency_ms?: number; }
 interface WorkerMetrics { timestamp: string; worker_version: string; queue_depth: { waiting: number; active: number; delayed: number }; totals: { completed: number; failed: number }; latency_ms: { p50: number | null; p95: number | null; avg: number | null; sample_size: number }; error_rate_pct: number; }
 interface TenantJob     { id: string; status: string; error_type: string | null; created_at: string; finished_at: string | null; total_documents: number | null; processed_documents: number | null; failed_documents: number | null; input_source: string | null; }
+interface TenantMonthly { period_year: number; period_month: number; jobs_count: number; total_docs: number; processed_docs: number; failed_docs: number; }
+const MESES_LARGO = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const periodLabel = (y: number, m: number) => `${MESES_LARGO[m] ?? m} ${y}`;
 interface PricingPlan     { name: string; display_name: string; price_per_doc: number; balance_usd: number; docs_included: number; }
 interface PricingFeature  { feature_key: string; label: string; cost_usd: number; }
 interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
@@ -174,6 +177,8 @@ export function MonitoringPage() {
   const [tenantJobs,      setTenantJobs]      = useState<TenantJob[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const [activityError,   setActivityError]   = useState<string | null>(null);
+  const [monthlyActivity, setMonthlyActivity] = useState<TenantMonthly[]>([]);
+  const [activityPeriod,  setActivityPeriod]  = useState<{ year: number; month: number } | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
@@ -377,14 +382,14 @@ export function MonitoringPage() {
     }
   };
 
-  const handleViewActivity = async (t: TenantBalance) => {
-    setActivityTarget(t);
-    setTenantJobs([]);
-    setActivityError(null);
-    setModal('activity');
+  const loadTenantJobs = async (orgId: string, period: { year: number; month: number } | null) => {
     setLoadingActivity(true);
+    setActivityError(null);
     try {
-      const { data, error } = await supabase.rpc('get_tenant_jobs_admin', { p_org_id: t.org_id });
+      const args = period
+        ? { p_org_id: orgId, p_year: period.year, p_month: period.month }
+        : { p_org_id: orgId };
+      const { data, error } = await supabase.rpc('get_tenant_jobs_admin', args);
       if (error) throw error;
       setTenantJobs((data ?? []) as TenantJob[]);
     } catch (err) {
@@ -393,6 +398,26 @@ export function MonitoringPage() {
     } finally {
       setLoadingActivity(false);
     }
+  };
+
+  const selectActivityPeriod = (t: TenantBalance, period: { year: number; month: number } | null) => {
+    setActivityPeriod(period);
+    loadTenantJobs(t.org_id, period);
+  };
+
+  const handleViewActivity = async (t: TenantBalance) => {
+    setActivityTarget(t);
+    setTenantJobs([]);
+    setMonthlyActivity([]);
+    setActivityPeriod(null);
+    setActivityError(null);
+    setModal('activity');
+    // Resumen mensual (agregado, todos los meses)
+    supabase.rpc('get_tenant_monthly_activity', { p_org_id: t.org_id }).then(({ data, error }) => {
+      if (!error) setMonthlyActivity((data ?? []) as TenantMonthly[]);
+    });
+    // Detalle: últimos 50
+    loadTenantJobs(t.org_id, null);
   };
 
   const handleToggleTenant = async (t: TenantBalance) => {
@@ -944,13 +969,55 @@ export function MonitoringPage() {
 
       {/* Actividad por tenant */}
       <Dialog open={modal === 'activity'} onOpenChange={() => { setModal('tenants'); setActivityTarget(null); }}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              Actividad — {activityTarget?.name ?? ''}
-              <span className="ml-2 text-sm font-normal text-muted-foreground">últimos 30 jobs</span>
-            </DialogTitle>
+            <DialogTitle>Actividad — {activityTarget?.name ?? ''}</DialogTitle>
           </DialogHeader>
+
+          {monthlyActivity.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-muted-foreground mb-1">Documentos por mes — clic en un mes para filtrar el detalle</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mes</TableHead>
+                    <TableHead className="text-right">Procesos</TableHead>
+                    <TableHead className="text-right">Documentos</TableHead>
+                    <TableHead className="text-right">Procesados</TableHead>
+                    <TableHead className="text-right">Fallidos</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {monthlyActivity.map((mth) => {
+                    const active = activityPeriod?.year === mth.period_year && activityPeriod?.month === mth.period_month;
+                    return (
+                      <TableRow
+                        key={`${mth.period_year}-${mth.period_month}`}
+                        className={`cursor-pointer ${active ? 'bg-muted' : 'hover:bg-muted/50'}`}
+                        onClick={() => activityTarget && selectActivityPeriod(activityTarget, active ? null : { year: mth.period_year, month: mth.period_month })}
+                      >
+                        <TableCell className="text-sm">{periodLabel(mth.period_year, mth.period_month)}</TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">{mth.jobs_count}</TableCell>
+                        <TableCell className="text-right text-sm tabular-nums font-medium">{mth.total_docs}</TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">{mth.processed_docs}</TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">{mth.failed_docs || '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-medium text-muted-foreground">
+              {activityPeriod ? `Detalle — ${periodLabel(activityPeriod.year, activityPeriod.month)}` : 'Últimos 50 procesos'}
+            </p>
+            {activityPeriod && activityTarget && (
+              <button className="text-xs text-primary hover:underline" onClick={() => selectActivityPeriod(activityTarget, null)}>Ver todos</button>
+            )}
+          </div>
+
           {loadingActivity ? (
             <div className="py-8 flex justify-center"><LoadingSpinner /></div>
           ) : activityError ? (
