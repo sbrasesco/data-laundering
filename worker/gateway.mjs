@@ -885,7 +885,16 @@ async function handleEnqueue(body, queue, log) {
     log('warn', 'gateway.pdf_job_skipped_no_supabase', { job_id, input_source, has_url: !!SUPABASE_URL, has_key: !!SUPABASE_KEY });
   }
 
-  await queue.add('process-pdf', payload, { jobId: job_id, priority: 5 });
+  // WORKER-RESILIENCE: 3 intentos con backoff exponencial (5s/10s/20s) para que un blip
+  // transitorio (Mistral 503, red cortada, URL de storage aun no propagada) se recupere solo.
+  // Los errores PERMANENTES (sin saldo, ZIP vacio) NO reintentan: el worker los relanza como
+  // UnrecoverableError (toUnrecoverable) y BullMQ los corta al primer intento.
+  await queue.add('process-pdf', payload, {
+    jobId: job_id,
+    priority: 5,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5000 },
+  });
   log('info', 'gateway.enqueued', { job_id, organization_id, file_type, input_source });
   return { status: 200, body: { job_id, queued: true } };
 }

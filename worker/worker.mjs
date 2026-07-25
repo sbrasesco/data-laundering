@@ -432,14 +432,31 @@ worker.on('completed', (job) =>
   log('info', 'job.completed', { job_id: job.data.job_id })
 );
 
-worker.on('failed', (job, err) =>
+worker.on('failed', async (job, err) => {
   log('error', 'job.failed', {
     job_id: job?.data?.job_id,
     error: err.message,
     attempt: job?.attemptsMade,
     is_terminal: err.name === 'UnrecoverableError',
-  })
-);
+  });
+  // WORKER-RESILIENCE: si es la falla FINAL (sin mas reintentos) y NO es un TerminalError
+  // (ese ya marco la fila via failJob en el catch del processor), persistir el error en
+  // pdf_jobs para que la fila no quede huerfana en 'processing' (casos reales: Mistral 503,
+  // fetch 'terminated', URL de storage no propagada). failJob es un PATCH idempotente.
+  try {
+    const jobId = job?.data?.job_id;
+    if (!jobId) return;
+    const maxAttempts = Math.max(1, job?.opts?.attempts ?? 1);
+    const isFinal     = (job?.attemptsMade ?? 1) >= maxAttempts;
+    const isTerminal  = err?.name === 'UnrecoverableError';
+    if (isFinal && !isTerminal) {
+      await failJob(jobId, err?.message ?? 'Fallo de procesamiento', log, 'processing');
+      log('info', 'job.failed_persisted', { job_id: jobId, attempts: job?.attemptsMade });
+    }
+  } catch (e) {
+    log('error', 'job.failed_persist_error', { error: e?.message });
+  }
+});
 
 worker.on('error', (err) =>
   log('error', 'worker.error', { message: err.message })
