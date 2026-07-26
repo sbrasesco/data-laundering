@@ -49,7 +49,7 @@ interface PricingFeature  { feature_key: string; label: string; cost_usd: number
 interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
 interface DocTypeAdmin    { code: string; label: string; sort_order: number; active: boolean; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | 'corrections' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | 'corrections' | 'ia_hub' | null;
 
 // ─── FeatureRow ───────────────────────────────────────────────────────────────
 function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
@@ -749,13 +749,6 @@ export function MonitoringPage() {
               onClick={() => setModal('stuck')}
             />
             <MonitorCard
-              title="Correcciones" accent="#A347D1"
-              icon={<IconDocs />}
-              metric="IA"
-              sub="cuaderno de correcciones"
-              onClick={handleViewCorrections}
-            />
-            <MonitorCard
               title="Cola"
               accent={
                 metricsError ? '#94a3b8'
@@ -784,11 +777,11 @@ export function MonitoringPage() {
               onClick={() => { setEditDocLabels({}); setNewDocCode(''); setNewDocLabel(''); setModal('doctypes'); }}
             />
             <MonitorCard
-              title="Prompt" accent="#6366f1"
+              title="IA" accent="#6366f1"
               icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>}
               metric="IA"
-              sub="ver prompt de extracción"
-              onClick={handleViewPrompt}
+              sub="prompt · correcciones · perfiles"
+              onClick={() => setModal('ia_hub')}
             />
           </div>
         </>
@@ -799,7 +792,8 @@ export function MonitoringPage() {
       {/* Prompt del worker (TASK-114) — solo lectura */}
       <Dialog open={modal === 'prompt'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Prompt de extracción (worker)</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('ia_hub')}>← Volver a IA</button><DialogTitle>Prompt de extracción (worker)</DialogTitle></DialogHeader>
           {promptLoading ? (
             <div className="py-8 flex justify-center"><LoadingSpinner /></div>
           ) : promptError ? (
@@ -815,10 +809,36 @@ export function MonitoringPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Hub IA */}
+      <Dialog open={modal === 'ia_hub'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>IA — extracción</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <button
+              className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors"
+              onClick={handleViewPrompt}
+            >
+              <div className="text-sm font-medium">Prompt de extracción</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Ver las instrucciones actuales del extractor (solo lectura)</div>
+            </button>
+            <button
+              className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors"
+              onClick={handleViewCorrections}
+            >
+              <div className="text-sm font-medium">Correcciones y perfiles de proveedor</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Qué corrige la gente (cuaderno) y perfiles de lectura por proveedor</div>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Correcciones IA (cuaderno) */}
       <Dialog open={modal === 'corrections'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Correcciones humanas — cuaderno de la IA</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('ia_hub')}>← Volver a IA</button>
+            <DialogTitle>Correcciones humanas — cuaderno de la IA</DialogTitle>
+          </DialogHeader>
           {correctionsError ? (
             <p className="text-sm text-destructive py-6 text-center">{correctionsError}</p>
           ) : !correctionsStats ? (
@@ -1193,9 +1213,10 @@ export function MonitoringPage() {
       </Dialog>
 
       {/* Actividad por tenant */}
-      <Dialog open={modal === 'activity'} onOpenChange={() => { setModal('tenants'); setActivityTarget(null); }}>
+      <Dialog open={modal === 'activity'} onOpenChange={() => { setModal(null); setActivityTarget(null); }}>
         <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => { setModal('tenants'); setActivityTarget(null); }}>← Volver a Balance por tenant</button>
             <DialogTitle>Actividad — {activityTarget?.name ?? ''}</DialogTitle>
           </DialogHeader>
 
