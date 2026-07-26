@@ -986,63 +986,47 @@ export function MonitoringPage() {
 
       {/* Hub Documentos */}
       <Dialog open={modal === 'docs_hub'} onOpenChange={() => setModal(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Documentos</DialogTitle></DialogHeader>
-          <div className="space-y-2">
-            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('jobs')}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-medium">Procesos (jobs)</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{completedJobs} completados de {totalJobs}</div>
-                </div>
-                <span className="text-lg font-black">{totalJobs}</span>
-              </div>
-            </button>
-            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('docs')}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-medium">Documentos procesados</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{docsStats.processed_24h} en las últimas 24 h</div>
-                </div>
-                <span className="text-lg font-black">{docsStats.total_processed}</span>
-              </div>
-            </button>
-            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('errors')}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-medium">Errores recientes</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">últimos 10 procesos con error</div>
-                </div>
-                <span className="text-lg font-black">{recentErrors.length}</span>
-              </div>
-            </button>
-            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('stuck')}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-medium">Trabados</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">&gt;20 min en processing</div>
-                </div>
-                <span className={`text-lg font-black ${stuckJobs.length > 0 ? 'text-destructive' : ''}`}>{stuckJobs.length}</span>
-              </div>
-            </button>
-            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('queue')}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-medium">Cola de procesamiento</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{workerMetrics ? `${workerMetrics.queue_depth.active} activos · ${workerMetrics.error_rate_pct}% err` : metricsError ? 'sin datos' : 'cargando…'}</div>
-                </div>
-                <span className="text-lg font-black">{workerMetrics ? workerMetrics.queue_depth.waiting : '—'}</span>
-              </div>
-            </button>
-            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => { setEditDocLabels({}); setNewDocCode(''); setNewDocLabel(''); setModal('doctypes'); }}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-medium">Tipos de documento</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">catálogo AFIP · administrar activos</div>
-                </div>
-                <span className="text-lg font-black">{docTypes.filter(d => d.active).length}</span>
-              </div>
-            </button>
+          <p className="text-xs text-muted-foreground -mt-1">Tocá una barra para ver el detalle.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {(() => {
+              const rows = [
+                { key: 'jobs',     label: 'Procesos (jobs)',        value: totalJobs,                              color: '#22C365',
+                  sub: `${completedJobs} completados`,               onClick: () => setModal('jobs') },
+                { key: 'docs',     label: 'Documentos procesados',  value: docsStats.total_processed,              color: '#000000',
+                  sub: `${docsStats.processed_24h} en 24 h`,         onClick: () => setModal('docs') },
+                { key: 'errors',   label: 'Errores recientes',      value: recentErrors.length,                    color: '#e11d48',
+                  sub: 'últimos 10 con error',                       onClick: () => setModal('errors') },
+                { key: 'stuck',    label: 'Trabados',               value: stuckJobs.length,                       color: stuckJobs.length > 0 ? '#e11d48' : '#22C365',
+                  sub: '>20 min en processing',                      onClick: () => setModal('stuck') },
+                { key: 'queue',    label: 'Cola (en espera)',       value: workerMetrics ? workerMetrics.queue_depth.waiting : 0, color: '#f59e0b',
+                  sub: workerMetrics ? `${workerMetrics.queue_depth.active} activos · ${workerMetrics.error_rate_pct}% err` : 'sin datos',
+                  onClick: () => setModal('queue') },
+                { key: 'doctypes', label: 'Tipos de doc activos',   value: docTypes.filter(d => d.active).length,  color: '#0ea5e9',
+                  sub: 'catálogo AFIP · administrar',                onClick: () => { setEditDocLabels({}); setNewDocCode(''); setNewDocLabel(''); setModal('doctypes'); } },
+              ];
+              const max = Math.max(1, ...rows.map(r => r.value ?? 0));
+              return rows.map((r) => (
+                <button
+                  key={r.key}
+                  className="w-full text-left rounded-lg border p-3 hover:bg-muted/50 transition-colors group"
+                  onClick={r.onClick}
+                >
+                  <div className="flex justify-between items-baseline mb-1.5">
+                    <span className="text-sm font-medium">{r.label}</span>
+                    <span className="text-sm font-black tabular-nums">{r.value ?? '—'}</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all group-hover:opacity-80"
+                      style={{ width: `${Math.max(3, ((r.value ?? 0) / max) * 100)}%`, background: r.color }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">{r.sub}</div>
+                </button>
+              ));
+            })()}
           </div>
         </DialogContent>
       </Dialog>
