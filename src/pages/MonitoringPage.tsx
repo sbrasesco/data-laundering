@@ -49,7 +49,7 @@ interface PricingFeature  { feature_key: string; label: string; cost_usd: number
 interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
 interface DocTypeAdmin    { code: string; label: string; sort_order: number; active: boolean; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | 'corrections' | null;
 
 // ─── FeatureRow ───────────────────────────────────────────────────────────────
 function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
@@ -179,6 +179,11 @@ export function MonitoringPage() {
   const [activityError,   setActivityError]   = useState<string | null>(null);
   const [monthlyActivity, setMonthlyActivity] = useState<TenantMonthly[]>([]);
   const [activityPeriod,  setActivityPeriod]  = useState<{ year: number; month: number } | null>(null);
+  const [correctionsStats, setCorrectionsStats] = useState<any | null>(null);
+  const [correctionsError, setCorrectionsError] = useState<string | null>(null);
+  const [provProfiles, setProvProfiles] = useState<any[]>([]);
+  const [profileEditor, setProfileEditor] = useState<{ cuit: string; proveedor: string; hints: string; notes: string; active: boolean; isNew: boolean } | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [loading,        setLoading]        = useState(true);
   const [lastUpdated,    setLastUpdated]    = useState<Date | null>(null);
   const [modal,          setModal]          = useState<ModalKey>(null);
@@ -364,6 +369,57 @@ export function MonitoringPage() {
     const interval = setInterval(fetchWorkerMetrics, 30_000);
     return () => clearInterval(interval);
   }, [fetchWorkerMetrics]);
+
+  const handleViewCorrections = async () => {
+    setModal('corrections');
+    setCorrectionsStats(null);
+    setCorrectionsError(null);
+    try {
+      const [statsRes, profRes] = await Promise.all([
+        supabase.rpc('get_corrections_stats'),
+        supabase.from('proveedor_profiles').select('cuit, proveedor, prompt_hints, notes, active').order('proveedor'),
+      ]);
+      if (statsRes.error) throw statsRes.error;
+      setCorrectionsStats(statsRes.data);
+      setProvProfiles(profRes.data ?? []);
+    } catch (err) {
+      console.error('Error cargando correcciones:', err);
+      setCorrectionsError('No se pudieron cargar las correcciones. Reintentá.');
+    }
+  };
+
+  const openProfileEditor = (cuitRaw: string | null) => {
+    const digits = (cuitRaw ?? '').replace(/\D/g, '');
+    const existing = provProfiles.find((pp) => pp.cuit === digits);
+    setProfileEditor(existing
+      ? { cuit: existing.cuit, proveedor: existing.proveedor ?? '', hints: existing.prompt_hints ?? '', notes: existing.notes ?? '', active: existing.active !== false, isNew: false }
+      : { cuit: digits, proveedor: '', hints: '', notes: '', active: true, isNew: true });
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileEditor) return;
+    const digits = profileEditor.cuit.replace(/\D/g, '');
+    if (digits.length !== 11) { alert('El CUIT debe tener 11 dígitos.'); return; }
+    if (!profileEditor.hints.trim()) { alert('Escribí las instrucciones de lectura (hints).'); return; }
+    setSavingProfile(true);
+    try {
+      const { error } = await supabase.rpc('upsert_proveedor_profile', {
+        p_cuit: digits,
+        p_proveedor: profileEditor.proveedor.trim() || null,
+        p_prompt_hints: profileEditor.hints.trim(),
+        p_notes: profileEditor.notes.trim() || null,
+        p_active: profileEditor.active,
+      });
+      if (error) throw error;
+      setProfileEditor(null);
+      const { data } = await supabase.from('proveedor_profiles').select('cuit, proveedor, prompt_hints, notes, active').order('proveedor');
+      setProvProfiles(data ?? []);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Error al guardar el perfil');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handleViewPrompt = async () => {
     setModal('prompt');
@@ -693,6 +749,13 @@ export function MonitoringPage() {
               onClick={() => setModal('stuck')}
             />
             <MonitorCard
+              title="Correcciones" accent="#A347D1"
+              icon={<IconDocs />}
+              metric="IA"
+              sub="cuaderno de correcciones"
+              onClick={handleViewCorrections}
+            />
+            <MonitorCard
               title="Cola"
               accent={
                 metricsError ? '#94a3b8'
@@ -747,6 +810,168 @@ export function MonitoringPage() {
                 Solo lectura. Extracción: <span className="font-medium">{promptInfo.extraction_model ?? '—'}</span> · OCR: <span className="font-medium">{promptInfo.ocr_model ?? '—'}</span>. Para editarlo hay que cambiarlo en el worker y redesplegar.
               </p>
               <pre className="text-xs whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-3 font-mono max-h-[60vh] overflow-y-auto">{promptText}</pre>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Correcciones IA (cuaderno) */}
+      <Dialog open={modal === 'corrections'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Correcciones humanas — cuaderno de la IA</DialogTitle></DialogHeader>
+          {correctionsError ? (
+            <p className="text-sm text-destructive py-6 text-center">{correctionsError}</p>
+          ) : !correctionsStats ? (
+            <div className="py-8 flex justify-center"><LoadingSpinner /></div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border p-4 text-center">
+                  <div className="text-2xl font-black">{correctionsStats.total ?? 0}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Correcciones totales</div>
+                </div>
+                <div className="rounded-lg border p-4 text-center">
+                  <div className="text-2xl font-black">{correctionsStats.last_30d ?? 0}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Últimos 30 días</div>
+                </div>
+              </div>
+
+              {(correctionsStats.total ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Todavía no hay correcciones anotadas. Cada vez que un usuario edite un documento, el par
+                  «IA dijo → humano corrigió» se anota acá automáticamente.
+                </p>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Campos más corregidos</p>
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Campo</TableHead><TableHead className="text-right">Veces</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {(correctionsStats.by_field ?? []).map((f: any) => (
+                          <TableRow key={f.field}>
+                            <TableCell className="text-sm">{f.field}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums">{f.veces}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Proveedores con más correcciones — si se repite, crear perfil (upsert_proveedor_profile)</p>
+                    <Table>
+                      <TableHeader><TableRow><TableHead>CUIT</TableHead><TableHead>Tipo frecuente</TableHead><TableHead className="text-right">Veces</TableHead><TableHead>Perfil</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {(correctionsStats.by_proveedor ?? []).map((pv: any) => (
+                          <TableRow key={pv.cuit ?? 'sin-cuit'}>
+                            <TableCell className="text-sm">{pv.cuit ?? '—'}</TableCell>
+                            <TableCell className="text-xs">{pv.tipo_frecuente ?? '—'}</TableCell>
+                            <TableCell className="text-right text-sm tabular-nums">{pv.veces}</TableCell>
+                            <TableCell className="text-xs">
+                              <Button size="sm" variant={pv.tiene_perfil ? 'outline' : 'default'} className="h-6 px-2 text-xs"
+                                onClick={() => openProfileEditor(pv.cuit)}>
+                                {pv.tiene_perfil ? 'Editar perfil' : 'Crear perfil'}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Últimas correcciones</p>
+                    <div className="space-y-2">
+                      {(correctionsStats.recent ?? []).map((c: any) => (
+                        <div key={c.id} className="rounded-lg border p-3 text-xs">
+                          <div className="flex justify-between text-muted-foreground mb-1">
+                            <span>{c.org ?? ''} · {c.cuit ?? 'sin CUIT'} · {c.tipo_documento ?? ''}</span>
+                            <span>{formatDate(c.created_at)}</span>
+                          </div>
+                          {(c.changed_fields ?? []).map((f: string) => (
+                            <div key={f} className="flex gap-2">
+                              <span className="font-medium">{f}:</span>
+                              <span className="text-destructive line-through">{String(c.original?.[f] ?? '∅')}</span>
+                              <span>→</span>
+                              <span className="text-green-700">{String(c.corrected?.[f] ?? '∅')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium text-muted-foreground">Perfiles de proveedor cargados ({provProfiles.length})</p>
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openProfileEditor(null)}>Nuevo perfil</Button>
+                </div>
+                {provProfiles.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Sin perfiles todavía.</p>
+                ) : (
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Proveedor</TableHead><TableHead>CUIT</TableHead><TableHead>Activo</TableHead><TableHead></TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {provProfiles.map((pp: any) => (
+                        <TableRow key={pp.cuit}>
+                          <TableCell className="text-sm">{pp.proveedor ?? '—'}</TableCell>
+                          <TableCell className="text-xs tabular-nums">{pp.cuit}</TableCell>
+                          <TableCell className="text-xs">{pp.active !== false ? '✅' : '⏸ inactivo'}</TableCell>
+                          <TableCell className="text-right">
+                            <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openProfileEditor(pp.cuit)}>Editar</Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                <p className="text-[11px] text-muted-foreground mt-1">Los cambios aplican sin deploy (el worker refresca su caché cada ~10 min).</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Editor de perfil de proveedor */}
+      <Dialog open={!!profileEditor} onOpenChange={(open) => !open && setProfileEditor(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{profileEditor?.isNew ? 'Nuevo perfil de proveedor' : 'Editar perfil de proveedor'}</DialogTitle></DialogHeader>
+          {profileEditor && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium">CUIT (11 dígitos)</label>
+                <input className="w-full border rounded-md px-2 py-1.5 text-sm mt-1" value={profileEditor.cuit}
+                  disabled={!profileEditor.isNew}
+                  onChange={(e) => setProfileEditor({ ...profileEditor, cuit: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Proveedor (nombre)</label>
+                <input className="w-full border rounded-md px-2 py-1.5 text-sm mt-1" value={profileEditor.proveedor}
+                  onChange={(e) => setProfileEditor({ ...profileEditor, proveedor: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Instrucciones de lectura (hints para la IA, en español)</label>
+                <textarea className="w-full border rounded-md px-2 py-1.5 text-sm mt-1 min-h-[110px]" value={profileEditor.hints}
+                  placeholder="Ej.: Este proveedor imprime las percepciones de IIBB en varias líneas por jurisdicción; percepcion_ingresos_brutos = la suma de todas."
+                  onChange={(e) => setProfileEditor({ ...profileEditor, hints: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium">Notas (por qué existe este perfil — para humanos)</label>
+                <textarea className="w-full border rounded-md px-2 py-1.5 text-sm mt-1 min-h-[60px]" value={profileEditor.notes}
+                  onChange={(e) => setProfileEditor({ ...profileEditor, notes: e.target.value })} />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={profileEditor.active}
+                  onChange={(e) => setProfileEditor({ ...profileEditor, active: e.target.checked })} />
+                Activo (el worker lo aplica)
+              </label>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setProfileEditor(null)} disabled={savingProfile}>Cancelar</Button>
+                <Button onClick={handleSaveProfile} disabled={savingProfile}>{savingProfile ? 'Guardando…' : 'Guardar perfil'}</Button>
+              </div>
             </div>
           )}
         </DialogContent>
