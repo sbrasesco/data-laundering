@@ -49,7 +49,7 @@ interface PricingFeature  { feature_key: string; label: string; cost_usd: number
 interface PollingTierAdmin{ interval_minutes: number; label: string; cost_per_doc: number; active: boolean; sort_order: number; }
 interface DocTypeAdmin    { code: string; label: string; sort_order: number; active: boolean; }
 
-type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | 'corrections' | 'ia_hub' | null;
+type ModalKey = 'jobs' | 'docs' | 'errors' | 'tenants' | 'users' | 'worker' | 'stuck' | 'activity' | 'prices' | 'queue' | 'prompt' | 'doctypes' | 'corrections' | 'ia_hub' | 'docs_hub' | null;
 
 // ─── FeatureRow ───────────────────────────────────────────────────────────────
 function FeatureRow({ feat, editPrices, setEditPrices, savingPrice, onSave, indent, border }: {
@@ -710,19 +710,10 @@ export function MonitoringPage() {
           {/* Grid de tarjetas cuadradas */}
           <div className="grid grid-cols-3 lg:grid-cols-5 gap-4 auto-rows-fr">
             <MonitorCard
-              title="Jobs" accent="#22C365" icon={<IconJobs />}
-              metric={totalJobs} sub={`${completedJobs} completados`}
-              onClick={() => setModal('jobs')}
-            />
-            <MonitorCard
               title="Documentos" accent="#000000" icon={<IconDocs />}
-              metric={docsStats.total_processed} sub={`${docsStats.processed_24h} hoy`}
-              onClick={() => setModal('docs')}
-            />
-            <MonitorCard
-              title="Errores" accent="#e11d48" icon={<IconErrors />}
-              metric={recentErrors.length} sub="últimos 10"
-              onClick={() => setModal('errors')}
+              metric={docsStats.total_processed}
+              sub="procesos · errores · tipos"
+              onClick={() => setModal('docs_hub')}
             />
             <MonitorCard
               title="Tenants" accent="#A347D1" icon={<IconTenants />}
@@ -742,39 +733,11 @@ export function MonitoringPage() {
               onClick={() => setModal('worker')}
             />
             <MonitorCard
-              title="Trabados" accent={stuckJobs.length > 0 ? '#e11d48' : '#22C365'}
-              icon={<IconStuck />}
-              metric={stuckJobs.length}
-              sub=">20 min en processing"
-              onClick={() => setModal('stuck')}
-            />
-            <MonitorCard
-              title="Cola"
-              accent={
-                metricsError ? '#94a3b8'
-                : workerMetrics && workerMetrics.error_rate_pct > 5 ? '#e11d48'
-                : workerMetrics && workerMetrics.queue_depth.waiting > 10 ? '#f59e0b'
-                : workerMetrics ? '#22C365'
-                : '#94a3b8'
-              }
-              icon={<IconQueue />}
-              metric={workerMetrics ? workerMetrics.queue_depth.waiting : '—'}
-              sub={workerMetrics ? `${workerMetrics.queue_depth.active} activos · ${workerMetrics.error_rate_pct}% err` : metricsError ? 'sin datos' : 'cargando…'}
-              onClick={() => setModal('queue')}
-            />
-            <MonitorCard
               title="Precios" accent="#f97316"
               icon={<IconPrices />}
               metric={pricingPlans.length > 0 ? `$${Number(pricingPlans[0]?.price_per_doc ?? 0).toFixed(2)}` : '—'}
               sub="base doc · click para editar"
               onClick={() => { setEditPrices({}); setModal('prices'); }}
-            />
-            <MonitorCard
-              title="Tipos de doc" accent="#0ea5e9"
-              icon={<svg width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 4H7a2 2 0 01-2-2V6a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/></svg>}
-              metric={`${docTypes.filter(d => d.active).length}`}
-              sub="activos · click para administrar"
-              onClick={() => { setEditDocLabels({}); setNewDocCode(''); setNewDocLabel(''); setModal('doctypes'); }}
             />
             <MonitorCard
               title="IA" accent="#6366f1"
@@ -1010,10 +973,76 @@ export function MonitoringPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Hub Documentos */}
+      <Dialog open={modal === 'docs_hub'} onOpenChange={() => setModal(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Documentos</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('jobs')}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">Procesos (jobs)</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{completedJobs} completados de {totalJobs}</div>
+                </div>
+                <span className="text-lg font-black">{totalJobs}</span>
+              </div>
+            </button>
+            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('docs')}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">Documentos procesados</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{docsStats.processed_24h} en las últimas 24 h</div>
+                </div>
+                <span className="text-lg font-black">{docsStats.total_processed}</span>
+              </div>
+            </button>
+            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('errors')}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">Errores recientes</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">últimos 10 procesos con error</div>
+                </div>
+                <span className="text-lg font-black">{recentErrors.length}</span>
+              </div>
+            </button>
+            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('stuck')}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">Trabados</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">&gt;20 min en processing</div>
+                </div>
+                <span className={`text-lg font-black ${stuckJobs.length > 0 ? 'text-destructive' : ''}`}>{stuckJobs.length}</span>
+              </div>
+            </button>
+            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => setModal('queue')}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">Cola de procesamiento</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{workerMetrics ? `${workerMetrics.queue_depth.active} activos · ${workerMetrics.error_rate_pct}% err` : metricsError ? 'sin datos' : 'cargando…'}</div>
+                </div>
+                <span className="text-lg font-black">{workerMetrics ? workerMetrics.queue_depth.waiting : '—'}</span>
+              </div>
+            </button>
+            <button className="w-full rounded-lg border p-4 text-left hover:bg-muted/50 transition-colors" onClick={() => { setEditDocLabels({}); setNewDocCode(''); setNewDocLabel(''); setModal('doctypes'); }}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-sm font-medium">Tipos de documento</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">catálogo AFIP · administrar activos</div>
+                </div>
+                <span className="text-lg font-black">{docTypes.filter(d => d.active).length}</span>
+              </div>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Jobs */}
       <Dialog open={modal === 'jobs'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Jobs — detalle</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
+            <DialogTitle>Jobs — detalle</DialogTitle>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-3 mt-2">
             {[
               { label: 'Total', value: totalJobs, color: '#000000' },
@@ -1035,7 +1064,10 @@ export function MonitoringPage() {
       {/* Documentos */}
       <Dialog open={modal === 'docs'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Documentos procesados</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
+            <DialogTitle>Documentos procesados</DialogTitle>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-3 mt-2">
             <div className="rounded-lg border p-5 flex flex-col items-center text-center">
               <div className="text-3xl font-black">{docsStats.total_processed.toLocaleString()}</div>
@@ -1052,7 +1084,10 @@ export function MonitoringPage() {
       {/* Errores recientes */}
       <Dialog open={modal === 'errors'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Errores recientes</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
+            <DialogTitle>Errores recientes</DialogTitle>
+          </DialogHeader>
           {recentErrors.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">Sin errores recientes.</p>
           ) : (
@@ -1381,7 +1416,10 @@ export function MonitoringPage() {
       {/* Jobs trabados */}
       <Dialog open={modal === 'stuck'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Jobs trabados (&gt;20 min en processing)</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
+            <DialogTitle>Jobs trabados (&gt;20 min en processing)</DialogTitle>
+          </DialogHeader>
           {stuckJobs.length === 0 ? (
             <div className="flex items-center gap-2 py-6 text-green-700">
               <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
@@ -1429,6 +1467,7 @@ export function MonitoringPage() {
       <Dialog open={modal === 'queue'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
             <DialogTitle className="flex items-center justify-between">
               <span>Cola — métricas</span>
               <button
@@ -1702,7 +1741,10 @@ export function MonitoringPage() {
       {/* Tipos de documento (TASK-111) */}
       <Dialog open={modal === 'doctypes'} onOpenChange={() => setModal(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Tipos de documento</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
+            <DialogTitle>Tipos de documento</DialogTitle>
+          </DialogHeader>
 
           <div className="space-y-4 mt-2">
             <p className="text-xs text-muted-foreground">
