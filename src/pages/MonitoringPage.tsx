@@ -1735,7 +1735,7 @@ export function MonitoringPage() {
 
       {/* Tipos de documento (TASK-111) */}
       <Dialog open={modal === 'doctypes'} onOpenChange={() => setModal(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
             <DialogTitle>Tipos de documento</DialogTitle>
