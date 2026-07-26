@@ -710,9 +710,20 @@ export function MonitoringPage() {
           {/* Grid de tarjetas cuadradas */}
           <div className="grid grid-cols-3 lg:grid-cols-5 gap-4 auto-rows-fr">
             <MonitorCard
-              title="Documentos" accent="#000000" icon={<IconDocs />}
+              title="Documentos"
+              accent={
+                stuckJobs.length > 0 ? '#e11d48'
+                : workerMetrics && workerMetrics.error_rate_pct > 5 ? '#e11d48'
+                : workerMetrics && workerMetrics.queue_depth.waiting > 10 ? '#f59e0b'
+                : '#000000'
+              }
+              icon={<IconDocs />}
               metric={docsStats.total_processed}
-              sub="procesos · errores · tipos"
+              sub={
+                stuckJobs.length > 0 ? `⚠ ${stuckJobs.length} trabado${stuckJobs.length !== 1 ? 's' : ''}`
+                : workerMetrics && workerMetrics.queue_depth.waiting > 10 ? `⚠ cola: ${workerMetrics.queue_depth.waiting} en espera`
+                : 'procesos · errores · tipos'
+              }
               onClick={() => setModal('docs_hub')}
             />
             <MonitorCard
