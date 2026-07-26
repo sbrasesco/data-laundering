@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { supabase } from '../lib/supabase';
 
 // ─── Descripciones de features para tooltips ──────────────────────────────────
@@ -179,6 +181,16 @@ export function MonitoringPage() {
   const [activityError,   setActivityError]   = useState<string | null>(null);
   const [monthlyActivity, setMonthlyActivity] = useState<TenantMonthly[]>([]);
   const [activityPeriod,  setActivityPeriod]  = useState<{ year: number; month: number } | null>(null);
+  const [recentJobsAdmin, setRecentJobsAdmin] = useState<any[]>([]);
+  const [jobsTotal,   setJobsTotal]   = useState(0);
+  const [jobsPage,    setJobsPage]    = useState(1);
+  const [jobsOrg,     setJobsOrg]     = useState('__all__');
+  const [jobsDesde,   setJobsDesde]   = useState('');
+  const [jobsHasta,   setJobsHasta]   = useState('');
+  const [jobsStatus,  setJobsStatus]  = useState('__all__');
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [exportingJobs, setExportingJobs] = useState(false);
+  const JOBS_PAGE_SIZE = 15;
   const [correctionsStats, setCorrectionsStats] = useState<any | null>(null);
   const [correctionsError, setCorrectionsError] = useState<string | null>(null);
   const [provProfiles, setProvProfiles] = useState<any[]>([]);
@@ -229,6 +241,7 @@ export function MonitoringPage() {
         total_processed: Number(ov?.docs?.total_processed ?? 0),
         processed_24h:   Number(ov?.docs?.processed_24h ?? 0),
       });
+
 
       // Balance por tenant (RPC bypass RLS para superadmin)
       const { data: tenantsData } = await supabase.rpc('get_all_tenants_admin');
@@ -348,6 +361,79 @@ export function MonitoringPage() {
     const interval = setInterval(fetchWorkerMetrics, 30_000);
     return () => clearInterval(interval);
   }, [fetchWorkerMetrics]);
+
+  const loadAdminJobs = async (page: number, org: string, desde: string, hasta: string, status: string = '__all__') => {
+    setLoadingJobs(true);
+    try {
+      const { data, error } = await supabase.rpc('get_admin_jobs', {
+        p_org_id: org === '__all__' ? null : org,
+        p_desde:  desde || null,
+        p_hasta:  hasta || null,
+        p_status: status === '__all__' ? null : status,
+        p_limit:  JOBS_PAGE_SIZE,
+        p_offset: (page - 1) * JOBS_PAGE_SIZE,
+      });
+      if (error) throw error;
+      const d = data as any;
+      setRecentJobsAdmin((d?.rows ?? []) as any[]);
+      setJobsTotal(Number(d?.total ?? 0));
+      setJobsPage(page);
+    } catch (err) {
+      console.error('Error cargando jobs admin:', err);
+      setRecentJobsAdmin([]);
+      setJobsTotal(0);
+    } finally {
+      setLoadingJobs(false);
+    }
+  };
+
+  const openJobsModal = () => {
+    setJobsOrg('__all__'); setJobsDesde(''); setJobsHasta(''); setJobsStatus('__all__');
+    setModal('jobs');
+    loadAdminJobs(1, '__all__', '', '', '__all__');
+  };
+
+  const handleExportJobs = async () => {
+    setExportingJobs(true);
+    try {
+      const { data, error } = await supabase.rpc('get_admin_jobs', {
+        p_org_id: jobsOrg === '__all__' ? null : jobsOrg,
+        p_desde:  jobsDesde || null,
+        p_hasta:  jobsHasta || null,
+        p_status: jobsStatus === '__all__' ? null : jobsStatus,
+        p_limit:  5000,
+        p_offset: 0,
+      });
+      if (error) throw error;
+      const rows = ((data as any)?.rows ?? []) as any[];
+      if (rows.length === 0) { alert('No hay procesos para exportar con estos filtros.'); return; }
+      const XLSX = await import('xlsx');
+      const srcLabel: Record<string, string> = {
+        frontend_upload: 'Manual', integration_drive: 'Drive', supabase_storage: 'Supabase',
+        firebase_storage: 'Firebase', api_direct: 'API', integration_remote: 'Integración',
+      };
+      const excelData = rows.map((j: any) => ({
+        'Fecha':        j.created_at ? new Date(j.created_at).toLocaleString('es-AR') : '',
+        'Organización': j.organization_name ?? '',
+        'Origen':       srcLabel[j.input_source ?? ''] ?? j.input_source ?? '',
+        'Estado':       j.status ?? '',
+        'Tipo error':   j.error_type ?? '',
+        'Docs':         j.total_documents ?? 0,
+        'Procesados':   j.processed_documents ?? 0,
+        'Fallidos':     j.failed_documents ?? 0,
+        'Duración (s)': j.finished_at ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000) : '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Procesos');
+      XLSX.writeFile(wb, `procesos_monitoreo_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      console.error('Error exportando jobs:', err);
+      alert('No se pudo exportar. Reintentá.');
+    } finally {
+      setExportingJobs(false);
+    }
+  };
 
   const handleViewCorrections = async () => {
     setModal('corrections');
@@ -978,7 +1064,7 @@ export function MonitoringPage() {
             {(() => {
               const rows = [
                 { key: 'jobs',     label: 'Procesos (jobs)',        value: totalJobs,                              color: '#22C365',
-                  sub: `${completedJobs} completados`,               onClick: () => setModal('jobs') },
+                  sub: `${completedJobs} completados`,               onClick: openJobsModal },
                 { key: 'docs',     label: 'Documentos procesados',  value: docsStats.total_processed,              color: '#000000',
                   sub: `${docsStats.processed_24h} en 24 h`,         onClick: () => setModal('docs') },
                 { key: 'errors',   label: 'Errores recientes',      value: recentErrors.length,                    color: '#e11d48',
@@ -1018,12 +1104,12 @@ export function MonitoringPage() {
 
       {/* Jobs */}
       <Dialog open={modal === 'jobs'} onOpenChange={() => setModal(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('docs_hub')}>← Volver a Documentos</button>
-            <DialogTitle>Jobs — detalle</DialogTitle>
+            <DialogTitle>Jobs — detalle (todo el sistema)</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 mt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-2">
             {[
               { label: 'Total', value: totalJobs, color: '#000000' },
               { label: 'Exitosos', value: completedJobs, color: '#22C365' },
@@ -1038,6 +1124,116 @@ export function MonitoringPage() {
               </div>
             ))}
           </div>
+
+          <div className="flex flex-wrap items-end gap-3 mt-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Tenant</label>
+              <Select value={jobsOrg} onValueChange={(v) => { setJobsOrg(v); loadAdminJobs(1, v, jobsDesde, jobsHasta, jobsStatus); }}>
+                <SelectTrigger className="w-[200px] h-8 text-sm mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todas las organizaciones</SelectItem>
+                  {tenantBalances.map((t) => (
+                    <SelectItem key={t.org_id} value={t.org_id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Desde</label>
+              <Input type="date" className="w-[150px] h-8 text-sm mt-1" value={jobsDesde}
+                onChange={(e) => { setJobsDesde(e.target.value); loadAdminJobs(1, jobsOrg, e.target.value, jobsHasta, jobsStatus); }} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Hasta</label>
+              <Input type="date" className="w-[150px] h-8 text-sm mt-1" value={jobsHasta}
+                onChange={(e) => { setJobsHasta(e.target.value); loadAdminJobs(1, jobsOrg, jobsDesde, e.target.value, jobsStatus); }} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Estado</label>
+              <Select value={jobsStatus} onValueChange={(v) => { setJobsStatus(v); loadAdminJobs(1, jobsOrg, jobsDesde, jobsHasta, v); }}>
+                <SelectTrigger className="w-[170px] h-8 text-sm mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todos los estados</SelectItem>
+                  <SelectItem value="done">Exitoso</SelectItem>
+                  <SelectItem value="done_with_warnings">Con advertencia</SelectItem>
+                  <SelectItem value="error">Fallido</SelectItem>
+                  <SelectItem value="processing">Procesando</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="ml-auto">
+              <Button size="sm" variant="outline" onClick={handleExportJobs} disabled={exportingJobs}>
+                {exportingJobs ? 'Exportando…' : 'Exportar Excel'}
+              </Button>
+            </div>
+          </div>
+
+          <p className="text-xs font-medium text-muted-foreground mt-3 mb-1">
+            {jobsTotal} proceso{jobsTotal !== 1 ? 's' : ''}{jobsOrg !== '__all__' || jobsDesde || jobsHasta || jobsStatus !== '__all__' ? ' (filtrados)' : ' en el sistema'}
+          </p>
+          {loadingJobs ? (
+            <div className="py-8 flex justify-center"><LoadingSpinner /></div>
+          ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Organización</TableHead>
+                <TableHead>Origen</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="text-right">Docs</TableHead>
+                <TableHead className="text-right">OK</TableHead>
+                <TableHead className="text-right">Fallidos</TableHead>
+                <TableHead className="text-right">Duración</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recentJobsAdmin.map((j: any) => {
+                const dur = j.finished_at ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000) : null;
+                const srcLabel: Record<string, string> = {
+                  frontend_upload: 'Manual', integration_drive: 'Drive', supabase_storage: 'Supabase',
+                  firebase_storage: 'Firebase', api_direct: 'API', integration_remote: 'Integración',
+                };
+                const t = j.total_documents ?? 0;
+                const f = j.failed_documents ?? 0;
+                const allFailed = (j.status === 'done' || j.status === 'done_with_warnings') && t > 0 && f >= t;
+                return (
+                  <TableRow key={j.id}>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(j.created_at)}</TableCell>
+                    <TableCell className="text-sm">{j.organization_name ?? '—'}</TableCell>
+                    <TableCell className="text-xs">{srcLabel[j.input_source ?? ''] ?? j.input_source ?? '—'}</TableCell>
+                    <TableCell>
+                      {allFailed ? <Badge variant="destructive">Fallido</Badge>
+                        : j.status === 'done' ? <Badge variant="success">Exitoso</Badge>
+                        : j.status === 'done_with_warnings' ? <Badge variant="warning">Con advertencia</Badge>
+                        : j.status === 'error' ? <Badge variant="destructive">{j.error_type === 'credits' ? 'Sin créditos' : 'Fallido'}</Badge>
+                        : j.status === 'processing' ? <Badge variant="secondary">Procesando</Badge>
+                        : <Badge variant="outline">{j.status}</Badge>}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{j.total_documents ?? '—'}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{j.processed_documents ?? '—'}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{j.failed_documents ? <span className="text-destructive">{j.failed_documents}</span> : '—'}</TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">{dur != null ? `${dur}s` : '—'}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          )}
+
+          {jobsTotal > JOBS_PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs text-muted-foreground">
+                {(jobsPage - 1) * JOBS_PAGE_SIZE + 1}–{Math.min(jobsPage * JOBS_PAGE_SIZE, jobsTotal)} de {jobsTotal}
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={jobsPage <= 1 || loadingJobs}
+                  onClick={() => loadAdminJobs(jobsPage - 1, jobsOrg, jobsDesde, jobsHasta, jobsStatus)}>Anterior</Button>
+                <Button size="sm" variant="outline" disabled={jobsPage * JOBS_PAGE_SIZE >= jobsTotal || loadingJobs}
+                  onClick={() => loadAdminJobs(jobsPage + 1, jobsOrg, jobsDesde, jobsHasta, jobsStatus)}>Siguiente</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
