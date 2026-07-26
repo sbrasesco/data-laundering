@@ -162,6 +162,38 @@ async function getAfipCodeMap(log) {
   }
 }
 
+// ─── Perfiles por proveedor (AI-PROVEEDOR-PROFILE, cacheado) ─────────────────
+// Hints de COMO LEER el formato de un proveedor conocido (tabla proveedor_profiles,
+// alimentada desde extraction_corrections). Fail-safe: cualquier error -> sin hints.
+let _provProfiles   = null;
+let _provProfilesAt = 0;
+const PROV_PROFILES_TTL_MS = 10 * 60 * 1000;
+
+async function getProveedorProfiles(log) {
+  const now = Date.now();
+  if (_provProfiles && (now - _provProfilesAt) < PROV_PROFILES_TTL_MS) return _provProfiles;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/proveedor_profiles?select=cuit,proveedor,prompt_hints&active=eq.true`,
+      { headers: supabaseHeaders('return=representation') },
+    );
+    if (!res.ok) throw new Error(`proveedor_profiles ${res.status}`);
+    _provProfiles   = await res.json();
+    _provProfilesAt = now;
+    return _provProfiles;
+  } catch (e) {
+    if (log) log('warn', 'prov_profiles.fetch_failed', { error: String(e?.message ?? e) });
+    return _provProfiles ?? [];
+  }
+}
+
+/** Devuelve los perfiles cuyo CUIT (11 digitos) aparece en el texto OCR (normalizado a digitos). */
+export function matchProveedorProfiles(ocrText, profiles) {
+  if (!ocrText || !Array.isArray(profiles) || profiles.length === 0) return [];
+  const digits = String(ocrText).replace(/\D/g, '');
+  return profiles.filter(p => p?.cuit && digits.includes(String(p.cuit)));
+}
+
 // ─── Guardrail: corregir la VARIANTE del tipo con el código AFIP impreso ──────
 // Cuando el documento imprime "Cód./Código Nº: NN" y ese NN es un código AFIP
 // válido (existe en document_types), lo usamos para corregir la variante A/B/C/M
@@ -402,11 +434,18 @@ ESTRUCTURA EXACTA:
  * Construye el user message con el ancla de receptor + texto OCR + OCs confirmadas,
  * y llama a OpenAI para extraer los campos de la factura.
  */
-async function extractWithOpenAI(ocrText, { clientCuit, clientName, ocEntries }, log) {
+async function extractWithOpenAI(ocrText, { clientCuit, clientName, ocEntries, profileHints = null }, log) {
   // Ancla de receptor (reduce confusión emisor/receptor)
   const parts = [];
   if (clientCuit || clientName) {
     parts.push(`CUIT receptor de referencia: ${clientCuit ?? ''}${clientName ? ` (${clientName})` : ''}`);
+    parts.push('');
+  }
+  // Perfil del proveedor (AI-PROVEEDOR-PROFILE): instrucciones de lectura especificas
+  // del emisor detectado en el OCR. Solo se agrega si hubo match; sin match = identico a antes.
+  if (profileHints) {
+    parts.push('[PERFIL DEL PROVEEDOR — instrucciones de lectura especificas de este emisor]:');
+    parts.push(profileHints);
     parts.push('');
   }
   parts.push(ocrText);
@@ -628,10 +667,21 @@ export async function processDocument(docData, log) {
     file_url, file_type, log
   );
 
-  // ── 2. Extracción IA (texto OCR) — INTACTA, produce todos los campos ────────
+  // ── 2. Extracción IA (texto OCR) — produce todos los campos ────────────────
+  // Perfil del proveedor: si el CUIT de un proveedor conocido aparece en el OCR,
+  // sus hints de lectura van en el mensaje. Fail-safe: error -> sin hints.
+  let profileHints = null;
+  try {
+    const matched = matchProveedorProfiles(ocrText, await getProveedorProfiles(log));
+    if (matched.length > 0) {
+      profileHints = matched.map(p => p.prompt_hints).join('\n');
+      if (log) log('info', 'prov_profile.matched', { job_id, cuits: matched.map(p => p.cuit) });
+    }
+  } catch { profileHints = null; }
+
   const { extracted, model: llmModel } = await extractWithOpenAI(
     ocrText,
-    { clientCuit: client_cuit, clientName: client_name, ocEntries: oc_entries },
+    { clientCuit: client_cuit, clientName: client_name, ocEntries: oc_entries, profileHints },
     log
   );
 
