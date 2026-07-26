@@ -839,6 +839,13 @@ export function MonitoringPage() {
             <button className="text-xs text-muted-foreground hover:text-foreground text-left w-fit" onClick={() => setModal('ia_hub')}>← Volver a IA</button>
             <DialogTitle>Correcciones humanas — cuaderno de la IA</DialogTitle>
           </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-1">
+            Cada vez que un usuario corrige un documento a mano, acá se anota automáticamente el par
+            «lo que leyó la IA → lo que corrigió la persona». Este cuaderno sirve para detectar patrones
+            (qué campos y qué proveedores fallan más) y convertirlos en <strong>perfiles de proveedor</strong>:
+            instrucciones de lectura que la IA aplica sola cada vez que detecta el CUIT de ese proveedor
+            en una factura — más efectividad, sin tocar código.
+          </p>
           {correctionsError ? (
             <p className="text-sm text-destructive py-6 text-center">{correctionsError}</p>
           ) : !correctionsStats ? (
@@ -959,6 +966,12 @@ export function MonitoringPage() {
       <Dialog open={!!profileEditor} onOpenChange={(open) => !open && setProfileEditor(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>{profileEditor?.isNew ? 'Nuevo perfil de proveedor' : 'Editar perfil de proveedor'}</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-1">
+            Lo que escribas acá se le pasa a la IA <strong>cada vez que procese una factura de este proveedor</strong>
+            (lo detecta por el CUIT en el documento). Describí en español cómo imprime sus comprobantes:
+            dónde está el número, cómo desglosa percepciones o impuestos, qué NO confundir. Aplica solo,
+            en ~10 minutos, sin deploy.
+          </p>
           {profileEditor && (
             <div className="space-y-3">
               <div>
