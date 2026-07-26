@@ -838,7 +838,7 @@ export function MonitoringPage() {
               </div>
 
               {(correctionsStats.total ?? 0) === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
+                <p className="text-sm text-muted-foreground py-4">
                   Todavía no hay correcciones anotadas. Cada vez que un usuario edite un documento, el par
                   «IA dijo → humano corrigió» se anota acá automáticamente.
                 </p>
@@ -938,7 +938,7 @@ export function MonitoringPage() {
 
       {/* Editor de perfil de proveedor */}
       <Dialog open={!!profileEditor} onOpenChange={(open) => !open && setProfileEditor(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>{profileEditor?.isNew ? 'Nuevo perfil de proveedor' : 'Editar perfil de proveedor'}</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground -mt-1">
             Lo que escribas acá se le pasa a la IA <strong>cada vez que procese una factura de este proveedor</strong>
@@ -948,36 +948,42 @@ export function MonitoringPage() {
           </p>
           {profileEditor && (
             <div className="space-y-3">
-              <div>
-                <label className="text-xs font-medium">CUIT (11 dígitos)</label>
-                <input className="w-full border rounded-md px-2 py-1.5 text-sm mt-1" value={profileEditor.cuit}
-                  disabled={!profileEditor.isNew}
-                  onChange={(e) => setProfileEditor({ ...profileEditor, cuit: e.target.value })} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium">CUIT (11 dígitos)</label>
+                  <input className="w-full border rounded-md px-2 py-1.5 text-sm mt-1" value={profileEditor.cuit}
+                    disabled={!profileEditor.isNew}
+                    onChange={(e) => setProfileEditor({ ...profileEditor, cuit: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Proveedor (nombre)</label>
+                  <input className="w-full border rounded-md px-2 py-1.5 text-sm mt-1" value={profileEditor.proveedor}
+                    onChange={(e) => setProfileEditor({ ...profileEditor, proveedor: e.target.value })} />
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-medium">Proveedor (nombre)</label>
-                <input className="w-full border rounded-md px-2 py-1.5 text-sm mt-1" value={profileEditor.proveedor}
-                  onChange={(e) => setProfileEditor({ ...profileEditor, proveedor: e.target.value })} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium">Instrucciones de lectura (hints para la IA, en español)</label>
+                  <textarea className="w-full border rounded-md px-2 py-1.5 text-sm mt-1 min-h-[120px]" value={profileEditor.hints}
+                    placeholder="Ej.: Este proveedor imprime las percepciones de IIBB en varias líneas por jurisdicción; percepcion_ingresos_brutos = la suma de todas."
+                    onChange={(e) => setProfileEditor({ ...profileEditor, hints: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Notas (por qué existe este perfil — para humanos)</label>
+                  <textarea className="w-full border rounded-md px-2 py-1.5 text-sm mt-1 min-h-[120px]" value={profileEditor.notes}
+                    onChange={(e) => setProfileEditor({ ...profileEditor, notes: e.target.value })} />
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-medium">Instrucciones de lectura (hints para la IA, en español)</label>
-                <textarea className="w-full border rounded-md px-2 py-1.5 text-sm mt-1 min-h-[110px]" value={profileEditor.hints}
-                  placeholder="Ej.: Este proveedor imprime las percepciones de IIBB en varias líneas por jurisdicción; percepcion_ingresos_brutos = la suma de todas."
-                  onChange={(e) => setProfileEditor({ ...profileEditor, hints: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-medium">Notas (por qué existe este perfil — para humanos)</label>
-                <textarea className="w-full border rounded-md px-2 py-1.5 text-sm mt-1 min-h-[60px]" value={profileEditor.notes}
-                  onChange={(e) => setProfileEditor({ ...profileEditor, notes: e.target.value })} />
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={profileEditor.active}
-                  onChange={(e) => setProfileEditor({ ...profileEditor, active: e.target.checked })} />
-                Activo (el worker lo aplica)
-              </label>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => setProfileEditor(null)} disabled={savingProfile}>Cancelar</Button>
-                <Button onClick={handleSaveProfile} disabled={savingProfile}>{savingProfile ? 'Guardando…' : 'Guardar perfil'}</Button>
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={profileEditor.active}
+                    onChange={(e) => setProfileEditor({ ...profileEditor, active: e.target.checked })} />
+                  Activo (el worker lo aplica)
+                </label>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setProfileEditor(null)} disabled={savingProfile}>Cancelar</Button>
+                  <Button onClick={handleSaveProfile} disabled={savingProfile}>{savingProfile ? 'Guardando…' : 'Guardar perfil'}</Button>
+                </div>
               </div>
             </div>
           )}
