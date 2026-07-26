@@ -213,33 +213,22 @@ export function MonitoringPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Jobs
-      const { data: rawJobs } = await supabase.from('pdf_jobs').select('status, error_type');
-      const counts: Record<string, number> = {};
-      for (const row of rawJobs ?? []) {
-        const key = `${row.status}__${row.error_type ?? 'null'}`;
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-      setJobSummary(Object.entries(counts).map(([key, count]) => {
-        const [status, et] = key.split('__');
-        return { status, error_type: et === 'null' ? null : et, count };
-      }));
-
-      // Errores recientes
-      const { data: errorsData } = await supabase.from('pdf_jobs').select('id, organization_id, error_type, error_message, created_at').eq('status', 'error').order('created_at', { ascending: false }).limit(10);
-      const orgIds = [...new Set((errorsData ?? []).map((e) => e.organization_id))];
-      const orgNames: Record<string, string> = {};
-      if (orgIds.length > 0) {
-        const { data: orgsData } = await supabase.from('organizations').select('id, name').in('id', orgIds);
-        for (const o of orgsData ?? []) orgNames[o.id] = o.name;
-      }
-      setRecentErrors((errorsData ?? []).map((e) => ({
+      // Overview GLOBAL (todas las orgs) — RPC superadmin. Las queries directas a pdf_jobs
+      // pasaban por RLS y solo mostraban la org del usuario logueado (Monitoreo debe ver TODO).
+      const { data: overview } = await supabase.rpc('get_monitoring_overview');
+      const ov = overview as any;
+      setJobSummary((ov?.jobs ?? []) as { status: string; error_type: string | null; count: number }[]);
+      setRecentErrors(((ov?.recent_errors ?? []) as { id: string; organization_name: string | null; error_type: string | null; error_message: string | null; created_at: string }[]).map((e) => ({
         id: e.id,
-        organization_name: orgNames[e.organization_id] ?? e.organization_id?.slice(0, 8) + '…',
+        organization_name: e.organization_name ?? '—',
         error_type: e.error_type,
         error_message: e.error_message,
         created_at: e.created_at,
       })));
+      setDocsStats({
+        total_processed: Number(ov?.docs?.total_processed ?? 0),
+        processed_24h:   Number(ov?.docs?.processed_24h ?? 0),
+      });
 
       // Balance por tenant (RPC bypass RLS para superadmin)
       const { data: tenantsData } = await supabase.rpc('get_all_tenants_admin');
@@ -257,16 +246,6 @@ export function MonitoringPage() {
           extract_attachments: attachOn.has(t.org_id),
         }))
       );
-
-      // Docs stats
-      const { data: allJobs } = await supabase.from('pdf_jobs').select('processed_documents, created_at').in('status', ['done', 'done_with_warnings']);
-      const now = Date.now(); const h24 = 86400000; let total = 0; let last24 = 0;
-      for (const j of allJobs ?? []) {
-        const docs = j.processed_documents ?? 0;
-        total += docs;
-        if (now - new Date(j.created_at).getTime() < h24) last24 += docs;
-      }
-      setDocsStats({ total_processed: total, processed_24h: last24 });
 
       // Usuarios (RPC superadmin)
       setUsersError(null);
