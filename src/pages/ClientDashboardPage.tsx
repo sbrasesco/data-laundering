@@ -10,6 +10,7 @@ import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { JobStatusBadge } from '../components/pdf-jobs/JobStatusBadge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -136,12 +137,12 @@ export function ClientDashboardPage() {
   };
 
 
-  const handleFechaDesdeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFilters(prev => ({ ...prev, fechaDesde: e.target.value || undefined }));
+  const handleFechaDesdeChange = (v: string) => {
+    setFilters(prev => ({ ...prev, fechaDesde: v || undefined }));
   };
 
-  const handleFechaHastaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFilters(prev => ({ ...prev, fechaHasta: e.target.value || undefined }));
+  const handleFechaHastaChange = (v: string) => {
+    setFilters(prev => ({ ...prev, fechaHasta: v || undefined }));
   };
 
   const handleClearFilters = () => setFilters({});
@@ -211,11 +212,11 @@ export function ClientDashboardPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Fecha desde</Label>
-              <Input type="date" value={filters.fechaDesde || ''} onChange={handleFechaDesdeChange} />
+              <DatePicker value={filters.fechaDesde || ''} onChange={handleFechaDesdeChange} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Fecha hasta</Label>
-              <Input type="date" value={filters.fechaHasta || ''} onChange={handleFechaHastaChange} />
+              <DatePicker value={filters.fechaHasta || ''} onChange={handleFechaHastaChange} />
             </div>
           </div>
           <div className="mt-4">

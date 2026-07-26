@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { supabase } from '../lib/supabase';
 
 // ─── Descripciones de features para tooltips ──────────────────────────────────
@@ -1140,13 +1141,13 @@ export function MonitoringPage() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Desde</label>
-              <Input type="date" className="w-[150px] h-8 text-sm mt-1" value={jobsDesde}
-                onChange={(e) => { setJobsDesde(e.target.value); loadAdminJobs(1, jobsOrg, e.target.value, jobsHasta, jobsStatus); }} />
+              <DatePicker className="w-[160px] h-8 text-sm mt-1" value={jobsDesde}
+                onChange={(v) => { setJobsDesde(v); loadAdminJobs(1, jobsOrg, v, jobsHasta, jobsStatus); }} />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Hasta</label>
-              <Input type="date" className="w-[150px] h-8 text-sm mt-1" value={jobsHasta}
-                onChange={(e) => { setJobsHasta(e.target.value); loadAdminJobs(1, jobsOrg, jobsDesde, e.target.value, jobsStatus); }} />
+              <DatePicker className="w-[160px] h-8 text-sm mt-1" value={jobsHasta}
+                onChange={(v) => { setJobsHasta(v); loadAdminJobs(1, jobsOrg, jobsDesde, v, jobsStatus); }} />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Estado</label>

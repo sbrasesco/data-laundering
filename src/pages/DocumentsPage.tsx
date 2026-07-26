@@ -6,6 +6,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,8 +35,8 @@ export function DocumentsPage() {
     );
   }, [documents, searchText]);
 
-  const handleFechaDesdeChange  = (e: React.ChangeEvent<HTMLInputElement>) => { setFilters(p => ({ ...p, fechaDesde: e.target.value || undefined })); setPage(1); };
-  const handleFechaHastaChange  = (e: React.ChangeEvent<HTMLInputElement>) => { setFilters(p => ({ ...p, fechaHasta: e.target.value || undefined })); setPage(1); };
+  const handleFechaDesdeChange  = (v: string) => { setFilters(p => ({ ...p, fechaDesde: v || undefined })); setPage(1); };
+  const handleFechaHastaChange  = (v: string) => { setFilters(p => ({ ...p, fechaHasta: v || undefined })); setPage(1); };
   const handleSearchChange      = (e: React.ChangeEvent<HTMLInputElement>) => setSearchText(e.target.value);
   const handleClearFilters      = () => { setFilters({}); setSearchText(''); setPage(1); };
   const handleExportToExcel     = () => { if (!filteredDocuments.length) { alert('No hay documentos para exportar'); return; } exportDocumentsToXlsx(filteredDocuments, `documentos_${new Date().toISOString().split('T')[0]}.xlsx`); };
@@ -71,11 +72,11 @@ export function DocumentsPage() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <div className="space-y-1.5">
               <Label>Fecha desde</Label>
-              <Input type="date" value={filters.fechaDesde || ''} onChange={handleFechaDesdeChange} />
+              <DatePicker value={filters.fechaDesde || ''} onChange={handleFechaDesdeChange} />
             </div>
             <div className="space-y-1.5">
               <Label>Fecha hasta</Label>
-              <Input type="date" value={filters.fechaHasta || ''} onChange={handleFechaHastaChange} />
+              <DatePicker value={filters.fechaHasta || ''} onChange={handleFechaHastaChange} />
             </div>
             <div className="space-y-1.5">
               <Label>Cliente</Label>
