@@ -6,6 +6,7 @@ import { useTenantCredits } from '@/hooks/useTenantCredits';
 import { InsufficientCreditsModal } from '@/components/ui/InsufficientCreditsModal';
 import { cn } from '@/lib/utils';
 import { applyTheme, getStoredTheme } from '@/lib/themes';
+import { supabase } from '@/lib/supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,24 @@ export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const noCredits = !creditsLoading && balance !== null && balance <= 0;
+  // POLLER-BALANCE-GUARD pieza 3: el mínimo real de procesamiento es $1 (el gateway
+  // responde 402 por debajo); con menos de $1 nada procesa aunque el saldo sea > 0.
+  const MIN_PROCESSING_BALANCE = 1;
+  const noCredits = !creditsLoading && balance !== null && balance < MIN_PROCESSING_BALANCE;
+
+  // Costo por doc del tenant (get_price_breakdown) para estimar documentos restantes.
+  // Best-effort: si el RPC falla, la estimación simplemente no se muestra.
+  const [costPerDoc, setCostPerDoc] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc('get_price_breakdown').then(({ data, error }) => {
+      if (cancelled || error) return;
+      const total = Number((data as { total_per_doc?: number } | null)?.total_per_doc);
+      if (Number.isFinite(total) && total > 0) setCostPerDoc(total);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const docsLeft = balance !== null && costPerDoc !== null ? Math.floor(balance / costPerDoc) : null;
 
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
@@ -132,8 +150,8 @@ export function AppShell({ children }: AppShellProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-destructive leading-none">Sin saldo</p>
-                <p className="text-xs text-destructive/70 mt-0.5">Recargar saldo →</p>
+                <p className="text-xs font-medium text-destructive leading-none">Saldo insuficiente para procesar</p>
+                <p className="text-xs text-destructive/70 mt-0.5">{balance !== null ? `$${balance.toFixed(2)} — ` : ''}Recargar saldo →</p>
               </div>
             </button>
           ) : (
@@ -145,7 +163,7 @@ export function AppShell({ children }: AppShellProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span className="text-xs text-muted-foreground group-hover/credits:text-white">
-                {balance !== null ? `$${balance.toFixed(2)} disponibles` : '···'}
+                {balance !== null ? `$${balance.toFixed(2)} disponibles${docsLeft !== null ? ` · ≈${docsLeft} docs` : ''}` : '···'}
               </span>
             </button>
           )}

@@ -139,6 +139,16 @@ async function pollSupabaseStorage(integration, ctx) {
       enqueued++;
 
     } catch (fileErr) {
+      if (fileErr.code === 'INSUFFICIENT_CREDITS') {
+        // POLLER-BALANCE-GUARD pieza 2: carrera de saldo justo — devolver el archivo a la
+        // raíz para que el próximo ciclo (con saldo) lo levante solo, y cortar el loop.
+        await moveFile(projectUrl, serviceRoleKey, bucketName, enProcesoKey, fullPath, log, 'back_to_root_no_credits');
+        log('warn', 'poller.file_returned_no_credits', {
+          integration_id: integrationId, organization_id: orgId, filename, protocol: 'supabase_storage',
+        });
+        failed++;
+        break;
+      }
       log('error', 'integration.file_error', {
         integration_id: integrationId, filename, protocol: 'supabase_storage', error: fileErr.message,
       });

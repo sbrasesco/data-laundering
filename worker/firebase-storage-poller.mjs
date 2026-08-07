@@ -117,6 +117,23 @@ async function pollFirebaseStorage(integration, ctx) {
         enqueued++;
 
       } catch (fileErr) {
+        if (fileErr.code === 'INSUFFICIENT_CREDITS') {
+          // POLLER-BALANCE-GUARD pieza 2: devolver el archivo a la raíz y cortar el loop.
+          try {
+            const enProcesoFile = bucket.file(enProcesoPath);
+            await enProcesoFile.copy(bucket.file(file.name));
+            await enProcesoFile.delete();
+            log('warn', 'poller.file_returned_no_credits', {
+              integration_id: integrationId, organization_id: orgId, filename, protocol: 'firebase_storage',
+            });
+          } catch (backErr) {
+            log('error', 'poller.file_return_failed', {
+              integration_id: integrationId, filename, protocol: 'firebase_storage', error: backErr.message,
+            });
+          }
+          failed++;
+          break;
+        }
         log('error', 'integration.file_error', {
           integration_id: integrationId, filename, protocol: 'firebase_storage', error: fileErr.message,
         });

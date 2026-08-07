@@ -18,6 +18,7 @@
  */
 
 import { google } from 'googleapis';
+import { orgHasProcessingCredits } from './poller-handoff.mjs';
 
 const SUPPORTED_MIME_TYPES = {
   'application/pdf':           { ext: 'pdf', file_type: 'pdf' },
@@ -120,6 +121,12 @@ async function enqueueJob(gatewayUrl, apiKey, orgId, fileUrl, fileType, filename
   });
   if (!res.ok) {
     const text = await res.text();
+    if (res.status === 402) {
+      // POLLER-BALANCE-GUARD: error tipado para que el caller devuelva el archivo (pieza 2)
+      const err = new Error(`Gateway enqueue rechazado por saldo (402): ${text}`);
+      err.code = 'INSUFFICIENT_CREDITS';
+      throw err;
+    }
     throw new Error(`Gateway enqueue failed (${res.status}): ${text}`);
   }
   return res.json();
@@ -335,6 +342,16 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
     log('info', 'integration.tenant_start', { integration_id: integrationId, organization_id: orgId });
 
     try {
+      // POLLER-BALANCE-GUARD: sin saldo suficiente NO se toca ningún archivo del tenant.
+      const credits = await orgHasProcessingCredits(orgId, { supabaseUrl, supabaseKey, log });
+      if (!credits.ok) {
+        log('warn', 'poller.skip_no_credits', {
+          integration_id: integrationId, organization_id: orgId, protocol: 'google_drive', balance: credits.balance,
+        });
+        await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
+        continue;
+      }
+
       const folderId = credentials?.folder_id;
       if (!folderId) {
         log('warn', 'integration.missing_folder_id', { integration_id: integrationId });
@@ -402,6 +419,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
       // 6. Iterar subcarpetas de clientes
       const subfolders = await listSubfolders(drive, folderId);
       let enqueued = 0, skipped = 0, failed = 0, rejected = 0;
+      let outOfCredits = false; // POLLER-BALANCE-GUARD pieza 2
 
       for (const subfolder of subfolders) {
         const clientData = clientFolderMap[subfolder.name];
@@ -426,6 +444,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
         });
 
         for (const file of files) {
+          let enProcesoId = null; // visible en el catch para la devolución (POLLER-BALANCE-GUARD)
           try {
             // Sin dedup (decisión 2026-06-24): levantar y procesar lo que haya.
             // Descargar archivo
@@ -441,7 +460,7 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
             // Mover archivo a en_proceso/ ANTES de encolar. Si el move falla, NO se encola
             // (evita reprocesar/recobrar en cada poll): que el archivo salga de la carpeta
             // del cliente es lo que garantiza el procesamiento único (reemplaza al dedup).
-            const enProcesoId = await getOrCreateFolder(drive, subfolder.id, 'en_proceso');
+            enProcesoId = await getOrCreateFolder(drive, subfolder.id, 'en_proceso');
             let moved = false;
             try {
               await drive.files.update({
@@ -481,6 +500,30 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
             enqueued++;
 
           } catch (fileErr) {
+            if (fileErr.code === 'INSUFFICIENT_CREDITS') {
+              // POLLER-BALANCE-GUARD pieza 2: devolver el archivo a la carpeta del cliente
+              // para que el próximo ciclo (con saldo) lo levante solo, y cortar el loop.
+              if (enProcesoId) {
+                try {
+                  await drive.files.update({
+                    fileId:        file.id,
+                    addParents:    subfolder.id,
+                    removeParents: enProcesoId,
+                    fields:        'id, parents',
+                  });
+                  log('warn', 'poller.file_returned_no_credits', {
+                    integration_id: integrationId, organization_id: orgId, filename: file.name, protocol: 'google_drive',
+                  });
+                } catch (backErr) {
+                  log('error', 'poller.file_return_failed', {
+                    integration_id: integrationId, filename: file.name, protocol: 'google_drive', error: backErr.message,
+                  });
+                }
+              }
+              failed++;
+              outOfCredits = true;
+              break;
+            }
             log('error', 'integration.file_error', {
               integration_id: integrationId,
               filename:       file.name,
@@ -519,6 +562,8 @@ export async function pollGoogleDriveIntegrations({ supabaseUrl, supabaseKey, ga
             error:          unsupErr.message,
           });
         }
+
+        if (outOfCredits) break; // POLLER-BALANCE-GUARD: sin saldo, no seguir con más carpetas
       }
 
       // 7. Actualizar last_polled_at

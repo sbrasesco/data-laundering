@@ -57,6 +57,33 @@ export async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// ─── Guard de saldo (POLLER-BALANCE-GUARD) ───────────────────────────────────
+
+// Mismo umbral que gateway.mjs:handleEnqueue (por debajo responde 402 INSUFFICIENT_CREDITS).
+export const MIN_PROCESSING_BALANCE = 1;
+
+/**
+ * Chequea si la org tiene saldo suficiente para procesar (>= MIN_PROCESSING_BALANCE).
+ * Fail-open: ante error del chequeo devuelve ok=true (mismo criterio que el gateway)
+ * para no frenar integraciones por un fallo transitorio del check.
+ */
+export async function orgHasProcessingCredits(orgId, ctx) {
+  const { supabaseUrl, supabaseKey, log } = ctx;
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/organization_credits?organization_id=eq.${encodeURIComponent(orgId)}&select=balance`,
+      { headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` } },
+    );
+    if (!res.ok) throw new Error(`organization_credits query failed (${res.status})`);
+    const rows    = await res.json();
+    const balance = Number(rows?.[0]?.balance ?? 0);
+    return { ok: balance >= MIN_PROCESSING_BALANCE, balance };
+  } catch (err) {
+    log('warn', 'poller.credits_check_failed', { organization_id: orgId, error: err.message });
+    return { ok: true, balance: null };
+  }
+}
+
 // ─── Paso 1: SHA256 + deduplicación ──────────────────────────────────────────
 
 /**
@@ -139,6 +166,13 @@ export async function uploadAndEnqueue({ buffer, filename, orgId, integrationId,
   });
   if (!enqRes.ok) {
     const txt = await enqRes.text();
+    if (enqRes.status === 402) {
+      // Carrera de saldo justo: el guard del ciclo pasó pero el gateway rechazó por saldo.
+      // Error tipado para que el poller devuelva el archivo a la raíz (POLLER-BALANCE-GUARD).
+      const err = new Error(`Gateway enqueue rechazado por saldo (402): ${txt}`);
+      err.code = 'INSUFFICIENT_CREDITS';
+      throw err;
+    }
     throw new Error(`Gateway enqueue failed (${enqRes.status}): ${txt}`);
   }
 
@@ -220,6 +254,21 @@ export async function runIntegrationPoller({ type, pollFn, ctx }) {
 
   for (const integration of integrations) {
     const { id: integrationId, organization_id: orgId } = integration;
+
+    // POLLER-BALANCE-GUARD: sin saldo suficiente NO se toca ningún archivo del tenant
+    // (quedan en la raíz). Un solo log por ciclo/integración; se actualiza last_polled
+    // para mantener la cadencia del ciclo.
+    const credits = await orgHasProcessingCredits(orgId, ctx);
+    if (!credits.ok) {
+      log('warn', 'poller.skip_no_credits', {
+        integration_id: integrationId, organization_id: orgId, protocol: type, balance: credits.balance,
+      });
+      try {
+        await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
+      } catch (_) {}
+      continue;
+    }
+
     try {
       await pollFn(integration, ctx);
       await callRpc(supabaseUrl, supabaseKey, 'admin_update_last_polled', { p_integration_id: integrationId });
