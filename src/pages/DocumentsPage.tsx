@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useAllDocuments, DocumentFilters } from '../hooks/useAllDocuments';
+import { useState, useEffect } from 'react';
+import { useAllDocuments, fetchAllDocumentsForExport, DocumentFilters } from '../hooks/useAllDocuments';
 import { useClients } from '../hooks/useClients';
 import { DocumentsTable } from '../components/documents/DocumentsTable';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -19,28 +19,46 @@ export function DocumentsPage() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<DocumentFilters>({});
   const [searchText, setSearchText] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const { clients, loading: clientsLoading } = useClients();
   const { documents, loading, error, totalCount, refetch } = useAllDocuments(filters, page, PAGE_SIZE);
 
-  const filteredDocuments = useMemo(() => {
-    if (!searchText.trim()) return documents;
-    const s = searchText.toLowerCase();
-    return documents.filter((doc) =>
-      doc.proveedor?.toLowerCase().includes(s) ||
-      doc.receptor_nombre?.toLowerCase().includes(s) ||
-      doc.numero_comprobante?.toLowerCase().includes(s) ||
-      doc.cuit?.toLowerCase().includes(s) ||
-      doc.receptor_cuit?.toLowerCase().includes(s)
-    );
-  }, [documents, searchText]);
+  // DOCS-SEARCH-EXPORT-SERVER-SIDE: el buscador viaja al query con debounce (busca en TODO el
+  // historial y pagina el resultado; antes filtraba solo los 50 visibles).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters(p => {
+        const next = searchText.trim() || undefined;
+        if (p.searchText === next) return p;
+        return { ...p, searchText: next };
+      });
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchText]);
 
   const handleFechaDesdeChange  = (v: string) => { setFilters(p => ({ ...p, fechaDesde: v || undefined })); setPage(1); };
   const handleFechaHastaChange  = (v: string) => { setFilters(p => ({ ...p, fechaHasta: v || undefined })); setPage(1); };
   const handleSearchChange      = (e: React.ChangeEvent<HTMLInputElement>) => setSearchText(e.target.value);
   const handleClearFilters      = () => { setFilters({}); setSearchText(''); setPage(1); };
-  const handleExportToExcel     = () => { if (!filteredDocuments.length) { alert('No hay documentos para exportar'); return; } exportDocumentsToXlsx(filteredDocuments, `documentos_${new Date().toISOString().split('T')[0]}.xlsx`); };
-  const handleExportToCSV       = () => { if (!filteredDocuments.length) { alert('No hay documentos para exportar'); return; } exportToCSV(filteredDocuments, `documentos_${new Date().toISOString().split('T')[0]}.csv`); };
+
+  // Export: trae TODO lo filtrado (hasta 5000 facturas + sus OCs), no solo la pagina visible.
+  const handleExport = async (kind: 'xlsx' | 'csv') => {
+    try {
+      setExporting(true);
+      const { documents: allDocs, totalCount: tc, truncated } = await fetchAllDocumentsForExport(filters);
+      if (!allDocs.length) { alert('No hay documentos para exportar'); return; }
+      if (truncated) alert(`El export incluye las primeras 5000 facturas de ${tc} que matchean el filtro. Acotá con los filtros para exportar el resto.`);
+      const name = `documentos_${new Date().toISOString().split('T')[0]}`;
+      if (kind === 'xlsx') exportDocumentsToXlsx(allDocs, `${name}.xlsx`);
+      else exportToCSV(allDocs, `${name}.csv`);
+    } catch (e) {
+      alert('Error al exportar: ' + (e instanceof Error ? e.message : 'error desconocido'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -58,10 +76,10 @@ export function DocumentsPage() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-2">
-            <Button onClick={handleExportToExcel} disabled={!filteredDocuments.length}>Exportar a Excel</Button>
-            <Button variant="outline" size="sm" onClick={handleExportToCSV} disabled={!filteredDocuments.length}>Exportar CSV</Button>
+            <Button onClick={() => handleExport('xlsx')} disabled={exporting || totalCount === 0}>{exporting ? 'Exportando…' : 'Exportar a Excel'}</Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport('csv')} disabled={exporting || totalCount === 0}>{exporting ? 'Exportando…' : 'Exportar CSV'}</Button>
           </div>
-          <p className="text-xs text-muted-foreground">Exporta los documentos filtrados a Excel</p>
+          <p className="text-xs text-muted-foreground">Exporta TODOS los documentos que matchean los filtros</p>
         </div>
       </div>
 
@@ -104,7 +122,7 @@ export function DocumentsPage() {
 
       {!loading && !error && (
         <div className="space-y-4">
-          <DocumentsTable documents={filteredDocuments} onDocsChanged={refetch} />
+          <DocumentsTable documents={documents} onDocsChanged={refetch} />
 
           {totalPages > 1 && (
             <div className="flex justify-between items-center rounded-lg border bg-card px-4 py-3">
