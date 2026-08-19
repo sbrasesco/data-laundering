@@ -119,10 +119,35 @@ export function puntoVentaFromOcr(ocrText, correlativo) {
 export function comprobanteFromOcr(ocrText) {
   if (!ocrText) return null;
   const s = String(ocrText);
-  let m = s.match(/(?:^|[^A-Za-z0-9])[ABCMEabcme][ ]?(\d{12,13})(?!\d)/);
-  if (m) return m[1];
-  m = s.match(/(?:^|[^\d])(\d{4,5}-\d{8})(?!\d)/);
-  if (m) return m[1];
+
+  // COMPROBANTE-GUARD (2026-08-19): un numero precedido EN SU LINEA por una etiqueta de
+  // REFERENCIA no es el comprobante propio sino un documento relacionado. Caso real Lelli:
+  // "Pedido#: X 0001-00000000-1" pisaba al numero verdadero; Culzoni imprime "NP 0001-00010724"
+  // y "RE 0021-00006219" bajo "Comprobantes relacionados".
+  const REF_LABEL = /(pedido|remito|relacionad|orden\s+de\s+compra|\bo\.?\s?c\.?\b|\b(np|re|nc|nd)\b)[^\n]*$/i;
+  const isReferenced = (idx) => {
+    const nl = s.lastIndexOf('\n', idx);
+    return REF_LABEL.test(s.slice(nl + 1, idx));
+  };
+  // Correlativo todo-ceros = numero imposible (otro sintoma del mismo veneno).
+  const corrOk = (token) => !/^0+$/.test(String(token).replace(/\D/g, '').slice(-8));
+
+  // Candidatos en orden de confianza; gana el PRIMERO no-referenciado con correlativo valido.
+  const PATTERNS = [
+    { re: /(?:^|[^A-Za-z0-9])[ABCMEabcme][ ]?(\d{12,13})(?!\d)/g,      tok: (m) => m[1] },              // (1) clase + 12-13 pegados
+    { re: /(?:^|[^\d])(\d{4,5}-\d{8})(?!\d)/g,                        tok: (m) => m[1] },              // (2) PV-correlativo con guion
+    { re: /\bN(?:ro|[\u00ba\u00b0o])\.?\s*:?\s*(\d{4,5})[ \t]+(\d{8})(?!\d)/gi, tok: (m) => `${m[1]}-${m[2]}` }, // (3) "Nro: PV corr" con ESPACIO (caso Lelli)
+  ];
+  for (const { re, tok } of PATTERNS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(s))) {
+      const token = tok(m);
+      if (!corrOk(token)) continue;
+      if (isReferenced(m.index + m[0].indexOf(m[1]))) continue;
+      return token;
+    }
+  }
   return null;
 }
 
