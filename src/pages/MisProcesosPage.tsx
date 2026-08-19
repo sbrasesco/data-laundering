@@ -10,14 +10,12 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function MisProcesosPage() {
-  const { jobs, loading, error } = usePdfJobs();
+  const [selectedClientId, setSelectedClientId] = useState('');
+  // MISPROCESOS-PAGINATION: el filtro de cliente ahora viaja al query (server-side);
+  // la pagina se resetea a 1 dentro del hook al cambiar el filtro.
+  const { jobs, totalPages, page, setPage, loading, error } = usePdfJobs(selectedClientId || null);
   const { clients } = useClients();
   const navigate = useNavigate();
-  const [selectedClientId, setSelectedClientId] = useState('');
-
-  const filteredJobs = selectedClientId
-    ? jobs.filter(j => j.client_id === selectedClientId)
-    : jobs;
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -56,7 +54,22 @@ export function MisProcesosPage() {
 
       {loading && <LoadingSpinner />}
       {error && <ErrorMessage message={error} />}
-      {!loading && !error && <JobList jobs={filteredJobs} />}
+      {!loading && !error && (
+        <>
+          <JobList jobs={jobs} />
+          {totalPages > 1 && (
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <span className="text-xs text-muted-foreground">Página {page} de {totalPages}</span>
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                Anterior
+              </Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                Siguiente
+              </Button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
