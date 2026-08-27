@@ -124,7 +124,10 @@ export function comprobanteFromOcr(ocrText) {
   // REFERENCIA no es el comprobante propio sino un documento relacionado. Caso real Lelli:
   // "Pedido#: X 0001-00000000-1" pisaba al numero verdadero; Culzoni imprime "NP 0001-00010724"
   // y "RE 0021-00006219" bajo "Comprobantes relacionados".
-  const REF_LABEL = /(pedido|remito|relacionad|orden\s+de\s+compra|\bo\.?\s?c\.?\b|\b(np|re|nc|nd)\b)[^\n]*$/i;
+  // Variantes abreviadas de orden de compra / factura relacionada (caso real Menara Corralon:
+  // "O. CPRA : A010900029003/" — letra+12 pegados, el formato de maxima confianza, pero es la OC;
+  // la misma factura imprime "Fac.Rel.:" al pie).
+  const REF_LABEL = /(pedido|remito|relacionad|orden\s+de\s+compra|o\.?\s?cpra|ord\.?\s*compra|fac\.?\s?rel|o\s*\/\s*c\b|\bo\.?\s?c\.?\b|\b(np|re|nc|nd)\b)[^\n]*$/i;
   const isReferenced = (idx) => {
     const nl = s.lastIndexOf('\n', idx);
     return REF_LABEL.test(s.slice(nl + 1, idx));
