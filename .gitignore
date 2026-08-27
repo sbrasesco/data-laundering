@@ -153,3 +153,6 @@ temp_workflow.json
 
 # Material de referencia local (tabla AFIP); los códigos ya viven en document_types + CLAUDE.md
 tipos documentos/
+
+# Material de marca local (no versionado; el diseño vive en Canva/Drive)
+Brand Guideline Agora.pdf
