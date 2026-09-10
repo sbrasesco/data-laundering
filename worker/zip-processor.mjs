@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const STORAGE_BUCKET = process.env.STORAGE_BUCKET ?? 'facturas';
+const STORAGE_BUCKET = process.env.STORAGE_BUCKET ?? 'documents';
 const TMP_BASE = '/tmp/worker-zip';
 
 // Extensiones de archivo que el pipeline procesa (documentos e imágenes).
