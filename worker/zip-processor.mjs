@@ -12,27 +12,69 @@
  * 7. Retornar array de documentos listos para encolar/procesar
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { readdir, readFile, rm, mkdir, stat } from 'fs/promises';
-import { join, extname, basename } from 'path';
+import { readdir, readFile, rm, mkdir, stat, rename, rmdir, writeFile } from 'fs/promises';
+import { join, extname, basename, relative, sep } from 'path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const STORAGE_BUCKET = process.env.STORAGE_BUCKET ?? 'facturas';
 const TMP_BASE = '/tmp/worker-zip';
 
+// Extensiones de archivo que el pipeline procesa (documentos e imágenes).
+const MEDIA_EXT = ['.pdf', '.jpg', '.jpeg', '.png'];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function runCmd(cmd) {
+// Reemplaza a runCmd. Ejecuta el binario con argumentos en un ARREGLO, nunca vía
+// shell: los nombres de archivo (que pueden venir de un ZIP subido por el cliente)
+// no se reinterpretan como comando. `opts.cwd` cubre lo que antes hacía `cd X && ...`.
+async function run(bin, args, opts = {}) {
   try {
-    const { stdout, stderr } = await execAsync(cmd);
+    const { stdout, stderr } = await execFileAsync(bin, args, {
+      maxBuffer: 10 * 1024 * 1024, ...opts,
+    });
     return { stdout, stderr, ok: true };
   } catch (e) {
+    // Antes esto lo tapaba `2>/dev/null || true`. Ahora se captura acá.
     return { stdout: e.stdout ?? '', stderr: e.stderr ?? e.message, ok: false };
   }
+}
+
+// Recorrido recursivo sin shell (reemplaza a `find`). Devuelve rutas absolutas.
+async function walkFiles(dir) {
+  const out = [];
+  async function rec(d) {
+    let entries;
+    try { entries = await readdir(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) await rec(p);
+      else out.push(p);
+    }
+  }
+  await rec(dir);
+  return out;
+}
+
+// Subdirectorios, para borrar los que queden vacíos (reemplaza `find -type d -exec rmdir`).
+async function walkDirs(dir) {
+  const out = [];
+  async function rec(d) {
+    let entries;
+    try { entries = await readdir(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const p = join(d, e.name);
+      out.push(p);
+      await rec(p);
+    }
+  }
+  await rec(dir);
+  return out;
 }
 
 function mimeType(ext) {
@@ -182,9 +224,9 @@ export async function extractAttachmentsFromPdf(pdfPath, pdfBase, jobDir, adjDir
     await mkdir(d, { recursive: true });
   }
 
-  await runCmd(`pdfdetach -saveall -o "${tmpPdfdetach}/" "${pdfPath}" 2>/dev/null || true`);
-  await runCmd(`cd "${tmpMutool}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
-  await runCmd(`python3 /app/extract_attachments.py "${pdfPath}" "${tmpPymupdf}" 2>/dev/null || echo '{"files":[]}'`);
+  await run('pdfdetach', ['-saveall', '-o', `${tmpPdfdetach}/`, pdfPath]);
+  await run('mutool', ['extract', pdfPath], { cwd: tmpMutool });
+  await run('python3', ['/app/extract_attachments.py', pdfPath, tmpPymupdf]);
 
   const fromPdfdetach = (await readdir(tmpPdfdetach)).filter(f => f.toLowerCase().endsWith('.pdf'));
   const fromMutool    = (await readdir(tmpMutool)).filter(f => f.toLowerCase().endsWith('.pdf'));
@@ -207,7 +249,7 @@ export async function extractAttachmentsFromPdf(pdfPath, pdfBase, jobDir, adjDir
       const key = f.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
-        await runCmd(`mv "${join(src, f)}" "${tmpAdj}/${f}" 2>/dev/null || true`);
+        await rename(join(src, f), join(tmpAdj, f)).catch(() => {});
       }
     }
   }
@@ -220,9 +262,9 @@ export async function extractAttachmentsFromPdf(pdfPath, pdfBase, jobDir, adjDir
     if (/remito/i.test(af)) continue;
     const adjBase = af.replace(/\.pdf$/i, '').replace(/\.PDF$/i, '');
     const dest = join(adjDir, `__adj__${pdfBase}__${adjBase}.pdf`);
-    await runCmd(`mv "${join(tmpAdj, af)}" "${dest}" 2>/dev/null || true`);
+    await rename(join(tmpAdj, af), dest).catch(() => {});
 
-    const { stdout: obraText } = await runCmd(`pdftotext "${dest}" - 2>/dev/null || true`);
+    const { stdout: obraText } = await run('pdftotext', [dest, '-']);
     const obraMatch = obraText.match(/para la obra[^0-9]*(\d+)/i);
     if (obraMatch) {
       const { writeFile } = await import('fs/promises');
@@ -260,34 +302,46 @@ export async function processZip(jobData, log, extractAttachments = false) {
 
     // ── Descargar ZIP ─────────────────────────────────────────────────────────
     log('info', 'zip.downloading', { job_id, file_url });
-    const dlResult = await runCmd(`wget -qO "${zipPath}" "${file_url}"`);
-    if (!dlResult.ok) throw new Error(`Download failed: ${dlResult.stderr}`);
+    // Descarga con fetch (Node lo trae nativo) en vez de `wget` vía shell: el file_url
+    // no llega nunca a /bin/sh.
+    const dlRes = await fetch(file_url);
+    if (!dlRes.ok) throw new Error(`Download failed: ${dlRes.status}`);
+    await writeFile(zipPath, Buffer.from(await dlRes.arrayBuffer()));
 
     // ── Extraer ───────────────────────────────────────────────────────────────
     log('info', 'zip.extracting', { job_id });
     // Extracción. 7zz (paquete 7zip) maneja ZIP/7z, pero la build OSS de 7zip en Alpine NO incluye
     // el códec RAR (propietario). Para RAR usamos bsdtar (libarchive, lee RAR5, OSS) como fallback si
     // 7zz no extrajo nada. Logueamos la salida de cada herramienta para diagnóstico.
-    const extract7zz = await runCmd(`7zz x "${zipPath}" -o"${workDir}/" -y 2>&1`);
+    const extract7zz = await run('7zz', ['x', zipPath, `-o${workDir}/`, '-y']);
     log('info', 'zip.extract_result', { job_id, tool: '7zz', ok: extract7zz.ok, output: String(extract7zz.stdout || extract7zz.stderr || '').slice(0, 400) });
     const after7zz = (await readdir(workDir).catch(() => [])).filter(n => n !== 'adj');
     if (after7zz.length === 0) {
-      const extractBsd = await runCmd(`bsdtar -x -f "${zipPath}" -C "${workDir}/" 2>&1`);
+      const extractBsd = await run('bsdtar', ['-x', '-f', zipPath, '-C', `${workDir}/`]);
       log('info', 'zip.extract_result', { job_id, tool: 'bsdtar', ok: extractBsd.ok, output: String(extractBsd.stdout || extractBsd.stderr || '').slice(0, 400) });
     }
 
-    // Aplanar subcarpetas
-    await runCmd(
-      `find "${workDir}" -mindepth 2 \\( -iname "*.pdf" -o -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \\) ` +
-      `-exec mv -t "${workDir}/" {} + 2>/dev/null || true`
-    );
-    await runCmd(`find "${workDir}" -mindepth 1 -type d -exec rmdir {} + 2>/dev/null || true`);
+    // Aplanar subcarpetas: mover a la raíz de workDir los PDFs/imágenes anidados.
+    for (const abs of await walkFiles(workDir)) {
+      const rel = relative(workDir, abs);
+      if (!rel.includes(sep)) continue;                       // ya está en la raíz
+      if (!MEDIA_EXT.includes(extname(abs).toLowerCase())) continue;
+      await rename(abs, join(workDir, basename(abs))).catch(() => {});
+    }
+    // Borrar las subcarpetas que quedaron vacías (más profundas primero).
+    for (const d of (await walkDirs(workDir)).sort((a, b) => b.length - a.length)) {
+      await rmdir(d).catch(() => {});                          // rmdir solo borra si está vacía
+    }
 
-    // Normalizar extensiones
-    for (const [from, to] of [['PDF', 'pdf'], ['JPG', 'jpg'], ['JPEG', 'jpeg'], ['PNG', 'png']]) {
-      await runCmd(
-        `for f in "${workDir}"/*.${from}; do [ -f "$f" ] && mv "$f" "\${f%.${from}}.${to}"; done 2>/dev/null || true`
-      );
+    // Normalizar extensiones a minúscula (PDF→pdf, etc.) en la raíz de workDir.
+    for (const de of await readdir(workDir, { withFileTypes: true })) {
+      if (!de.isFile()) continue;
+      const ext = extname(de.name);
+      if (!['.PDF', '.JPG', '.JPEG', '.PNG'].includes(ext)) continue;
+      await rename(
+        join(workDir, de.name),
+        join(workDir, basename(de.name, ext) + ext.toLowerCase())
+      ).catch(() => {});
     }
 
     await mkdir(adjDir, { recursive: true });
@@ -313,13 +367,11 @@ export async function processZip(jobData, log, extractAttachments = false) {
       await mkdir(tmpPymupdf,   { recursive: true });
 
       // Herramienta 1: pdfdetach (poppler)
-      await runCmd(`pdfdetach -saveall -o "${tmpPdfdetach}/" "${pdfPath}" 2>/dev/null || true`);
+      await run('pdfdetach', ['-saveall', '-o', `${tmpPdfdetach}/`, pdfPath]);
       // Herramienta 2: mutool (mupdf-tools)
-      await runCmd(`cd "${tmpMutool}" && mutool extract "${pdfPath}" 2>/dev/null || true`);
+      await run('mutool', ['extract', pdfPath], { cwd: tmpMutool });
       // Herramienta 3: PyMuPDF — cubre FileAttachment annotations que pdfdetach+mutool pierden (DT-009)
-      const pymupdfResult = await runCmd(
-        `python3 /app/extract_attachments.py "${pdfPath}" "${tmpPymupdf}" 2>/dev/null || echo '{"files":[]}'`
-      );
+      await run('python3', ['/app/extract_attachments.py', pdfPath, tmpPymupdf]);
 
       const fromPdfdetach = (await readdir(tmpPdfdetach)).filter(f => f.toLowerCase().endsWith('.pdf'));
       const fromMutool    = (await readdir(tmpMutool)).filter(f => f.toLowerCase().endsWith('.pdf'));
@@ -343,7 +395,7 @@ export async function processZip(jobData, log, extractAttachments = false) {
           const key = f.toLowerCase();
           if (!seen.has(key)) {
             seen.add(key);
-            await runCmd(`mv "${join(src, f)}" "${tmpAdj}/${f}" 2>/dev/null || true`);
+            await rename(join(src, f), join(tmpAdj, f)).catch(() => {});
           }
         }
       }
@@ -359,10 +411,10 @@ export async function processZip(jobData, log, extractAttachments = false) {
         }
         const adjBase = af.replace(/\.pdf$/i, '').replace(/\.PDF$/i, '');
         const dest = join(adjDir, `__adj__${pdfBase}__${adjBase}.pdf`);
-        await runCmd(`mv "${join(tmpAdj, af)}" "${dest}" 2>/dev/null || true`);
+        await rename(join(tmpAdj, af), dest).catch(() => {});
 
         // Extraer código de obra del adjunto
-        const { stdout: obraText } = await runCmd(`pdftotext "${dest}" - 2>/dev/null || true`);
+        const { stdout: obraText } = await run('pdftotext', [dest, '-']);
         const obraMatch = obraText.match(/para la obra[^0-9]*(\d+)/i);
         if (obraMatch) {
           const obraPath = dest.replace(/\.pdf$/i, '.obra');
@@ -382,18 +434,17 @@ export async function processZip(jobData, log, extractAttachments = false) {
 
       try {
         // Verificar si tiene texto suficiente
-        const { stdout: textOut } = await runCmd(`pdftotext "${pdfPath}" - 2>/dev/null | head -c 2000`);
+        const { stdout: rawText } = await run('pdftotext', [pdfPath, '-']);
+        const textOut = rawText.slice(0, 2000);
         const cuit = textOut.match(/\d{11}/);
         const kwCount = (textOut.match(/(factura|cuit|total|iva|comprobante|importe)/gi) || []).length;
         if (!cuit && kwCount < 3) {
           // PDF escaneado → convertir a PNG
-          await runCmd(
-            `pdftoppm -png -r 200 -f 1 -l 1 "${pdfPath}" "${join(workDir, pdfBase)}" 2>/dev/null || true`
-          );
+          await run('pdftoppm', ['-png', '-r', '200', '-f', '1', '-l', '1', pdfPath, join(workDir, pdfBase)]);
           // Renombrar el primer página generada
           const pngs = (await readdir(workDir)).filter(f => f.startsWith(pdfBase) && f.endsWith('.png'));
           if (pngs.length > 0) {
-            await runCmd(`mv "${join(workDir, pngs[0])}" "${pngPath}" 2>/dev/null || true`);
+            await rename(join(workDir, pngs[0]), pngPath).catch(() => {});
             await rm(pdfPath, { force: true });
             log('info', 'zip.scanned_converted', { job_id, file: pdf });
           }
@@ -419,12 +470,11 @@ export async function processZip(jobData, log, extractAttachments = false) {
     });
 
     // Archivos NO soportados dentro del comprimido (TASK-109): se reportan por nombre.
-    // find recursivo busybox-safe (usa ! y -iname, sin -printf), excluye la carpeta adj/.
-    const unsupRaw = (await runCmd(
-      `find "${workDir}" -type f ! -path "*/adj/*" ` +
-      `! -iname '*.pdf' ! -iname '*.jpg' ! -iname '*.jpeg' ! -iname '*.png' 2>/dev/null || true`
-    )).stdout;
-    const unsupportedFiles = (unsupRaw || '').split('\n').map(s => s.trim()).filter(Boolean).map(p => p.split('/').pop());
+    // Recorrido recursivo sin shell, excluye la carpeta adj/ y las extensiones soportadas.
+    const unsupportedFiles = (await walkFiles(workDir))
+      .filter(abs => !relative(workDir, abs).split(sep).includes('adj'))
+      .filter(abs => !MEDIA_EXT.includes(extname(abs).toLowerCase()))
+      .map(abs => basename(abs));
 
     log('info', 'zip.files_found', { job_id, count: allFiles.length, files: allFiles, unsupported: unsupportedFiles });
 
