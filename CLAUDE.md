@@ -75,6 +75,14 @@ Validado y estabilizado. No tocar sin tarea explícita.
 - **DEC-007 (enmendado) + DEC-017** — DB vs worker: *procesamiento/lógica compleja* (OCR, IA, parseo, merge OCs, cálculos, deps externas o multi-entidad) → **Worker**. *Derivación determinística sobre una sola fila* (ej. `doc_status` vía `classify_pdf_job_row`; conteos vía `trg_sync_job_counts_rows`) → **aceptable en DB**. La clasificación de `doc_status` se mantiene en el trigger por escala; migrar al worker SOLO al cruzar gatillos de DEC-017 (deps externas tipo AFIP/histórico/comparación entre docs; o CPU>70% / p95 degradada / millones de filas / límites del plan). Tests: **TEST-CLASSIFY-TRIGGER** ✅ (16 casos, `sql/tests/test_classify_pdf_job_row.sql` + func `test_classify_pdf_job_row()` en DB; correr `SELECT * FROM test_classify_pdf_job_row();` tras cualquier cambio del trigger).
 - **DEC-011** — N8N eliminado del pipeline. No existe, no referenciar.
 - **DEC-018** — Regionalización multi-país = escalado futuro: país como dimensión de primer nivel (prompt + `document_types.country` + modelo de campos genérico tipo `tax_id`); prompt-por-país y prompt-en-DB se hacen dentro de ese épico. Hoy solo AR. Seguimiento: Kanban TASK-113.
+- **DEC-022 (2026-09-10)** — **Un solo bucket de almacenamiento: `documents`.** `facturas` queda congelado, público y con sus archivos intactos. Había dos armarios para lo mismo: el poller de Drive escribía en `facturas` y el resto en `documents`. Dos superficies para asegurar en vez de una. Congelar en vez de migrar evita mover 1.347 archivos y romper las URLs ya guardadas. **Estado real al 2026-09-10: el congelamiento está INCOMPLETO.** El worker ya no escribe en `facturas` (commit b588d7a: poller de Drive + `STORAGE_BUCKET=documents` para los PDFs extraídos de ZIP), pero la **carga manual desde la app** (`SubirZipPage` → `src/lib/pdfJobHelpers.ts:uploadFileToWorker`) sigue subiendo el archivo original a `facturas/{jobId}.{ext}`. Migrarla es tarea aparte: `documents` no tiene hoy ninguna política para `authenticated`, así que requiere política INSERT (idealmente con ruta `{org_id}/...`) + deploy del front.
+
+## Problemas conocidos
+
+| Problema | Qué pasa | Rodeo |
+|---|---|---|
+| `facturas` sigue público | Sus archivos se sirven sin autenticación a quien tenga la URL exacta. La política que permitía *listar* el contenido ya se eliminó (2026-09-10) | Ninguno todavía. La solución de fondo es pasar a URLs firmadas en los **cinco** lugares donde se arma la URL pública (`worker/integration-poller.mjs:74`, `worker/poller-handoff.mjs:148`, `worker/ftp-sftp-poller.mjs:67`, `worker/zip-processor.mjs:68`, `src/lib/pdfJobHelpers.ts:88`), y recién ahí cerrar los dos buckets. Hasta entonces no se puede cerrar: el OCR descarga por URL pública |
+| `facturas` sigue recibiendo escrituras | La carga manual del front (`src/lib/pdfJobHelpers.ts:81`) sube ahí. Además las políticas `facturas_authenticated_upload` (INSERT) y `facturas_authenticated_update` (UPDATE) dejan a **cualquier usuario autenticado** escribir o pisar (`upsert:true`) cualquier archivo del bucket si conoce el nombre, sin filtro por organización | Ninguno todavía. Migrar la carga manual a `documents` con política INSERT por org, y recién ahí borrar esas dos políticas (ver DEC-022) |
 
 ## Stack
 
@@ -102,6 +110,8 @@ ssh root@157.230.231.207 "cd /root/worker && docker compose build && docker comp
 # Verificar: docker logs dl-worker --tail 30 ; curl -s http://localhost:3001/health
 ```
 
+- **`STORAGE_BUCKET`** (DEC-022): el worker lo lee de `/root/worker/.env` del servidor (no va al repo; `worker/.env.example` todavía dice `facturas`). Hoy vale **`documents`** (desde 2026-09-10). Alcanza al camino del ZIP manual (`zip-processor.mjs`: subida de los PDFs extraídos + URL pública que va al OCR) y, indirectamente, a cualquier código nuevo que lea la variable. ⚠️ El default en código sigue siendo `'facturas'` (`zip-processor.mjs:24`): si la variable falta del `.env`, el worker vuelve a escribir en el bucket congelado sin avisar. Los pollers (Drive, handoff, SFTP) tienen `documents` fijo en el código y no la leen.
+
 ## Pipeline (estado real)
 
 ```
@@ -112,7 +122,7 @@ Frontend / Integration poller → POST /api/enqueue → gateway.mjs (:3001)
 
 - **gateway.mjs rutas**: `POST /api/enqueue` (Bearer) · `/api/mp/create-preference` + `create-custom-preference` (Bearer) · `/api/mp/webhook` (sin auth, IPN) · `/api/deposit-row` (Bearer) · `/api/drive/folders` + `set-folder` (Bearer) · `/api/auth/google/callback` (sin auth) · `/api/integrations/init-folders` + `test-connection` + `migrate-folders` (Bearer) · `/api/metrics` (Bearer, proxy :9090) · `/api/prompt` (Bearer, prompt del extractor read-only, TASK-114) · `/health`.
 - **metrics.mjs (:9090)**: queue_depth (waiting/active/delayed), latency_ms (p50/p95/avg), error_rate_pct, totals. Consumido por MonitoringPage vía `/api/metrics`.
-- **Env worker** (`/root/worker/.env`): `REDIS_HOST/PORT/PASSWORD`, `SUPABASE_URL/SERVICE_KEY`, `WORKER_CONCURRENCY=3`, `WORKER_VERSION`, `METRICS_PORT=9090`, `GATEWAY_PORT=3001`, `GATEWAY_API_KEY`, `MP_ACCESS_TOKEN`, `GATEWAY_URL=https://api.agoradigital.io`, `STORAGE_BUCKET=facturas`, `GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI`, `FRONTEND_URL`, `NODE_ENV=production`. **Frontend**: `VITE_WORKER_API_KEY=staging-key-2026`, `VITE_WORKER_GATEWAY_URL` (base sin path).
+- **Env worker** (`/root/worker/.env`): `REDIS_HOST/PORT/PASSWORD`, `SUPABASE_URL/SERVICE_KEY`, `WORKER_CONCURRENCY=3`, `WORKER_VERSION`, `METRICS_PORT=9090`, `GATEWAY_PORT=3001`, `GATEWAY_API_KEY`, `MP_ACCESS_TOKEN`, `GATEWAY_URL=https://api.agoradigital.io`, `STORAGE_BUCKET=documents` (DEC-022), `GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI`, `FRONTEND_URL`, `NODE_ENV=production`. **Frontend**: `VITE_WORKER_API_KEY=staging-key-2026`, `VITE_WORKER_GATEWAY_URL` (base sin path).
 
 ## Frontend (misc)
 
