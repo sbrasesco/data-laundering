@@ -1199,6 +1199,14 @@ async function handleMpWebhook(body, log) {
 // ─── Server ───────────────────────────────────────────────────────────────────
 
 export function startGateway(queue, log) {
+  // Sin llave el gateway no arranca (y con él, el proceso entero del worker).
+  // Antes arrancaba sin autenticación y solo lo decía en el log de arranque.
+  if (!GATEWAY_API_KEY) {
+    log('error', 'gateway.arranque_abortado', {
+      motivo: 'GATEWAY_API_KEY no está definida' });
+    process.exit(1);
+  }
+
   const server = createServer(async (req, res) => {
 
     if (req.method === 'OPTIONS') return json(res, 204, {});
@@ -1226,12 +1234,17 @@ export function startGateway(queue, log) {
       }
     }
 
-    // Autenticación para el resto de rutas
-    if (GATEWAY_API_KEY) {
-      const auth = req.headers['authorization'] ?? '';
-      if (auth !== `Bearer ${GATEWAY_API_KEY}`) {
-        return json(res, 401, { error: 'Unauthorized' });
-      }
+    // Autenticación para el resto de rutas.
+    // Sin llave configurada NO se atiende a nadie. Antes, un .env sin
+    // GATEWAY_API_KEY dejaba el gateway abierto a internet en silencio.
+    // 503 y no 401: es un problema de configuración del servidor, no del que llama.
+    if (!GATEWAY_API_KEY) {
+      log('error', 'gateway.sin_llave_configurada', { url: req.url });
+      return json(res, 503, { error: 'GATEWAY_MISCONFIGURED' });
+    }
+    const auth = req.headers['authorization'] ?? '';
+    if (auth !== `Bearer ${GATEWAY_API_KEY}`) {
+      return json(res, 401, { error: 'Unauthorized' });
     }
 
     if (req.method === 'GET' && req.url === '/health') {
@@ -1402,7 +1415,7 @@ export function startGateway(queue, log) {
   server.listen(GATEWAY_PORT, () => {
     log('info', 'gateway.started', {
       port:      GATEWAY_PORT,
-      auth:      GATEWAY_API_KEY ? 'Bearer token' : 'NONE (staging)',
+      auth:      'Bearer token',
       endpoints: ['enqueue', 'mp/create-preference', 'mp/create-custom-preference', 'mp/webhook', 'deposit-row', 'auth/google/callback', 'drive/folders', 'drive/set-folder', 'metrics', 'health'],
     });
   });
