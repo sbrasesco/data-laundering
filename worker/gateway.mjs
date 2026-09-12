@@ -824,6 +824,20 @@ async function handleEnqueue(body, queue, log) {
   if (!VALID_SOURCES.includes(input_source)) return { status: 400, body: { error: `input_source inválido.` } };
   if (!file_url.startsWith('https://')) return { status: 400, body: { error: 'file_url debe ser una URL HTTPS' } };
 
+  // El worker descarga file_url por HTTP (fetch): restringirlo al host de Supabase
+  // evita que /api/enqueue baje una URL de cualquier lado. Defensa en profundidad
+  // sobre INC-001. Los api_direct históricos (todos done) no se re-encolan.
+  if (SUPABASE_URL) {
+    const hostPermitido = new URL(SUPABASE_URL).host;
+    let hostPedido;
+    try { hostPedido = new URL(file_url).host; }
+    catch { return { status: 400, body: { error: 'file_url inválida' } }; }
+    if (hostPedido !== hostPermitido) {
+      log('warn', 'gateway.enqueue_host_rechazado', { host: hostPedido });
+      return { status: 400, body: { error: 'FILE_URL_HOST_NO_PERMITIDO' } };
+    }
+  }
+
   if (SUPABASE_URL && SUPABASE_KEY) {
     try {
       const credRes = await fetch(

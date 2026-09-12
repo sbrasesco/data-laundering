@@ -16,7 +16,7 @@ import { startMetricsServer } from './metrics.mjs';
 import { startGateway } from './gateway.mjs';
 import { startBullBoard } from './bull-board.mjs';
 import { processZip, extractAttachmentsFromPdf } from './zip-processor.mjs';
-import { mkdir, rm } from 'fs/promises';
+import { mkdir, rm, writeFile } from 'fs/promises';
 import { basename } from 'path';
 import { processDocumentResult, finalizeJob, failJob } from './post-processor.mjs';
 import { processDocument } from './document-processor.mjs';
@@ -310,10 +310,10 @@ const worker = new Worker(
             await mkdir(tmpDir, { recursive: true });
             const tmpPdf = `${tmpDir}/input.pdf`;
             const adjDir = `${tmpDir}/adj`;
-            const { exec } = await import('child_process');
-            const { promisify } = await import('util');
-            const execAsync = promisify(exec);
-            await execAsync(`wget -qO "${tmpPdf}" "${job.data.file_url}"`);
+            // Descarga con fetch en vez de `wget` vía shell: el file_url no llega a /bin/sh.
+            const dlRes = await fetch(job.data.file_url);
+            if (!dlRes.ok) throw new Error(`Descarga falló (${dlRes.status})`);
+            await writeFile(tmpPdf, Buffer.from(await dlRes.arrayBuffer()));
             const pdfBase = basename(job.data.original_filename, '.pdf');
             ocEntries = await extractAttachmentsFromPdf(tmpPdf, pdfBase, tmpDir, adjDir, log);
             log('info', 'job.single_oc_extracted', { job_id: jobId, oc_count: ocEntries.length });

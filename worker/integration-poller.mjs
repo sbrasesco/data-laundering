@@ -55,7 +55,7 @@ async function callRpc(supabaseUrl, supabaseKey, rpcName, params = {}) {
 async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer, mimeType) {
   const path = `${orgId}/integrations/${filename}`;
   const res  = await fetch(
-    `${supabaseUrl}/storage/v1/object/facturas/${path}`,
+    `${supabaseUrl}/storage/v1/object/documents/${path}`,
     {
       method:  'POST',
       headers: {
@@ -71,7 +71,7 @@ async function uploadToStorage(supabaseUrl, supabaseKey, orgId, filename, buffer
     const text = await res.text();
     throw new Error(`Storage upload failed (${res.status}): ${text}`);
   }
-  return `${supabaseUrl}/storage/v1/object/public/facturas/${path}`;
+  return `${supabaseUrl}/storage/v1/object/public/documents/${path}`;
 }
 
 function sanitizeFolderName(name) {
