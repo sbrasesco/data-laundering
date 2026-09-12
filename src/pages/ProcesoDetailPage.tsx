@@ -41,7 +41,7 @@ export function ProcesoDetailPage() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <Button variant="outline" onClick={() => navigate('/dashboard')}>← Volver al Dashboard</Button>
 
-      <JobDetailHeader job={job} />
+      <JobDetailHeader job={job} rows={rows} />
 
       <JobDiscrepancyNotice job={job} />
 
