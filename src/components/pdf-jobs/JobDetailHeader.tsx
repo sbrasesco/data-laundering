@@ -1,12 +1,14 @@
 import { JobStatusBadge } from './JobStatusBadge';
 import { PdfJobDetail } from '../../hooks/usePdfJob';
 import { formatDisplayDate } from '../../utils/dateFormat';
+import { warningReasonLabel } from '../../lib/documentClassification';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface JobDetailHeaderProps {
   job: PdfJobDetail;
+  rows?: any[];
 }
 
 function StatItem({ label, value }: { label: string; value: string | number }) {
@@ -18,7 +20,7 @@ function StatItem({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-export function JobDetailHeader({ job }: JobDetailHeaderProps) {
+export function JobDetailHeader({ job, rows }: JobDetailHeaderProps) {
   // Proceso totalmente fallido: el badge ya muestra "Fallido"; no mostrar además
   // el alert amarillo de "se completó con advertencias" (sería contradictorio).
   const allFailed =
@@ -62,15 +64,40 @@ export function JobDetailHeader({ job }: JobDetailHeaderProps) {
         </CardContent>
       </Card>
 
-      {job.has_warnings && !allFailed && (
-        <Alert variant="warning">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Advertencia</AlertTitle>
-          <AlertDescription>
-            Este proceso se completó con advertencias. Algunos documentos se procesaron pero requieren tu revisión (por ejemplo, importes que no cierran o facturas con descuento).
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* El aviso nombra los motivos REALES de cada documento (warning_reason del
+          trigger). El texto de respaldo NO sugiere causas de ejemplo: si no
+          sabemos el motivo, mandamos a mirar los documentos — un aviso que
+          apunta a la causa equivocada es peor que uno vago. */}
+      {job.has_warnings && !allFailed && (() => {
+        const conAdvertencia = (rows ?? []).filter(r => r.doc_status === 'warning');
+        const motivos = conAdvertencia
+          .map(r => ({ label: warningReasonLabel(r.warning_reason), file: r.source_file }))
+          .filter(m => m.label);
+
+        return (
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Advertencia</AlertTitle>
+            <AlertDescription>
+              {motivos.length > 0 ? (
+                <>
+                  {conAdvertencia.length} documento{conAdvertencia.length === 1 ? '' : 's'}{' '}
+                  requiere{conAdvertencia.length === 1 ? '' : 'n'} tu revisión:
+                  <ul className="list-disc list-inside mt-2 space-y-0.5">
+                    {motivos.map((m, i) => (
+                      <li key={i} className="break-all">
+                        {m.label}{m.file ? <span className="opacity-75"> — {m.file}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                'Este proceso se completó con advertencias. Revisá los documentos marcados más abajo.'
+              )}
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       {allFailed && (
         <Alert variant="destructive">
