@@ -152,6 +152,22 @@ ssh root@157.230.231.207 "find /var/www/dataland -name '*.map' | wc -l"         
 ```
 Y abrir `app.agoradigital.io` en el navegador: tiene que cargar el login.
 
+> ⚠️ **TRAMPA DEL CATCH-ALL — verificar por CONTENIDO, nunca por código de estado.**
+> Caddy sirve la SPA con un *catch-all*: **cualquier** ruta que no exista devuelve
+> **HTTP 200** con el `index.html`, no un 404. Un `.map` borrado da 200. Una carpeta
+> que no existe da 200. Un archivo inventado da 200. Si mirás solo el código, vas a
+> reportar lo contrario de lo que pasa.
+> Cómo verificar de verdad: comparar el **cuerpo** con el de una ruta inventada.
+> ```bash
+> curl -s https://app.agoradigital.io/assets/<archivo>.js.map | head -c 40   # ¿HTML o JSON?
+> curl -sI https://app.agoradigital.io/assets/<archivo>.js.map | grep -i content-type
+> curl -s https://app.agoradigital.io/ruta-inventada-xyz | wc -c             # mismo tamaño = no existe
+> ```
+> `content-type: text/html` y el mismo tamaño que la ruta inventada ⇒ **el archivo NO está**.
+> `application/json` (o `"version":3`) ⇒ **el mapa SÍ se está sirviendo**.
+> Lo mismo vale para comprobar que un respaldo `/var/www/dataland.bak-*` no quedó
+> expuesto: que devuelva 200 no significa que se sirva.
+
 ### Retención
 
 Borrar el respaldo recién a los **días**, no el mismo día. Ocupa ~7 MB.

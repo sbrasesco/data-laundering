@@ -57,6 +57,9 @@
 - Worker: SIEMPRE `docker compose build && docker compose up -d --force-recreate` desde `/root/worker/`. NUNCA `docker run` manual (queda en `caddy_net` y Caddy no alcanza `:3001`).
 - Frontend: `npm run build` → `rm -rf /var/www/dataland/assets` → `scp -r dist/.`. NUNCA Netlify ni git pull en el server.
 - `VITE_WORKER_GATEWAY_URL` = base SIN path (cada archivo appenda su endpoint).
+- **Verificar un deploy de frontend por CONTENIDO, nunca por código de estado.** Caddy sirve la SPA con *catch-all*: cualquier ruta inexistente devuelve **200 con el `index.html`**, no 404 — un `.map` borrado, un archivo inventado y un respaldo no expuesto dan los tres 200. Comparar el **cuerpo** (y el `content-type`) contra el de una ruta inventada: `text/html` + mismo tamaño ⇒ no está; `"version":3` ⇒ el mapa SÍ se sirve. Detalle y comandos en `RUNBOOK-ROLLBACK.md` → «Trampa del catch-all». (Hallado el 2026-09-12 verificando que los mapas dejaran de publicarse: leído por el código de estado, el resultado decía exactamente lo contrario de la realidad.)
+- **Respaldo obligatorio antes de un deploy de frontend**: `cp -a /var/www/dataland /var/www/dataland.bak-$(date +%Y%m%d-%H%M%S)`. El deploy arranca con `rm -rf` y no deja copia; sin respaldo la única vuelta atrás es recompilar desde git. Procedimiento completo en `RUNBOOK-ROLLBACK.md` (sección de frontend, agregada el 2026-09-12).
+- **`vite.config.ts` lee las variables con `loadEnv`, nunca con `process.env` a secas** — Vite NO expone el `.env` en `process.env` dentro del archivo de configuración. Con `process.env` el token del `.env` está puesto y no se usa, en silencio.
 
 ### Pipeline de integración (worker) — CERRADO
 Validado y estabilizado. No tocar sin tarea explícita.
@@ -156,16 +159,15 @@ Validado y estabilizado. No tocar sin tarea explícita.
 
 ### Cola de seguridad (al 2026-09-12)
 
-**Cerrados:** ~~**INC-003**~~ — `profiles` escribible por el cliente (2026-09-11) · ~~**INC-004**~~ — `admin_*` sin control de quién llama (2026-09-12) · ~~**INC-005**~~ — puertos de servicio abiertos a internet, cerrados por cortafuegos (2026-09-12).
+**Cerrados:** ~~**INC-003**~~ — `profiles` escribible por el cliente (2026-09-11) · ~~**INC-004**~~ — `admin_*` sin control de quién llama (2026-09-12) · ~~**INC-005**~~ — puertos de servicio abiertos a internet, cerrados por cortafuegos (2026-09-12) · ~~**Mapas de código**~~ — dejaron de generarse y de publicarse (2026-09-12). Causa raíz: `vite.config.ts` leía `process.env`, y Vite NO expone el `.env` ahí, así que el token estaba puesto y no se usaba — los mapas se publicaban **y** Sentry no los recibía. Arreglado con `loadEnv` + `sourcemap: token ? 'hidden' : false` (detalle en la entrada del 2026-09-12 en Completadas).
 
 Orden vigente (actualizado el 2026-09-12, con el cortafuegos ya aplicado):
 
 1. **Gateway que falla cerrado** — commit `182b616` en la rama `fix/gateway-falla-cerrado`, **commiteado pero sin desplegar**.
-2. **Mapas de código** — publicados (ver INC-002). `vite.config.ts` los genera siempre (`sourcemap: true`) y solo se borran de `dist/` si el build corre con `SENTRY_AUTH_TOKEN` presente. El arreglo no es una línea: que dejen de generarse, o que su borrado no dependa de que una variable esté definida. Después del deploy, verificar que no quede ningún `.map` servido.
-3. **INC-002 — gateway con JWT** (ficha arriba). Que el gateway valide el JWT de Supabase y saque el `organization_id` del token. Rotar la llave no sirve.
-4. **URLs firmadas y cerrar los buckets** — `facturas`/`documents` públicos (ver Problemas conocidos). Plan en `PROPUESTA-URLS-FIRMADAS-AGORA.md`: URLs firmadas en los cinco lugares, después cerrar los buckets, después la escritura de `facturas`.
+2. **INC-002 — gateway con JWT** (ficha arriba). Que el gateway valide el JWT de Supabase y saque el `organization_id` del token. Rotar la llave no sirve.
+3. **URLs firmadas y cerrar los buckets** — `facturas`/`documents` públicos (ver Problemas conocidos). Plan en `PROPUESTA-URLS-FIRMADAS-AGORA.md`: URLs firmadas en los cinco lugares, después cerrar los buckets, después la escritura de `facturas`.
 
-> **3 y 4 se planean juntos.** Los dos tocan el frontend y, en buena medida, **los mismos archivos** — `src/lib/pdfJobHelpers.ts` y su llamador `SubirZipPage`: ahí vive tanto la llave del gateway (INC-002) como la subida a `facturas` y el armado de la URL pública (buckets). El JWT necesita que el navegador mande **su sesión** en lugar de la llave; cerrar los buckets necesita que el panel **guarde dentro de la carpeta de su organización y firme la URL**. Se aplican por separado — un despliegue de frontend cada uno — pero **planearlos de una sola vez ahorra trabajo**: es el mismo código tocado dos veces si se piensan sueltos.
+> **2 y 3 se planean juntos.** Los dos tocan el frontend y, en buena medida, **los mismos archivos** — `src/lib/pdfJobHelpers.ts` y su llamador `SubirZipPage`: ahí vive tanto la llave del gateway (INC-002) como la subida a `facturas` y el armado de la URL pública (buckets). El JWT necesita que el navegador mande **su sesión** en lugar de la llave; cerrar los buckets necesita que el panel **guarde dentro de la carpeta de su organización y firme la URL**. Se aplican por separado — un despliegue de frontend cada uno — pero **planearlos de una sola vez ahorra trabajo**: es el mismo código tocado dos veces si se piensan sueltos.
 
 ## Problemas conocidos
 
