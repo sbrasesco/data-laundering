@@ -1,7 +1,7 @@
-# Runbook de Rollback — Data Laundering Worker
+# Runbook de Rollback — Data Laundering (Worker y Frontend)
 
-**Versión del runbook**: 1.0  
-**Última actualización**: 2026-06-01  
+**Versión del runbook**: 1.1  
+**Última actualización**: 2026-09-12  
 **Tiempo objetivo de recuperación**: < 5 minutos
 
 ---
@@ -109,6 +109,55 @@ El script `deploy.sh` construye la imagen, la tagea con la versión indicada, y 
 | v1.0.0 | 2026-06-01 | OCR Mistral + extracción OpenAI directo. N8n removido. PyMuPDF para OCs. |
 
 ---
+## Rollback del FRONTEND
+
+> El frontend son archivos estáticos en `/var/www/dataland/`, servidos por **Caddy en Docker** (`n8n-caddy-1`, Caddyfile del host en `/opt/n8n/caddy/Caddyfile`). No hay CI: **no existe ningún despliegue automático al mergear a `main`**. El build sale SIEMPRE de la máquina local y viaja por `scp`; `dist/` está en `.gitignore` y el servidor **no compila**.
+
+### ⚠️ La copia de respaldo es paso OBLIGATORIO del deploy
+
+El despliegue empieza con `rm -rf /var/www/dataland/assets`: es **destructivo y no deja copia**. Si el build nuevo sale mal y no se hizo respaldo, la única vuelta atrás es recompilar desde git. Por eso el respaldo va ANTES, siempre:
+
+```bash
+TS=$(date +%Y%m%d-%H%M%S)
+ssh root@157.230.231.207 "cp -a /var/www/dataland /var/www/dataland.bak-$TS && ls -d /var/www/dataland.bak-$TS"
+# ANOTAR EL TS. Sin esto el deploy no tiene vuelta atrás barata.
+```
+
+El respaldo queda como hermano de la raíz que sirve Caddy, así que **no es alcanzable desde internet** (verificado: esa URL devuelve el `index.html` del fallback de SPA, no el respaldo).
+
+### Vuelta atrás — segundos, sin recompilar
+
+```bash
+ssh root@157.230.231.207 "rm -rf /var/www/dataland && \
+                          mv /var/www/dataland.bak-<TS> /var/www/dataland"
+```
+
+Se toma al recargar: `index.html` va con `Cache-Control: no-cache` y `assets/*` con hash inmutable. **No cachear `index.html`**, o los usuarios no ven ni los deploys ni los rollbacks.
+
+### Si NO hay respaldo (camino largo)
+
+```bash
+git checkout <commit bueno> && npm run build   # con SENTRY_AUTH_TOKEN en .env
+ssh root@157.230.231.207 "rm -rf /var/www/dataland/assets"
+scp -r dist/. root@157.230.231.207:/var/www/dataland/
+```
+
+Antes de subir: `find dist -name "*.map"` tiene que dar **vacío** (si no, se publican los mapas de código). Ver la regla de `loadEnv` en CLAUDE.md.
+
+### Verificar el rollback
+
+```bash
+curl -s https://app.agoradigital.io/index.html | grep -oE '/assets/main-[A-Za-z0-9_-]+\.js'   # bundle esperado
+ssh root@157.230.231.207 "find /var/www/dataland -name '*.map' | wc -l"                        # 0
+```
+Y abrir `app.agoradigital.io` en el navegador: tiene que cargar el login.
+
+### Retención
+
+Borrar el respaldo recién a los **días**, no el mismo día. Ocupa ~7 MB.
+
+---
+
 
 ## Contacto de emergencia
 
