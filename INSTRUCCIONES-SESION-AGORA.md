@@ -93,7 +93,9 @@ Quedan tres cosas en la cola, ninguna urgente, todas con plan:
 
 Existe **Amono**, que comparte **sólo** el proyecto de Supabase —cuenta del usuario y billetera de créditos— y lo maneja **otro agente**.
 
-**Cuatro de los cinco incidentes los encontró ese agente.** Si escala algo: verificalo contra la base antes de actuar. Tuvo razón las cuatro veces — pero **dos veces el arreglo que proponía no servía**, por la regla 3.
+**Cuatro hallazgos de seguridad salieron de ese agente** — dos anteriores a que empezáramos a numerar incidentes (una vista sin `security_invoker` y los buckets públicos) y dos registrados como INC-003 e INC-004. Si escala algo: verificalo contra la base antes de actuar. Tuvo razón las cuatro veces — pero **dos veces el arreglo que proponía no servía**, por la regla 3.
+
+El barrido de puertos que terminó en el cortafuegos (INC-005) también arrancó de ahí: no fue un hallazgo suyo directo, pero fue consecuencia de tirar del mismo hilo.
 
 ---
 
