@@ -137,7 +137,9 @@ Orden vigente (fijado por el director el 2026-09-12):
 2. **Gateway que falla cerrado** — commit `182b616`, rama `fix/gateway-falla-cerrado`.
 3. **Mapas de código** — publicados (ver INC-002). `vite.config.ts` los genera siempre (`sourcemap: true`) y solo se borran de `dist/` si el build corre con `SENTRY_AUTH_TOKEN` presente. El arreglo no es una línea: que dejen de generarse, o que su borrado no dependa de que una variable esté definida. Después del deploy, verificar que no quede ningún `.map` servido.
 4. **INC-002 — gateway con JWT** (ficha arriba). Que el gateway valide el JWT de Supabase y saque el `organization_id` del token. Rotar la llave no sirve.
-5. **Buckets** — `facturas`/`documents` públicos (ver Problemas conocidos). Plan en `PROPUESTA-URLS-FIRMADAS-AGORA.md`: URLs firmadas en los cinco lugares, después cerrar los buckets, después la escritura de `facturas`. ⚠️ No figura en el orden que fijó el director el 2026-09-12; **sigue abierto** y se deja anotado acá para que no se pierda.
+5. **Buckets** — `facturas`/`documents` públicos (ver Problemas conocidos). Plan en `PROPUESTA-URLS-FIRMADAS-AGORA.md`: URLs firmadas en los cinco lugares, después cerrar los buckets, después la escritura de `facturas`.
+
+> **4 y 5 se planean juntos.** Los dos tocan el frontend y, en buena medida, **los mismos archivos** — `src/lib/pdfJobHelpers.ts` y su llamador `SubirZipPage`: ahí vive tanto la llave del gateway (INC-002) como la subida a `facturas` y el armado de la URL pública (buckets). El JWT necesita que el navegador mande **su sesión** en lugar de la llave; cerrar los buckets necesita que el panel **guarde dentro de la carpeta de su organización y firme la URL**. Se aplican por separado — un despliegue de frontend cada uno — pero **planearlos de una sola vez ahorra trabajo**: es el mismo código tocado dos veces si se piensan sueltos.
 
 ## Problemas conocidos
 
