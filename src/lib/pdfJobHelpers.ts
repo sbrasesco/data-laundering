@@ -60,8 +60,8 @@ export async function failPdfJob(
 
 /**
  * Sube un archivo al pipeline del worker:
- * 1. Sube el archivo a Supabase Storage (bucket facturas)
- * 2. Llama al Worker Gateway con job_id + file_url
+ * 1. Sube el archivo a Supabase Storage (bucket `documents`, carpeta de la organización)
+ * 2. Firma una URL con vencimiento y llama al Worker Gateway con job_id + file_url
  */
 export async function uploadFileToWorker(
   file: File,
@@ -74,20 +74,37 @@ export async function uploadFileToWorker(
   const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
 
   try {
-    // 1. Subir archivo a Supabase Storage
+    // 1. organizationId es OBLIGATORIO: sin él la ruta quedaría "null/uploads/…",
+    //    la política de storage la rechazaría y el usuario vería un error
+    //    incomprensible. Fallar acá, claro, antes de subir nada.
+    if (!organizationId) {
+      return { success: false, error: 'No se pudo determinar la organización. Volvé a iniciar sesión.' };
+    }
+
+    // 2. Dentro de la carpeta de la organización, en `documents`.
+    //    upsert:false — el jobId es un UUID nuevo en cada envío, no hay colisión
+    //    posible, y así escribir no requiere ningún permiso de lectura.
     const ext = file.name.split('.').pop()?.toLowerCase() ?? 'zip';
-    const storageKey = `${jobId}.${ext}`;
+    const storageKey = `${organizationId}/uploads/${jobId}.${ext}`;
     const { error: uploadError } = await supabase.storage
-      .from('facturas')
-      .upload(storageKey, file, { upsert: true });
+      .from('documents')
+      .upload(storageKey, file, { upsert: false });
 
     if (uploadError) {
       return { success: false, error: `Error subiendo archivo: ${uploadError.message}` };
     }
 
-    const { data: { publicUrl } } = supabase.storage.from('facturas').getPublicUrl(storageKey);
+    // 3. URL FIRMADA con vencimiento, no pública y eterna. 24 h alcanza para
+    //    cualquier cadena de reintentos del worker (attempts:3 con backoff).
+    const { data: signed, error: signError } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(storageKey, 60 * 60 * 24);
 
-    // 2. Llamar al Worker Gateway
+    if (signError || !signed?.signedUrl) {
+      return { success: false, error: `No se pudo firmar la URL: ${signError?.message ?? 'desconocido'}` };
+    }
+
+    // 4. Llamar al Worker Gateway
     const orgId = organizationId ?? null;
 
     const response = await fetch(`${workerGatewayUrl}/api/enqueue`, {
@@ -99,7 +116,7 @@ export async function uploadFileToWorker(
       body: JSON.stringify({
         job_id: jobId,
         organization_id: orgId,
-        file_url: publicUrl,
+        file_url: signed.signedUrl,
         file_type: ['jpg', 'jpeg'].includes(ext) ? 'jpg' : (['png'].includes(ext) ? 'png' : (ext === 'pdf' ? 'pdf' : (['zip', 'rar'].includes(ext) ? ext : 'zip'))),
         original_filename: file.name,
         client_name: clientName ?? null,
