@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import { createPurchaseCheckout } from '@/lib/purchaseCheckout';
 import auroraLogo from '@/assets/aurora-logo.svg';
 import { applyTheme, getStoredTheme } from '@/lib/themes';
 
@@ -80,7 +81,7 @@ const PASOS = [
   { num: '4', color: C.negro,    colorText: C.blanco, titulo: 'Listo para usar',         desc: 'Tu resultado queda guardado, organizado y listo para exportar o enviar.' },
 ];
 
-// planSlug matches billing_plans.name in DB
+// slug = pricing_packages.code (se compra por la puerta nueva, BILLING-COMPRA-5.2)
 const PLANES = [
   { nombre: 'Gratuito',    slug: 'free',         creditos: '20 documentos gratis',    precio: '$0',       porCredito: null,                 destacado: false, acento: C.gris,     acentoText: '#444',   fondo: C.blanco, ctaLabel: 'Empezar gratis', ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: '/login',                    features: ['20 documentos', 'PDF, JPG, PNG', 'Exportación CSV', 'Soporte por email'] },
   { nombre: 'Básico',      slug: 'basico',       creditos: '~165 documentos',   precio: 'USD 50',   porCredito: 'Acreditás USD 50', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['~165 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Saldo acumulable'] },
@@ -206,8 +207,12 @@ function Precios() {
   const navigate = useNavigate();
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
 
   const handleBuy = useCallback(async (slug: string) => {
+    if (busyRef.current) return;   // una compra a la vez, aunque haya doble clic
+    busyRef.current = true;
+    let leaving = false;
     setError(null);
     setLoadingSlug(slug);
 
@@ -221,58 +226,19 @@ function Precios() {
         return;
       }
 
-      // Fetch plan_id from DB by slug
-      const { data: plan, error: planError } = await supabase
-        .from('billing_plans')
-        .select('id')
-        .eq('name', slug)
-        .eq('active', true)
-        .single();
-
-      if (planError || !plan) {
-        setError('Plan no encontrado. Intentá nuevamente.');
+      // Compra por la puerta nueva (BILLING-COMPRA-5.2): precio, bono y pesos los decide el servidor.
+      const checkout = await createPurchaseCheckout(session.access_token, { package_code: slug });
+      if (!checkout.ok) {
+        setError(checkout.error);
         return;
       }
-
-      // Call Worker Gateway (MP preference creation moved to DO — Supabase Edge Function blocked by MP PolicyAgent)
-      const { data: { session: freshSession } } = await supabase.auth.getSession();
-      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
-      const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
-      const response = await fetch(
-        `${workerGatewayUrl}/api/mp/create-preference`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${workerApiKey}`,
-          },
-          body: JSON.stringify({
-            plan_id: plan.id,
-            user_id: freshSession?.user?.id,
-            organization_id: freshSession?.user?.id, // org_id se resuelve en el gateway
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        setError(data.error ?? 'Error al iniciar el pago. Intentá nuevamente.');
-        return;
-      }
-
-      const data = await response.json();
-
-      // Use sandbox_init_point in development, init_point in production
-      const checkoutUrl = import.meta.env.DEV
-        ? data.sandbox_init_point
-        : data.init_point;
-
-      window.location.href = checkoutUrl;
+      leaving = true;
+      window.location.href = checkout.url;
     } catch (err) {
       console.error('Payment error:', err);
       setError('Error inesperado. Intentá nuevamente.');
     } finally {
-      setLoadingSlug(null);
+      if (!leaving) { busyRef.current = false; setLoadingSlug(null); }
     }
   }, [navigate]);
 
@@ -322,7 +288,7 @@ function Precios() {
                 {plan.slug && plan.ctaHref === null ? (
                   <button
                     onClick={() => handleBuy(plan.slug!)}
-                    disabled={isLoading}
+                    disabled={loadingSlug !== null}
                     className="text-center text-sm font-black py-2.5 rounded-xl block w-full transition-opacity disabled:opacity-60"
                     style={{ background: plan.ctaFondo, color: plan.ctaTexto }}
                   >

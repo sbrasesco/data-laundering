@@ -1,8 +1,9 @@
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent, useEffect, useRef } from 'react';
 import auroraLogo from '@/assets/aurora-logo.svg';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import { createPurchaseCheckout } from '@/lib/purchaseCheckout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +36,7 @@ export function LoginPage() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
 
   const { signInWithPassword, session, loading: authLoading } = useAuth();
+  const checkoutStartedRef = useRef(false);
   const navigate = useNavigate();
 
   const handlePostAuth = async () => {
@@ -50,61 +52,18 @@ export function LoginPage() {
       return;
     }
 
-    try {
-      const { data: planData, error: planError } = await supabase
-        .from('billing_plans')
-        .select('id')
-        .eq('name', planSlug)
-        .eq('active', true)
-        .single();
-
-      if (planError || !planData) {
-        setError('Error al iniciar el pago. Intentá nuevamente.');
-        setLoading(false);
-        return;
-      }
-
-      // Call Worker Gateway (MP preference creation moved to DO — Supabase Edge Function blocked by MP PolicyAgent)
-      const workerGatewayUrl = import.meta.env.VITE_WORKER_GATEWAY_URL ?? 'https://api.agoradigital.io';
-      const workerApiKey = import.meta.env.VITE_WORKER_API_KEY ?? 'staging-key-2026';
-      const response = await fetch(
-        `${workerGatewayUrl}/api/mp/create-preference`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${workerApiKey}`,
-          },
-          body: JSON.stringify({
-            plan_id: planData.id,
-            user_id: freshSession.user.id,
-            organization_id: freshSession.user.id, // org_id se resuelve en el gateway
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        setError(`Error MP: ${errData.detail ?? errData.error ?? response.status}`);
-        setLoading(false);
-        return;
-      }
-
-      const data = await response.json();
-      const checkoutUrl = import.meta.env.DEV ? data.sandbox_init_point : data.init_point;
-
-      if (!checkoutUrl) {
-        setError('No se pudo obtener la URL de pago. Intentá nuevamente.');
-        setLoading(false);
-        return;
-      }
-
-      window.location.href = checkoutUrl;
-    } catch (err) {
-      console.error('handlePostAuth error:', err);
-      setError('Error inesperado al iniciar el pago. Intentá nuevamente.');
+    // Compra por la puerta nueva (BILLING-COMPRA-5.2): precio, bono y pesos los decide el servidor.
+    // Una sola vez, aunque la sesión se actualice mientras tanto (antes podía crear dos cobros).
+    if (checkoutStartedRef.current) return;
+    checkoutStartedRef.current = true;
+    const checkout = await createPurchaseCheckout(freshSession.access_token, { package_code: planSlug });
+    if (!checkout.ok) {
+      checkoutStartedRef.current = false;
+      setError(checkout.error);
       setLoading(false);
+      return;
     }
+    window.location.href = checkout.url;
   };
 
   // !loading is critical: blocks redirect while handleSignUp is still creating org+profile
