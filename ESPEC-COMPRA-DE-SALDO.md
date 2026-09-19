@@ -1,6 +1,6 @@
 # Especificación — Compra de saldo (Ágora + Ámono)
 
-*Versión 3.2 · 2026-09-19 (v3: decisiones del director incorporadas — bono, cotización al comprar, sin redondeo · v3.1: fase 0 cerrada y corrección del índice único · v3.2: fase 5 en tres partes, vigilancia en dos capas, mínimo US$ 10) · Estado: **aprobada; fases 0 a 4 y 5.1 a 5.3 cerradas; 5.3 cerrada (editor de precios); sigue que la landing lea los precios de la base (5.4) y retirar las puertas viejas (5.5)** · Zona cerrada (facturación y Mercado Pago): cada fase necesita OK explícito*
+*Versión 3.2 · 2026-09-19 (v3: decisiones del director incorporadas — bono, cotización al comprar, sin redondeo · v3.1: fase 0 cerrada y corrección del índice único · v3.2: fase 5 en tres partes, vigilancia en dos capas, mínimo US$ 10) · Estado: **aprobada; fases 0 a 4 y 5.1 a 5.3 cerradas; 5.3 y 5.4 cerradas (editor de precios; la landing lee los precios de la base); sigue retirar las puertas viejas (5.5)** · Zona cerrada (facturación y Mercado Pago): cada fase necesita OK explícito*
 
 ---
 
@@ -229,7 +229,7 @@ Lo que pueden dar por hecho cuando la Fase 4 esté validada:
 - **La URL de vuelta tiene que estar en la lista permitida.** Pasen las que van a usar para que se agreguen.
 - **No se construye nada de pagos del lado de Ámono.** Ni tablas, ni funciones, ni pasarela.
 
-Hasta la validación de la Fase 4: **no enviar a nadie a pagar.**
+~~Hasta la validación de la Fase 4: no enviar a nadie a pagar.~~ **Levantado el 2026-09-19** (fases 4, 5.1, 5.2 y 5.3 en producción). Hoy: enlace a `app.agoradigital.io/login?plan=<paquete>` o a «Recargar saldo»; las pantallas todavía no toman `origin_product=amono` ni la URL de vuelta desde el enlace (el servidor sí): se arma cuando Ámono pase la URL de vuelta.
 
 ---
 

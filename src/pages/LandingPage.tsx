@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -82,17 +82,59 @@ const PASOS = [
 ];
 
 // slug = pricing_packages.code (se compra por la puerta nueva, BILLING-COMPRA-5.2)
-const PLANES = [
-  { nombre: 'Gratuito',    slug: 'free',         creditos: '20 documentos gratis',    precio: '$0',       porCredito: null,                 destacado: false, acento: C.gris,     acentoText: '#444',   fondo: C.blanco, ctaLabel: 'Empezar gratis', ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: '/login',                    features: ['20 documentos', 'PDF, JPG, PNG', 'Exportación CSV', 'Soporte por email'] },
-  { nombre: 'Básico',      slug: 'basico',       creditos: '~165 documentos',   precio: 'USD 50',   porCredito: 'Acreditás USD 50', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['~165 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Saldo acumulable'] },
-  { nombre: 'Profesional', slug: 'profesional',  creditos: '~365 documentos',   precio: 'USD 100',  porCredito: 'Acreditás USD 110 · +10%', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.amarillo, ctaTexto: C.negro, ctaHref: null,                        features: ['~365 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Saldo acumulable'] },
-  { nombre: 'Business',    slug: 'business',     creditos: '~800 documentos', precio: 'USD 200',  porCredito: 'Acreditás USD 240 · +20%', destacado: false, acento: C.lila,     acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.lila,   ctaTexto: C.blanco, ctaHref: null,                        features: ['~800 documentos', 'Google Drive / FTP / SFTP', 'API access', 'Soporte prioritario', 'Saldo acumulable'] },
+const PLANES: Plan[] = [
+  { nombre: 'Gratuito',    slug: 'free',         creditos: 'hasta ~25 documentos gratis',    precio: '$0',       porCredito: null,                 destacado: false, acento: C.gris,     acentoText: '#444',   fondo: C.blanco, ctaLabel: 'Empezar gratis', ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: '/login',                    features: ['hasta ~25 documentos', 'PDF, JPG, PNG', 'Exportación CSV', 'Soporte por email'] },
+  { nombre: 'Básico',      slug: 'basico',       creditos: 'hasta ~250 documentos',   precio: 'USD 50',   porCredito: 'Acreditás USD 50', destacado: false, acento: C.verde,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.verde,  ctaTexto: C.blanco, ctaHref: null,                        features: ['hasta ~250 documentos', 'PDF, JPG, PNG, ZIP', 'Exportación CSV', 'Soporte por email', 'Saldo acumulable'] },
+  { nombre: 'Profesional', slug: 'profesional',  creditos: 'hasta ~550 documentos',   precio: 'USD 100',  porCredito: 'Acreditás USD 110 · +10%', destacado: true,  acento: C.amarillo, acentoText: C.negro,  fondo: C.negro,  ctaLabel: 'Contratar',      ctaFondo: C.amarillo, ctaTexto: C.negro, ctaHref: null,                        features: ['hasta ~550 documentos', 'PDF, JPG, PNG, ZIP', 'Google Drive / FTP / SFTP', 'Soporte prioritario', 'Saldo acumulable'] },
+  { nombre: 'Business',    slug: 'business',     creditos: 'hasta ~1.200 documentos', precio: 'USD 200',  porCredito: 'Acreditás USD 240 · +20%', destacado: false, acento: C.lila,     acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contratar',      ctaFondo: C.lila,   ctaTexto: C.blanco, ctaHref: null,                        features: ['hasta ~1.200 documentos', 'Google Drive / FTP / SFTP', 'API access', 'Soporte prioritario', 'Saldo acumulable'] },
   { nombre: 'Enterprise',  slug: null,           creditos: 'Bonus a medida',  precio: 'A medida', porCredito: null,                 destacado: false, acento: C.negro,    acentoText: C.blanco, fondo: C.blanco, ctaLabel: 'Contactar',      ctaFondo: C.negro,  ctaTexto: C.blanco, ctaHref: 'mailto:hola@agoradigital.io', features: ['Volumen a medida', 'Integraciones específicas', 'SLA garantizado', 'Onboarding dedicado'] },
 ];
 
+// BILLING-COMPRA-5.4 (2026-09-19): la landing muestra los precios de la base (get_public_pricing),
+// los mismos que edita el director. PLANES queda como respaldo si la base no responde.
+// Documentos: al precio base por documento (un visitante no tiene configuración propia);
+// las integraciones y extras se cobran aparte, por eso "hasta".
+interface Plan {
+  nombre: string; slug: string | null; creditos: string; precio: string; porCredito: string | null;
+  destacado: boolean; acento: string; acentoText: string; fondo: string;
+  ctaLabel: string; ctaFondo: string; ctaTexto: string; ctaHref: string | null; features: string[];
+}
+interface PublicPricing {
+  pricePerDoc: number;
+  freeCreditUsd: number | null;
+  packages: { code: string; baseUsd: number; bonusPct: number; creditedUsd: number }[];
+}
+const usdTxt = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+const docsTxt = (usd: number, ppd: number) => `hasta ~${Math.floor(usd / ppd + 1e-9).toLocaleString('es-AR')} documentos`;
+
+function applyPublicPricing(planes: readonly Plan[], pub: PublicPricing | null): Plan[] {
+  if (!pub || !(pub.pricePerDoc > 0)) return [...planes];
+  const ppd = pub.pricePerDoc;
+  return planes.map((plan) => {
+    const swapDocs = (text: string) => (features: string[]) =>
+      features.map((f) => (/documentos/.test(f) ? text : f));
+    if (plan.slug === 'free' && pub.freeCreditUsd && pub.freeCreditUsd > 0) {
+      const docs = docsTxt(pub.freeCreditUsd, ppd);
+      return { ...plan, creditos: `${docs} gratis`, features: swapDocs(docs)(plan.features) };
+    }
+    const pkg = pub.packages.find((p) => p.code === plan.slug);
+    if (!pkg) return plan;
+    const docs = docsTxt(pkg.creditedUsd, ppd);
+    return {
+      ...plan,
+      precio: `USD ${usdTxt(pkg.baseUsd)}`,
+      porCredito: pkg.bonusPct > 0
+        ? `Acreditás USD ${usdTxt(pkg.creditedUsd)} · +${usdTxt(pkg.bonusPct)}%`
+        : `Acreditás USD ${usdTxt(pkg.creditedUsd)}`,
+      creditos: docs,
+      features: swapDocs(docs)(plan.features),
+    };
+  });
+}
+
 const FAQS = [
   { color: C.amarillo, q: '¿Cómo se cobra?',           a: 'Pagás por documento procesado. Si subís un ZIP con 50 facturas, se cobran 50 documentos.' },
-  { color: C.verde,    q: '¿El saldo vence?',          a: 'No se resetea mensualmente. Tu saldo es acumulable y solo caduca tras 6 meses de inactividad en la cuenta.' },
+  { color: C.verde,    q: '¿El saldo vence?',          a: 'No. No se resetea mensualmente: tu saldo es acumulable y no vence.' },
   { color: C.lila,     q: '¿Qué formatos acepta?',          a: 'PDF, JPG, PNG y archivos ZIP o RAR con múltiples documentos. También imágenes escaneadas.' },
   { color: C.amarillo, q: '¿Puedo integrar mis carpetas?',  a: 'Sí. Los planes Profesional y superiores incluyen Google Drive, FTP y SFTP. El sistema monitorea y procesa automáticamente.' },
   { color: C.verde,    q: '¿Qué datos extrae exactamente?', a: 'Fecha, tipo de comprobante, código AFIP, punto de venta, proveedor, CUIT, IVA discriminado (21%, 10.5%, 27%), percepciones, totales, moneda, CAE y más. 28 campos.' },
@@ -208,6 +250,37 @@ function Precios() {
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
+  const [pub, setPub] = useState<PublicPricing | null>(null);
+
+  // Precios públicos de la base; si falla, quedan los valores fijos de PLANES.
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc('get_public_pricing').then(({ data, error: rpcError }) => {
+      if (cancelled || rpcError || !data) return;
+      const d = data as Record<string, unknown>;
+      const pkgs = Array.isArray(d.packages) ? (d.packages as Record<string, unknown>[]) : [];
+      setPub({
+        pricePerDoc: Number(d.price_per_doc),
+        freeCreditUsd: d.free_credit_usd == null ? null : Number(d.free_credit_usd),
+        packages: pkgs.map((p) => ({
+          code: String(p.code),
+          baseUsd: Number(p.base_usd),
+          bonusPct: Number(p.bonus_pct),
+          creditedUsd: Number(p.credited_usd),
+        })),
+      });
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const planes = useMemo(() => applyPublicPricing(PLANES, pub), [pub]);
+  const pricePerDoc = pub && pub.pricePerDoc > 0 ? pub.pricePerDoc : 0.2;
+  const firstBonus = (pub?.packages ?? [])
+    .filter((p) => p.bonusPct > 0)
+    .sort((a, b) => a.baseUsd - b.baseUsd)[0];
+  const bonusBanner = pub
+    ? (firstBonus ? `Bonus desde USD ${usdTxt(firstBonus.baseUsd)} · el saldo no vence` : 'El saldo no vence')
+    : 'Bonus desde USD 100 · el saldo no vence';
 
   const handleBuy = useCallback(async (slug: string) => {
     if (busyRef.current) return;   // una compra a la vez, aunque haya doble clic
@@ -249,7 +322,7 @@ function Precios() {
           <h2 className="text-3xl font-black mb-3" style={{ color: C.negro }}>Planes para cada necesidad</h2>
           <p className="font-medium mb-4" style={{ color: C.grisTexto }}>Comenzá gratis y escalá según crezcas.</p>
           <div className="inline-flex items-center gap-2 text-sm font-black px-5 py-3 rounded-full" style={{ background: C.amarillo, color: C.negro }}>
-            Bonus en cada recarga · el saldo no vence
+            {bonusBanner}
           </div>
         </div>
 
@@ -261,7 +334,7 @@ function Precios() {
 
         <div className="overflow-x-auto mt-10">
         <div className="grid grid-cols-5 gap-4 min-w-[900px] pt-5">
-          {PLANES.map((plan) => {
+          {planes.map((plan) => {
             const isLoading = loadingSlug === plan.slug;
 
             return (
@@ -308,6 +381,9 @@ function Precios() {
           })}
         </div>
         </div>
+        <p className="text-xs text-center mt-4" style={{ color: C.grisTexto }}>
+          Documentos estimados al precio base de USD {pricePerDoc.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} por documento. Las integraciones y los extras se cobran aparte.
+        </p>
       </div>
     </section>
   );
