@@ -5,6 +5,7 @@
  * Rutas:
  *   POST /api/enqueue                       — encolar job (auth requerida)
  *   POST /api/mp/create-preference          — crear preferencia MP (auth requerida)
+ *   POST /api/purchase/create               — compra de saldo v3 (sesión del usuario, BILLING-COMPRA-3)
  *   GET  /api/auth/google/callback          — OAuth callback (sin auth, Google llama acá)
  *   GET  /api/drive/folders                 — listar carpetas de Drive (auth requerida)
  *   POST /api/drive/set-folder              — guardar folder_id + crear /procesados/ (auth requerida)
@@ -16,6 +17,7 @@ import { randomUUID } from 'crypto';
 import { depositSingleApprovedRow } from './output-depositor.mjs';
 import { renameProcessedInputOnApproval } from './integration-file-mover.mjs';
 import { SYSTEM_PROMPT } from './document-processor.mjs';
+import { createPurchaseHandler } from './purchase.mjs';
 
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL       = process.env.SUPABASE_URL;
@@ -41,6 +43,16 @@ const VALID_FILE_TYPES = ['zip', 'rar', 'pdf', 'jpg', 'jpeg', 'png'];
 const VALID_SOURCES    = ['frontend_upload', 'integration_drive', 'integration_remote', 'api_direct', 'supabase_storage', 'firebase_storage'];
 const UUID_RE          = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUUID(v) { return UUID_RE.test(v); }
+
+// Compra de saldo v3 (BILLING-COMPRA-3): lógica en purchase.mjs
+const handlePurchaseCreate = createPurchaseHandler({
+  supabaseUrl:   SUPABASE_URL,
+  serviceKey:    SUPABASE_KEY,
+  mpAccessToken: MP_ACCESS_TOKEN,
+  gatewayUrl:    GATEWAY_URL,
+  frontendUrl:   FRONTEND_URL,
+  returnOrigins: (process.env.PURCHASE_RETURN_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean),
+});
 
 // ─── Helpers HTTP ─────────────────────────────────────────────────────────────
 
@@ -1108,10 +1120,10 @@ async function handleMpWebhook(body, log) {
   // El fallback por external_reference es necesario en sandbox donde preference_id puede venir null
   let lookupUrl;
   if (preferenceId) {
-    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata&limit=1`;
+    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata,base_usd&limit=1`;
   } else {
     // external_reference es el UUID del payment (asignado al crear la preferencia)
-    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?id=eq.${encodeURIComponent(externalRef)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata&limit=1`;
+    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?id=eq.${encodeURIComponent(externalRef)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata,base_usd&limit=1`;
     log('info', 'mp.webhook.fallback_external_ref', { paymentId, externalRef });
   }
 
@@ -1126,6 +1138,14 @@ async function handleMpWebhook(body, log) {
     return { status: 200, body: { ok: true } };
   }
   const localPayment = payments[0];
+
+  // BILLING-COMPRA-3: un pago del flujo nuevo (montos congelados) NO se acredita por este camino:
+  // acá se acreditaría `amount` (pesos) como si fueran dólares. Lo acredita credit_payment desde la fase 4.
+  // 503 para que Mercado Pago reintente y el aviso no se pierda.
+  if (localPayment.base_usd !== null && localPayment.base_usd !== undefined) {
+    log('warn', 'mp.webhook.new_format_waiting', { paymentId, localId: localPayment.id });
+    return { status: 503, body: { ok: false, reason: 'new_format_waiting_fase4' } };
+  }
 
   // Idempotencia: si ya fue procesado, no hacer nada
   if (localPayment.gateway_payment_id) {
@@ -1223,6 +1243,19 @@ export function startGateway(queue, log) {
       } catch (err) {
         log('error', 'mp.webhook.error', { error: err.message });
         return json(res, 200, { ok: false }); // siempre 200 para MP
+      }
+    }
+
+    // Compra de saldo v3 (BILLING-COMPRA-3) — EXENTO de la llave del gateway:
+    // se autentica con la sesión del usuario (token de Supabase) dentro del handler.
+    if (req.method === 'POST' && req.url?.split('?')[0] === '/api/purchase/create') {
+      try {
+        const body = await readBody(req);
+        const result = await handlePurchaseCreate(req.headers['authorization'] ?? '', body, log);
+        return json(res, result.status, result.body);
+      } catch (err) {
+        log('error', 'purchase.request_error', { error: err.message });
+        return json(res, 400, { error: 'Pedido inválido' });
       }
     }
 
@@ -1385,6 +1418,7 @@ export function startGateway(queue, log) {
         'POST /api/mp/create-preference',
         'POST /api/mp/create-custom-preference',
         'POST /api/mp/webhook',
+        'POST /api/purchase/create',
         'POST /api/deposit-row',
         'POST /api/integrations/init-folders',
         'POST /api/integrations/test-connection',

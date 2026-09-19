@@ -76,7 +76,7 @@ Consecuencia: escribir 100 a mano da exactamente lo mismo que apretar el paquete
 |---|---|---|---|---|
 | `currency` | Código | `ARS` | `USD` | `EUR` |
 | `gateway` | Pasarela que cobra en esa moneda | `mercadopago` | `stripe` | a definir |
-| `fx_source` | De dónde sale la cotización | BNA oficial venta | *(ninguna: 1 a 1)* | a definir |
+| `fx_source` | De dónde sale la cotización | Banco Central, divisa venta (`bcra_divisa_venta`; decisión del director 2026-09-19: «Banco Central siempre») | *(ninguna: 1 a 1)* | a definir |
 | `enabled` | Si se ofrece | ✅ | ❌ | ❌ |
 
 **Sin redondeo** (decisión del director, 2026-09-19): se cobra el número exacto de la conversión, con los decimales que admita la pasarela.
@@ -198,7 +198,7 @@ Reemplaza a la llamada directa a `add_credits` desde el webhook. `add_credits` s
 | **0** | Diagnóstico del webhook actual — ✅ **cerrada el 2026-09-19** (resultado en el tablero) | No | Reporte con líneas: ¿usa `credits_accrued`?, ¿qué pasa a `add_credits`?, ¿verifica autenticidad? |
 | **1** | Tablas de §4.1, columnas de §4.2, `quote_purchase`, funciones del director — ✅ **cerrada el 2026-09-19** | No | Cotizar 3 paquetes y 3 montos libres; comparar contra el cálculo a mano. Verificar permisos contra el catálogo. |
 | **2** | `credit_payment` — ✅ **cerrada el 2026-09-19** | En prueba | Crear un pago de prueba y llamarla **tres veces**: saldo sube una sola vez, libro con exactamente dos filas. |
-| **3** | Consulta de cotización al comprar + creación de pago del lado del servidor | No | Una compra de prueba guarda la cotización del momento en `fx_rates` y la congela en el pago; simular que la fuente no responde y verificar que se vende igual con la última guardada y que llega el aviso. |
+| **3** | Consulta de cotización al comprar + creación de pago del lado del servidor — ✅ **desplegada y validada el 2026-09-19** (dólar del Banco Central, divisa venta) | No | Una compra de prueba guarda la cotización del momento en `fx_rates` y la congela en el pago; simular que la fuente no responde y verificar que se vende igual con la última guardada y que llega el aviso. |
 | **4** | Webhook nuevo → `credit_payment` | **Sí** | **Un pago real chico, de punta a punta**: se cobra, se acredita una vez, el libro cuadra, y el mismo aviso reenviado no acredita de nuevo. |
 | **5** | Pantalla del director + pantalla de compra; se retira el camino de `credit_price_tiers` | Sí | El director cambia `base_usd` y ve moverse los tres paquetes. |
 | **6** | Stripe en dólares, euros | — | Más adelante. Sólo configuración + adaptador de pasarela. |
