@@ -1,6 +1,6 @@
 # Especificación — Compra de saldo (Ágora + Ámono)
 
-*Versión 3 · 2026-09-19 (v3: decisiones del director incorporadas — bono, cotización al comprar, sin redondeo) · Estado: **aprobada, lista para Fase 0** · Zona cerrada (facturación y Mercado Pago): cada fase necesita OK explícito*
+*Versión 3.1 · 2026-09-19 (v3: decisiones del director incorporadas — bono, cotización al comprar, sin redondeo · v3.1: fase 0 cerrada y corrección del índice único) · Estado: **aprobada, fase 0 cerrada, sigue la Fase 1** · Zona cerrada (facturación y Mercado Pago): cada fase necesita OK explícito*
 
 ---
 
@@ -20,7 +20,7 @@ Verificado contra la base el 2026-09-18/19. No asumir: releer antes de empezar c
 | `billing_plans` | Mezcla dos cosas: el **precio por documento** (`basico.price_per_doc`, lo lee `charge_credit`) y el **regalo de alta** (`free.balance_usd`, lo lee `assign_free_plan_on_org_create`) | **No se borra ni se renombra.** El flujo de compra nuevo deja de leer sus columnas de paquetes (`price`, `balance_usd` de los planes pagos), pero la tabla sigue viva por lo otro. |
 | `add_credits_admin` | Carga manual desde el panel de superadmin | **Es cómo se le carga saldo a Menara** (pospago, el único cliente que factura). No se toca en este trabajo. |
 | `charge_credit` / `debit_credits` | Consumo de Ágora / de Ámono | Fuera de alcance. |
-| `payments` | 8 filas, todas `pending`, todas de Aignition (pruebas del director) | Se conserva. Los cambios son aditivos. |
+| `payments` | 8 filas, todas `pending`, todas de Aignition: enlaces que abrió el director para comprobar que el checkout abre. **No son pagos fallidos** | Se conserva. Los cambios son aditivos. |
 
 ---
 
@@ -126,7 +126,7 @@ Las cuatro con RLS activada, **sin políticas de escritura**, lectura sólo dond
 
 `amount` y `currency` existentes pasan a ser el monto cobrado y su moneda. `credits_accrued` se conserva y pasa a ser la guarda de §5.2.
 
-Y un índice único: **`UNIQUE (gateway, gateway_payment_id)` donde `gateway_payment_id` no sea nulo.** Hoy no existe, y sin él el mismo pago de Mercado Pago podría registrarse dos veces.
+Índice único: **ya existe** `payments_gateway_payment_id_idx` sobre `gateway_payment_id` donde no es nulo, así que el mismo pago de Mercado Pago no puede quedar registrado en dos filas. Se deja como está. Si con otra pasarela hiciera falta, se pasa a `(gateway, gateway_payment_id)`. *(Corregido el 2026-09-19: la v3 decía que no existía; verificado contra el catálogo.)*
 
 ### 4.3 Libro de movimientos
 
@@ -152,13 +152,23 @@ Sólo lectura. Devuelve `base_usd`, `bonus_usd`, `credited_usd`, `charged`, `cur
 
 Todo en una transacción. Llamarla dos, diez o cien veces con el mismo pago acredita una sola vez.
 
-**Por qué acá y no en el código del webhook.** La idempotencia actual (tarea 84 del kanban) está en el código: "si `gateway_payment_id` ya existe, saltear". Eso tiene dos agujeros: si dos avisos del mismo pago llegan casi juntos, los dos preguntan antes de que ninguno haya escrito, y los dos acreditan; y además no hay índice único que lo impida en la base. Con el bloqueo de fila, el segundo aviso espera a que el primero termine y encuentra el sello puesto.
+**Por qué acá y no en el código del webhook.** La idempotencia actual (tarea 84 del kanban) está en el código: "si `gateway_payment_id` ya existe, saltear". Eso tiene dos agujeros. Uno: si dos avisos del mismo pago llegan casi juntos, los dos preguntan antes de que ninguno haya escrito, y los dos acreditan (el índice único no lo evita: impide que el pago quede en dos filas, pero acá es la misma fila tocada dos veces). Dos, encontrado en la fase 0: marca el pago como aprobado **antes** de acreditar, así que si la acreditación falla, el reintento lo ve como ya procesado y el saldo no se entrega nunca. Con el bloqueo de fila, el segundo aviso espera a que el primero termine y encuentra el sello puesto.
 
 Reemplaza a la llamada directa a `add_credits` desde el webhook. `add_credits` se deja como está.
+
+*Fijado al construirla (fase 2, 2026-09-19):* suma **al saldo que ya tiene la organización** (pedido explícito del director); si el bono es cero no escribe la fila `bonus` (el libro no lleva renglones en cero); sólo acredita pagos con los montos congelados (`base_usd`, `bonus_usd`, `credited_usd`) y en estado `pending` o `approved`; si el identificador de la pasarela ya está en otro pago, falla entera y no acredita nada.
 
 ### 5.3 Edición de precios — funciones del director
 
 `admin_set_pricing_settings(...)`, `admin_upsert_package(...)`, `admin_set_currency(...)`. `SECURITY DEFINER`, primera línea: chequeo de `profiles.is_superadmin` como las funciones admin existentes. Revocar a `PUBLIC` y `anon`. Validan rangos (multiplicador > 0, bono entre 0 y 100, etc.).
+
+### 5.4 Detalles fijados al construir la fase 1 (2026-09-19)
+
+- Los montos en dólares van **al centavo**: el monto de cada paquete, el monto libre (hasta 2 decimales; más se rechaza) y el bono.
+- Lo cobrado lleva los decimales que admite la pasarela (`pricing_currencies.charge_decimals`, 2 para pesos). No hay otro redondeo.
+- Una moneda sólo se puede encender si su pasarela ya está integrada (hoy, Mercado Pago). Dólares y euros quedan cargados y apagados hasta la fase 6.
+- Las cuatro tablas son configuración **global** (como `billing_plans` o `document_types`): no llevan `organization_id`.
+- `quote_purchase` usa la última cotización guardada. Decidir si es de respaldo (porque la fuente no respondió) le toca al servidor en la fase 3, que es quien consulta la fuente.
 
 ---
 
@@ -185,9 +195,9 @@ Reemplaza a la llamada directa a `add_credits` desde el webhook. `add_credits` s
 
 | Fase | Qué | Mueve plata | Validación |
 |---|---|---|---|
-| **0** | Diagnóstico del webhook actual (instrucción ya entregada a Claude Code) | No | Reporte con líneas: ¿usa `credits_accrued`?, ¿qué pasa a `add_credits`?, ¿verifica autenticidad? |
-| **1** | Tablas de §4.1, columnas de §4.2, `quote_purchase`, funciones del director | No | Cotizar 3 paquetes y 3 montos libres; comparar contra el cálculo a mano. Verificar permisos contra el catálogo. |
-| **2** | `credit_payment` | En prueba | Crear un pago de prueba y llamarla **tres veces**: saldo sube una sola vez, libro con exactamente dos filas. |
+| **0** | Diagnóstico del webhook actual — ✅ **cerrada el 2026-09-19** (resultado en el tablero) | No | Reporte con líneas: ¿usa `credits_accrued`?, ¿qué pasa a `add_credits`?, ¿verifica autenticidad? |
+| **1** | Tablas de §4.1, columnas de §4.2, `quote_purchase`, funciones del director — ✅ **cerrada el 2026-09-19** | No | Cotizar 3 paquetes y 3 montos libres; comparar contra el cálculo a mano. Verificar permisos contra el catálogo. |
+| **2** | `credit_payment` — ✅ **cerrada el 2026-09-19** | En prueba | Crear un pago de prueba y llamarla **tres veces**: saldo sube una sola vez, libro con exactamente dos filas. |
 | **3** | Consulta de cotización al comprar + creación de pago del lado del servidor | No | Una compra de prueba guarda la cotización del momento en `fx_rates` y la congela en el pago; simular que la fuente no responde y verificar que se vende igual con la última guardada y que llega el aviso. |
 | **4** | Webhook nuevo → `credit_payment` | **Sí** | **Un pago real chico, de punta a punta**: se cobra, se acredita una vez, el libro cuadra, y el mismo aviso reenviado no acredita de nuevo. |
 | **5** | Pantalla del director + pantalla de compra; se retira el camino de `credit_price_tiers` | Sí | El director cambia `base_usd` y ve moverse los tres paquetes. |

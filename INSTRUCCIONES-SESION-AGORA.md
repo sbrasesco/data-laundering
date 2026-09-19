@@ -96,7 +96,7 @@ Cola de seguridad, sin cambios desde el 12/09 (**no reverificada desde entonces*
 2. El gateway con JWT *(INC-002)*
 3. Las URLs firmadas en los cuatro lugares del worker, para poder cerrar los buckets
 
-**En curso: compra de saldo.** El flujo con Mercado Pago **nunca acreditó una compra en producción**: ocho intentos, todos de Aignition, todos pendientes. Hay una especificación nueva aprobada (`ESPEC-COMPRA-DE-SALDO.md` v3) y siete fases en el tablero. **Fase 0 en curso:** diagnóstico del webhook actual por Claude Code (sólo lectura). Hasta la fase 4, nadie paga.
+**En curso: compra de saldo.** El flujo con Mercado Pago **nunca acreditó una compra en producción**: los ocho pagos pendientes son enlaces que abrió el director para comprobar que el checkout abre, no pagos fallidos. Hay una especificación nueva aprobada (`ESPEC-COMPRA-DE-SALDO.md` v3) y siete fases en el tablero. **Fases 0, 1 y 2 cerradas el 19/09:** diagnóstico del webhook; precios, bonos y monedas en la base; y la acreditación que suma al saldo existente una sola vez. Las fases 1 y 2 son cambios de base de datos: ya están en producción y no llevan despliegue, pero todavía nada del código las usa. **Sigue la fase 3**, la primera que toca el servidor (la despliega Claude Code). Hasta la fase 4, nadie paga.
 
 **Vigilancia.** Desde el 14/09 hay una revisión automática cada hora (días hábiles, 8 a 20 de Argentina) que lee la base y avisa si falla algún proceso. No hay Sentry en el worker; el frontend sí lo tiene.
 

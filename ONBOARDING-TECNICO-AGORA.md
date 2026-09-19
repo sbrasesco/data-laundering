@@ -64,7 +64,7 @@ Los tres dominios: `agoradigital.io` (landing, apex) · `app.agoradigital.io` (S
 | Cola | Redis Cloud sa-east-1, DB `agora` | `maxmemory-policy=noeviction` (2026-07-04: BullMQ no tolera eviction) |
 | OCR | Mistral OCR (API) | Recibe la URL pública del archivo en Storage — por eso los nombres se sanean (§10) |
 | LLM | OpenAI | Extracción por texto; visión aislada `OPENAI_VISION_MODEL` (default gpt-4.1-mini) gateada por tenant |
-| Pagos | MercadoPago | `MP_ACCESS_TOKEN` de producción (seller 290523599), IPN validado e2e |
+| Pagos | MercadoPago | `MP_ACCESS_TOKEN` de producción (seller 290523599). IPN validado sólo en sandbox: **nunca acreditó en producción**; se rehace según `ESPEC-COMPRA-DE-SALDO.md` |
 | Errores front | Sentry | `@sentry/react` + vite-plugin con source maps |
 
 **No hay staging.** `main` = producción al cierre de cada ronda; los cambios se deployan *antes* de commitear y se commitean recién al validar con documentos reales (§17). El sandbox de pruebas es el propio tenant **Aignition** (bucket `test-agora`), no un entorno aparte.
@@ -258,7 +258,7 @@ Núcleo (ver esquema completo en la DB; esto es el mapa mental):
 - `classify_pdf_job_row` (BEFORE UPDATE, `pdf_job_rows`) → `doc_status` + `warning_reason`. Harness 18/18 obligatorio.
 - `trg_set_pdf_job_period` (BEFORE INSERT, `pdf_jobs`) → período = mes de procesamiento, universal. El frontend NO manda período.
 - `trg_capture_extraction_correction` (AFTER UPDATE, `pdf_job_rows`) → captura al cuaderno. Discriminador de "edición humana" = **`auth.uid()` presente** (worker/service key = null → no captura). EXCEPTION-swallow: la captura jamás rompe la edición.
-- `trg_assign_free_plan` → org nueva arranca con plan free + USD 20 de saldo (trial intencional).
+- `trg_assign_free_plan` → org nueva arranca con plan free + US$ 5 de saldo (sale de `billing_plans.free.balance_usd`).
 
 **RPCs relevantes** (las de admin son SECURITY DEFINER + guard `is_superadmin` sobre `auth.uid()`):
 `charge_credit` (cobro: `(base + features + polling) × docs`) · `add_credits` (solo service key/gateway) · `add_credits_admin` (desde UI superadmin) · `approve_document_row` · `get_price_breakdown` · `get_dashboard_metrics` (SECURITY INVOKER: respeta RLS) · `get_system_avg_confidence` · `get_monitoring_overview` + `get_admin_jobs(org,desde,hasta,status,limit,offset)` (Monitoreo global) · `get_all_tenants_admin` / `get_all_users_admin` / `get_tenant_jobs_admin` / `get_tenant_monthly_activity` · `gateway_create_pdf_job` · `gateway_register_rejected_file` · `upsert_document_type` / `toggle_document_type` · `upsert_proveedor_profile` · `get_corrections_stats` · `set_integration_active` · `set_tenant_line_items` / `set_tenant_attachment_extraction` · `update_feature_cost` / `update_polling_tier`.
