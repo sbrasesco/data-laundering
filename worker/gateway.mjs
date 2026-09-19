@@ -17,7 +17,7 @@ import { randomUUID } from 'crypto';
 import { depositSingleApprovedRow } from './output-depositor.mjs';
 import { renameProcessedInputOnApproval } from './integration-file-mover.mjs';
 import { SYSTEM_PROMPT } from './document-processor.mjs';
-import { createPurchaseHandler } from './purchase.mjs';
+import { createPurchaseHandler, createNewPaymentCreditor, parseMpNotification, readRawBody } from './purchase.mjs';
 
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL       = process.env.SUPABASE_URL;
@@ -53,6 +53,8 @@ const handlePurchaseCreate = createPurchaseHandler({
   frontendUrl:   FRONTEND_URL,
   returnOrigins: (process.env.PURCHASE_RETURN_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean),
 });
+// Fase 4 (BILLING-COMPRA-4): acreditación de pagos del flujo nuevo desde el aviso de Mercado Pago
+const creditNewPayment = createNewPaymentCreditor({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_KEY });
 
 // ─── Helpers HTTP ─────────────────────────────────────────────────────────────
 
@@ -1078,8 +1080,11 @@ async function handleCreateMpPreference(body, log) {
 
 // ─── Handler: MercadoPago IPN webhook (TASK-85) ───────────────────────────────
 
-async function handleMpWebhook(body, log) {
-  const { data, type } = body ?? {};
+// Fase 4: recibe el aviso ya interpretado por parseMpNotification ({ type, id }): acepta el cuerpo JSON
+// y también el formato viejo con los datos en la dirección. Responde 500 cuando algo falla de nuestro lado,
+// para que Mercado Pago reintente (antes respondía 200 y el aviso se perdía).
+async function handleMpWebhook(notif, log) {
+  const { type, id: paymentId } = notif ?? {};
 
   // Ignorar notificaciones que no son de pagos (suscripciones, chargebacks, etc.)
   if (type !== 'payment') {
@@ -1087,8 +1092,10 @@ async function handleMpWebhook(body, log) {
     return { status: 200, body: { ok: true } };
   }
 
-  const paymentId = data?.id;
-  if (!paymentId) return { status: 200, body: { ok: true } };
+  if (!paymentId) {
+    log('warn', 'mp.webhook.no_payment_id', { type });
+    return { status: 200, body: { ok: true } };
+  }
 
   // Verificar el pago contra la API de MP
   const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
@@ -1097,7 +1104,8 @@ async function handleMpWebhook(body, log) {
   if (!mpRes.ok) {
     const err = await mpRes.text();
     log('error', 'mp.webhook.fetch_payment_failed', { paymentId, status: mpRes.status, err });
-    return { status: 200, body: { ok: false } }; // siempre 200 para que MP no reintente indefinidamente
+    // 404: ese pago no existe para esta cuenta → reintentar no sirve. Cualquier otra falla → que Mercado Pago reintente.
+    return mpRes.status === 404 ? { status: 200, body: { ok: false } } : { status: 500, body: { ok: false } };
   }
 
   const payment = await mpRes.json();
@@ -1120,31 +1128,40 @@ async function handleMpWebhook(body, log) {
   // El fallback por external_reference es necesario en sandbox donde preference_id puede venir null
   let lookupUrl;
   if (preferenceId) {
-    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata,base_usd&limit=1`;
+    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?gateway_preference_id=eq.${encodeURIComponent(preferenceId)}&select=id,organization_id,plan_id,amount,currency,status,gateway_payment_id,metadata,base_usd&limit=1`;
   } else {
     // external_reference es el UUID del payment (asignado al crear la preferencia)
-    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?id=eq.${encodeURIComponent(externalRef)}&select=id,organization_id,plan_id,amount,gateway_payment_id,metadata,base_usd&limit=1`;
+    lookupUrl = `${SUPABASE_URL}/rest/v1/payments?id=eq.${encodeURIComponent(externalRef)}&select=id,organization_id,plan_id,amount,currency,status,gateway_payment_id,metadata,base_usd&limit=1`;
     log('info', 'mp.webhook.fallback_external_ref', { paymentId, externalRef });
   }
 
   const payRes = await fetch(lookupUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
   if (!payRes.ok) {
     log('error', 'mp.webhook.db_lookup_failed', { preferenceId, externalRef });
-    return { status: 200, body: { ok: false } };
+    return { status: 500, body: { ok: false } }; // fase 4: falla nuestra → que Mercado Pago reintente
   }
-  const payments = await payRes.json();
+  let payments = await payRes.json();
+  // Fase 4: si por preferencia no aparece (p. ej. no se llegó a anotar), buscar por external_reference (= id del pago)
+  if (!payments.length && preferenceId && externalRef && isUUID(String(externalRef))) {
+    const byRef = await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${encodeURIComponent(externalRef)}&select=id,organization_id,plan_id,amount,currency,status,gateway_payment_id,metadata,base_usd&limit=1`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+    if (!byRef.ok) {
+      log('error', 'mp.webhook.db_lookup_failed', { preferenceId, externalRef });
+      return { status: 500, body: { ok: false } };
+    }
+    payments = await byRef.json();
+    if (payments.length) log('info', 'mp.webhook.found_by_external_ref', { paymentId, externalRef });
+  }
   if (!payments.length) {
     log('warn', 'mp.webhook.payment_not_found', { preferenceId, externalRef });
     return { status: 200, body: { ok: true } };
   }
   const localPayment = payments[0];
 
-  // BILLING-COMPRA-3: un pago del flujo nuevo (montos congelados) NO se acredita por este camino:
-  // acá se acreditaría `amount` (pesos) como si fueran dólares. Lo acredita credit_payment desde la fase 4.
-  // 503 para que Mercado Pago reintente y el aviso no se pierda.
+  // BILLING-COMPRA-4: un pago del flujo nuevo (montos congelados) se acredita con credit_payment,
+  // que suma una sola vez. NUNCA por el camino viejo de abajo: acreditaría `amount` (pesos) como dólares.
   if (localPayment.base_usd !== null && localPayment.base_usd !== undefined) {
-    log('warn', 'mp.webhook.new_format_waiting', { paymentId, localId: localPayment.id });
-    return { status: 503, body: { ok: false, reason: 'new_format_waiting_fase4' } };
+    return creditNewPayment({ localPayment, payment, paymentId, log });
   }
 
   // Idempotencia: si ya fue procesado, no hacer nada
@@ -1235,14 +1252,16 @@ export function startGateway(queue, log) {
     }
 
     // IPN de MercadoPago — EXENTO de auth (MP no envía Bearer token)
+    // Fase 4: acepta cuerpo JSON o datos en la dirección (formato viejo, cuerpo vacío).
     if (req.method === 'POST' && req.url?.split('?')[0] === '/api/mp/webhook') {
       try {
-        const body = await readBody(req);
-        const result = await handleMpWebhook(body, log);
+        const raw = await readRawBody(req);
+        const notif = parseMpNotification(raw, req.url);
+        const result = await handleMpWebhook(notif, log);
         return json(res, result.status, result.body);
       } catch (err) {
         log('error', 'mp.webhook.error', { error: err.message });
-        return json(res, 200, { ok: false }); // siempre 200 para MP
+        return json(res, 500, { ok: false }); // fase 4: falla inesperada → que Mercado Pago reintente
       }
     }
 

@@ -13,6 +13,12 @@
  *     guardado y el pago queda marcado como «respaldo». Nunca se deja de vender.
  *   - Orden: cotización → cálculo → pago guardado con todo congelado → preferencia de Mercado Pago → se anota.
  *   - Acá NO se acredita nada. Acreditar es de credit_payment (fase 4).
+ *
+ * Fase 4 (BILLING-COMPRA-4): además exporta
+ *   - parseMpNotification: entiende los avisos de Mercado Pago en sus dos formatos (cuerpo JSON o datos en la dirección).
+ *   - readRawBody: lee el cuerpo sin exigir JSON (el aviso viejo llega vacío).
+ *   - createNewPaymentCreditor: acredita un pago del flujo nuevo con credit_payment, después de comprobar
+ *     que lo cobrado por Mercado Pago coincide exactamente con lo congelado.
  */
 
 import { randomUUID } from 'crypto';
@@ -127,6 +133,20 @@ export function createPurchaseHandler({
       if (!curRow || !curRow.enabled) return { status: 400, body: { error: `Moneda no disponible (${currency})` } };
       if (curRow.gateway !== 'mercadopago') return { status: 400, body: { error: `Pasarela no integrada (${curRow.gateway})` } };
 
+      // 5b) Validar lo pedido ANTES de consultar el dólar (fase 4): un pedido inválido no suma cotizaciones.
+      //     La autoridad sigue siendo quote_purchase; si esta lectura falla, no se bloquea.
+      if (amountUsd !== null) {
+        if (Number(amountUsd.toFixed(2)) !== amountUsd) return { status: 400, body: { error: 'El monto admite hasta 2 decimales' } };
+        const st = await rest('pricing_settings?id=eq.1&select=min_free_usd,max_free_usd&limit=1');
+        const lim = st.ok && Array.isArray(st.data) ? st.data[0] : null;
+        if (lim && (amountUsd < Number(lim.min_free_usd) || amountUsd > Number(lim.max_free_usd))) {
+          return { status: 400, body: { error: `El monto tiene que estar entre US$ ${Number(lim.min_free_usd)} y US$ ${Number(lim.max_free_usd)}` } };
+        }
+      } else {
+        const pk = await rest(`pricing_packages?code=eq.${encodeURIComponent(packageCode)}&active=eq.true&select=code&limit=1`);
+        if (pk.ok && Array.isArray(pk.data) && pk.data.length === 0) return { status: 400, body: { error: 'Paquete no disponible' } };
+      }
+
       // 6) El dólar, en el momento. Si no responde: el último guardado (respaldo).
       let fxFallback = false;
       if (currency !== 'USD') {
@@ -231,5 +251,120 @@ export function createPurchaseHandler({
       log('error', 'purchase.unexpected_error', { error: err.message });
       return { status: 500, body: { error: 'Error interno' } };
     }
+  };
+}
+
+// ─── Fase 4 (BILLING-COMPRA-4): aviso de Mercado Pago ─────────────────────────
+
+const MP_ID_RE = /^\d{1,30}$/;
+
+// Lee el cuerpo como texto, sin exigir JSON (el aviso viejo de Mercado Pago llega con el cuerpo vacío).
+export function readRawBody(req, limit = 100 * 1024) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => {
+      data += chunk;
+      if (data.length > limit) { reject(new Error('cuerpo demasiado grande')); req.destroy(); }
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+// Entiende los formatos de aviso de Mercado Pago:
+//   - Webhook:      cuerpo {"type":"payment","data":{"id":"123"}}  (y/o ?type=payment&data.id=123)
+//   - IPN (viejo):  ?topic=payment&id=123, cuerpo vacío; o cuerpo {"topic":"payment","resource":".../123"}
+// Devuelve { type, id } con id sólo si es numérico (va dentro de una dirección de la API).
+export function parseMpNotification(rawBody, reqUrl) {
+  let body = null;
+  if (typeof rawBody === 'string' && rawBody.trim()) {
+    try { body = JSON.parse(rawBody); } catch { body = null; }
+  }
+  let q;
+  try { q = new URL(reqUrl ?? '/', 'http://localhost').searchParams; } catch { q = new URLSearchParams(); }
+
+  const type = (body && (body.type ?? body.topic)) ?? q.get('type') ?? q.get('topic') ?? null;
+
+  let id = body?.data?.id ?? q.get('data.id') ?? q.get('id') ?? null;
+  if ((id === null || id === undefined) && typeof body?.resource === 'string') {
+    id = body.resource.split('/').filter(Boolean).pop() ?? null;
+  }
+  id = id === null || id === undefined ? null : String(id).trim();
+  if (id !== null && !MP_ID_RE.test(id)) id = null;
+
+  return { type: type === null ? null : String(type), id, format: body ? 'json' : 'query' };
+}
+
+// Acredita un pago del flujo nuevo (tiene base_usd). Nunca le cree al aviso: `payment` es lo que devolvió
+// la API de Mercado Pago, y se compara con lo que congelamos al crear el pago.
+// Devuelve { status, body } para responderle a Mercado Pago: 500 = «reintentá», 200 = no reintentar.
+export function createNewPaymentCreditor({ supabaseUrl, serviceKey, fetchImpl = fetch }) {
+  const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' };
+
+  return async function creditNewPayment({ localPayment, payment, paymentId, log }) {
+    const ctx = { paymentId, localId: localPayment.id };
+
+    if (localPayment.status === 'review') {
+      log('warn', 'mp.webhook.in_review', ctx);
+      return { status: 200, body: { ok: false, reason: 'in_review' } };
+    }
+
+    const mpAmount   = Number(payment?.transaction_amount);
+    const ourAmount  = Number(localPayment.amount);
+    const sameAmount = Number.isFinite(mpAmount) && Number.isFinite(ourAmount) && Math.abs(mpAmount - ourAmount) < 0.005;
+    const sameCur    = String(payment?.currency_id ?? '') === String(localPayment.currency ?? '');
+    const sameRef    = !payment?.external_reference || String(payment.external_reference) === String(localPayment.id);
+
+    if (!sameAmount || !sameCur || !sameRef) {
+      log('error', 'mp.webhook.amount_mismatch', { ...ctx,
+        mp_amount: payment?.transaction_amount, mp_currency: payment?.currency_id, mp_external_reference: payment?.external_reference,
+        our_amount: localPayment.amount, our_currency: localPayment.currency });
+      // Queda en «review»: credit_payment no acredita ese estado. Lo mira una persona.
+      const meta = { ...(localPayment.metadata ?? {}), review: {
+        reason: !sameAmount ? 'monto' : (!sameCur ? 'moneda' : 'referencia'),
+        mp_payment_id: String(paymentId), mp_amount: payment?.transaction_amount ?? null, mp_currency: payment?.currency_id ?? null,
+        at: new Date().toISOString() } };
+      const r = await fetchImpl(`${supabaseUrl}/rest/v1/payments?id=eq.${encodeURIComponent(localPayment.id)}`, {
+        method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({ status: 'review', metadata: meta, updated_at: new Date().toISOString() }),
+      });
+      if (!r.ok) {
+        log('error', 'mp.webhook.review_mark_failed', { ...ctx, status: r.status });
+        return { status: 500, body: { ok: false } };
+      }
+      return { status: 200, body: { ok: false, reason: 'mismatch' } };
+    }
+
+    let res, text;
+    try {
+      res = await fetchImpl(`${supabaseUrl}/rest/v1/rpc/credit_payment`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ p_payment_id: localPayment.id, p_gateway_payment_id: String(paymentId) }),
+      });
+      text = await res.text();
+    } catch (err) {
+      log('error', 'mp.webhook.credit_failed', { ...ctx, error: err.message });
+      return { status: 500, body: { ok: false } };
+    }
+
+    if (!res.ok) {
+      // El mismo número de pago de Mercado Pago ya está en OTRO pago: reintentar no lo arregla.
+      if (/duplicate key|23505/i.test(text)) {
+        log('error', 'mp.webhook.gateway_id_conflict', { ...ctx, error: text.slice(0, 300) });
+        return { status: 200, body: { ok: false, reason: 'conflict' } };
+      }
+      log('error', 'mp.webhook.credit_failed', { ...ctx, status: res.status, error: text.slice(0, 300) });
+      return { status: 500, body: { ok: false } };
+    }
+
+    let out = null;
+    try { out = JSON.parse(text); } catch { out = null; }
+    if (out?.status === 'already_credited') {
+      log('info', 'mp.webhook.already_credited', ctx);
+    } else {
+      log('info', 'mp.webhook.credited', { ...ctx, organization_id: out?.organization_id, credited_usd: out?.credited_usd,
+        balance_before: out?.balance_before, balance_after: out?.balance_after });
+    }
+    return { status: 200, body: { ok: true } };
   };
 }
