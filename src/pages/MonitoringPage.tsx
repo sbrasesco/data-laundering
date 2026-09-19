@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-picker';
 import { supabase } from '../lib/supabase';
+import { PurchasePricingEditor } from '@/components/monitoring/PurchasePricingEditor';
 
 // ─── Descripciones de features para tooltips ──────────────────────────────────
 const FEATURE_DESCRIPTIONS: Record<string, string> = {
@@ -1725,19 +1726,23 @@ export function MonitoringPage() {
 
           <div className="space-y-6 mt-2">
 
-            {/* Precio base por plan */}
+            {/* Compra de saldo: paquetes, bonos y monto libre (BILLING-COMPRA-5.3) */}
+            <PurchasePricingEditor />
+
+            {/* Precio por documento: sólo el del plan Básico se cobra (charge_credit y get_price_breakdown).
+                Los otros planes de billing_plans quedaron del camino de compra viejo y no se usan. */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Precio base por documento (USD)</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Precio por documento (USD)</p>
               <div className="rounded-md border overflow-hidden">
-                {pricingPlans.map((plan, i) => {
+                {pricingPlans.filter(plan => plan.name === 'basico').map((plan, i, shown) => {
                   const key = `plan_${plan.name}`;
                   const editVal = editPrices[key];
                   const isDirty = editVal !== undefined;
                   return (
-                    <div key={plan.name} className={`flex items-center gap-3 px-3 py-2.5 ${i < pricingPlans.length - 1 ? 'border-b' : ''}`}>
+                    <div key={plan.name} className={`flex items-center gap-3 px-3 py-2.5 ${i < shown.length - 1 ? 'border-b' : ''}`}>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{plan.display_name}</p>
-                        <p className="text-xs text-muted-foreground">{plan.docs_included.toLocaleString('es')} docs · paquete USD {Number(plan.balance_usd).toFixed(0)}</p>
+                        <p className="text-sm font-medium">Precio por documento</p>
+                        <p className="text-xs text-muted-foreground">Se cobra a todos los clientes por cada documento; los extras de abajo se suman aparte.</p>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-muted-foreground">$</span>
