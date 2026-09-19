@@ -17,7 +17,7 @@ import { randomUUID } from 'crypto';
 import { depositSingleApprovedRow } from './output-depositor.mjs';
 import { renameProcessedInputOnApproval } from './integration-file-mover.mjs';
 import { SYSTEM_PROMPT } from './document-processor.mjs';
-import { createPurchaseHandler, createNewPaymentCreditor, parseMpNotification, readRawBody } from './purchase.mjs';
+import { createPurchaseHandler, createNewPaymentCreditor, parseMpNotification, readRawBody, createPaymentReconciler } from './purchase.mjs';
 
 const GATEWAY_PORT       = Number(process.env.GATEWAY_PORT ?? 3001);
 const SUPABASE_URL       = process.env.SUPABASE_URL;
@@ -55,6 +55,8 @@ const handlePurchaseCreate = createPurchaseHandler({
 });
 // Fase 4 (BILLING-COMPRA-4): acreditación de pagos del flujo nuevo desde el aviso de Mercado Pago
 const creditNewPayment = createNewPaymentCreditor({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_KEY });
+// Fase 5.1: revisión automática de compras pendientes (red de seguridad si el aviso no llega)
+const reconcilePayments = createPaymentReconciler({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_KEY, mpAccessToken: MP_ACCESS_TOKEN, creditNewPayment });
 
 // ─── Helpers HTTP ─────────────────────────────────────────────────────────────
 
@@ -1463,6 +1465,18 @@ export function startGateway(queue, log) {
   server.on('error', (err) => {
     log('error', 'gateway.server_error', { message: err.message });
   });
+
+  // Fase 5.1: revisión automática de compras pendientes. Cada PURCHASE_RECONCILE_MINUTES (10 por defecto;
+  // 0 la apaga). La primera, al minuto de arrancar.
+  const reconcileMinutes = Number(process.env.PURCHASE_RECONCILE_MINUTES ?? 10);
+  if (Number.isFinite(reconcileMinutes) && reconcileMinutes > 0) {
+    const tick = () => { reconcilePayments(log).catch(err => log('error', 'mp.reconcile.error', { error: err.message })); };
+    const first = setTimeout(tick, Number(process.env.PURCHASE_RECONCILE_FIRST_DELAY_MS ?? 60000));
+    const every = setInterval(tick, reconcileMinutes * 60 * 1000);
+    first.unref?.(); every.unref?.();
+    server.on('close', () => { clearTimeout(first); clearInterval(every); });
+    log('info', 'mp.reconcile.scheduled', { every_minutes: reconcileMinutes });
+  }
 
   return server;
 }

@@ -19,6 +19,8 @@
  *   - readRawBody: lee el cuerpo sin exigir JSON (el aviso viejo llega vacío).
  *   - createNewPaymentCreditor: acredita un pago del flujo nuevo con credit_payment, después de comprobar
  *     que lo cobrado por Mercado Pago coincide exactamente con lo congelado.
+ *
+ * Fase 5.1 (BILLING-COMPRA-5): createPaymentReconciler — revisión automática de compras pendientes.
  */
 
 import { randomUUID } from 'crypto';
@@ -301,8 +303,8 @@ export function parseMpNotification(rawBody, reqUrl) {
 export function createNewPaymentCreditor({ supabaseUrl, serviceKey, fetchImpl = fetch }) {
   const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' };
 
-  return async function creditNewPayment({ localPayment, payment, paymentId, log }) {
-    const ctx = { paymentId, localId: localPayment.id };
+  return async function creditNewPayment({ localPayment, payment, paymentId, log, source = 'webhook' }) {
+    const ctx = { paymentId, localId: localPayment.id, source };
 
     if (localPayment.status === 'review') {
       log('warn', 'mp.webhook.in_review', ctx);
@@ -365,6 +367,73 @@ export function createNewPaymentCreditor({ supabaseUrl, serviceKey, fetchImpl = 
       log('info', 'mp.webhook.credited', { ...ctx, organization_id: out?.organization_id, credited_usd: out?.credited_usd,
         balance_before: out?.balance_before, balance_after: out?.balance_after });
     }
-    return { status: 200, body: { ok: true } };
+    return { status: 200, body: { ok: true, result: out?.status === 'already_credited' ? 'already_credited' : 'credited' } };
+  };
+}
+
+// ─── Fase 5.1 (BILLING-COMPRA-5): revisión automática de compras pendientes ───
+// Red de seguridad por si el aviso de Mercado Pago no llega. Cada tanto:
+//   compras nuevas (base_usd) todavía pendientes y recientes → se busca en Mercado Pago por su referencia.
+//   Si alguna está APROBADA, se acredita con la misma lógica del aviso (compara montos → credit_payment,
+//   que no carga dos veces) y el pago queda marcado metadata.credited_by = 'reconcile'
+//   (la vigilancia horaria lo ve: quiere decir que el aviso falló).
+// Sólo lee de Mercado Pago; nunca crea ni modifica nada allá.
+export function createPaymentReconciler({
+  supabaseUrl, serviceKey, mpAccessToken, creditNewPayment,
+  fetchImpl = fetch, now = () => new Date(), lookbackHours = 72, maxPerRun = 50,
+}) {
+  const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` };
+  let running = false;
+
+  return async function reconcileOnce(log) {
+    if (running) return { skipped: true };
+    running = true;
+    const summary = { checked: 0, credited: 0, errors: 0 };
+    try {
+      if (!mpAccessToken) { log('error', 'mp.reconcile.no_token', {}); summary.errors++; return summary; }
+      const since = new Date(now().getTime() - lookbackHours * 3600 * 1000).toISOString();
+      const res = await fetchImpl(`${supabaseUrl}/rest/v1/payments?base_usd=not.is.null&status=eq.pending&credits_accrued=eq.false`
+        + `&created_at=gte.${encodeURIComponent(since)}`
+        + `&select=id,organization_id,plan_id,amount,currency,status,gateway_payment_id,metadata,base_usd`
+        + `&order=created_at.asc&limit=${maxPerRun}`, { headers });
+      if (!res.ok) { summary.errors++; log('error', 'mp.reconcile.db_failed', { status: res.status }); return summary; }
+      const rows = await res.json();
+
+      for (const row of Array.isArray(rows) ? rows : []) {
+        summary.checked++;
+        let found;
+        try {
+          const r = await fetchImpl(`https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(row.id)}`
+            + `&sort=date_created&criteria=desc&limit=10`, { headers: { Authorization: `Bearer ${mpAccessToken}` } });
+          if (!r.ok) { summary.errors++; log('warn', 'mp.reconcile.search_failed', { localId: row.id, status: r.status }); continue; }
+          found = await r.json();
+        } catch (err) {
+          summary.errors++; log('warn', 'mp.reconcile.search_failed', { localId: row.id, error: err.message }); continue;
+        }
+        const approved = (Array.isArray(found?.results) ? found.results : [])
+          .find(p => p?.status === 'approved' && String(p?.external_reference ?? '') === String(row.id));
+        if (!approved) continue;
+
+        const out = await creditNewPayment({ localPayment: row, payment: approved, paymentId: approved.id, log, source: 'reconcile' });
+        if (out?.body?.result === 'credited') {
+          summary.credited++;
+          log('warn', 'mp.reconcile.credited', { localId: row.id, paymentId: approved.id });
+          const meta = { ...(row.metadata ?? {}), credited_by: 'reconcile', reconciled_at: now().toISOString() };
+          const p = await fetchImpl(`${supabaseUrl}/rest/v1/payments?id=eq.${encodeURIComponent(row.id)}`, {
+            method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+            body: JSON.stringify({ metadata: meta }),
+          });
+          if (!p.ok) log('error', 'mp.reconcile.mark_failed', { localId: row.id, status: p.status });
+        } else if ((out?.status ?? 500) >= 500) {
+          summary.errors++;
+        }
+      }
+      if (summary.checked) log('info', 'mp.reconcile.done', summary);
+      return summary;
+    } catch (err) {
+      summary.errors++; log('error', 'mp.reconcile.error', { error: err.message }); return summary;
+    } finally {
+      running = false;
+    }
   };
 }

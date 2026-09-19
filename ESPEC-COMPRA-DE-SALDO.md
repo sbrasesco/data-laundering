@@ -1,6 +1,6 @@
 # Especificación — Compra de saldo (Ágora + Ámono)
 
-*Versión 3.1 · 2026-09-19 (v3: decisiones del director incorporadas — bono, cotización al comprar, sin redondeo · v3.1: fase 0 cerrada y corrección del índice único) · Estado: **aprobada, fase 0 cerrada, sigue la Fase 1** · Zona cerrada (facturación y Mercado Pago): cada fase necesita OK explícito*
+*Versión 3.2 · 2026-09-19 (v3: decisiones del director incorporadas — bono, cotización al comprar, sin redondeo · v3.1: fase 0 cerrada y corrección del índice único · v3.2: fase 5 en tres partes, vigilancia en dos capas, mínimo US$ 10) · Estado: **aprobada; fases 0 a 4 y 5.1 cerradas, sigue la 5.2** · Zona cerrada (facturación y Mercado Pago): cada fase necesita OK explícito*
 
 ---
 
@@ -45,7 +45,7 @@ Verificado contra la base el 2026-09-18/19. No asumir: releer antes de empezar c
 | Campo | Qué es | Ejemplo |
 |---|---|---|
 | `base_usd` | Monto base. Los paquetes se calculan a partir de él | 50 |
-| `min_free_usd` | Mínimo que se puede escribir a mano | 5 |
+| `min_free_usd` | Mínimo que se puede escribir a mano | 10 *(el director lo subió de 5 a 10 el 2026-09-19)* |
 | `max_free_usd` | Máximo que se puede escribir a mano | 2000 |
 
 **Paquetes** (una fila por paquete):
@@ -200,7 +200,9 @@ Reemplaza a la llamada directa a `add_credits` desde el webhook. `add_credits` s
 | **2** | `credit_payment` — ✅ **cerrada el 2026-09-19** | En prueba | Crear un pago de prueba y llamarla **tres veces**: saldo sube una sola vez, libro con exactamente dos filas. |
 | **3** | Consulta de cotización al comprar + creación de pago del lado del servidor — ✅ **desplegada y validada el 2026-09-19** (dólar del Banco Central, divisa venta) | No | Una compra de prueba guarda la cotización del momento en `fx_rates` y la congela en el pago; simular que la fuente no responde y verificar que se vende igual con la última guardada y que llega el aviso. |
 | **4** | Webhook nuevo → `credit_payment` — ✅ **desplegada el 2026-09-19** | **Sí** | ~~Un pago real chico, de punta a punta~~ → **Decisión del director (2026-09-19): sin pago de prueba**, porque lo que pasa dentro de Mercado Pago ya está probado. Resguardos: 26 pruebas locales (acredita una vez, aviso repetido, 3 formatos, monto distinto → `review`, fallas → 500 y reintento, camino viejo intacto), avisos de prueba desde afuera en producción y **primer pago real vigilado** con rescate manual por `credit_payment`. |
-| **5** | Pantalla del director + pantalla de compra; se retira el camino de `credit_price_tiers` | Sí | El director cambia `base_usd` y ve moverse los tres paquetes. |
+| **5.1** | Revisión automática de pagos: cada 10 min el servidor le pregunta a Mercado Pago por las compras nuevas pendientes y carga las pagadas cuyo aviso no llegó (§8) — ✅ **desplegada y validada el 2026-09-19** | Sí | 11 pruebas locales (acredita, no repite, respeta `review`, fallas sin cortar la pasada) + primera pasada en producción sin tocar nada: 2 revisados, 0 acreditados, 0 errores. |
+| **5.2** | Pantalla de compra nueva (reemplaza `InsufficientCreditsModal`); se retira el camino de `credit_price_tiers` | Sí | Paquetes y mínimo leídos de la base; estimación de documentos según el precio base vigente; el cobro en pesos coincide con la cotización. |
+| **5.3** | Editor de precios del director (Monitoreo → Precios) | No | El director cambia `base_usd` y ve moverse los tres paquetes. |
 | **6** | Stripe en dólares, euros | — | Más adelante. Sólo configuración + adaptador de pasarela. |
 
 Cada fase: copia de respaldo y vuelta atrás **escritas antes** de tocar nada. Mergear no despliega nada.
@@ -209,7 +211,12 @@ Cada fase: copia de respaldo y vuelta atrás **escritas antes** de tocar nada. M
 
 ## 8. Vigilancia
 
-La tarea horaria que ya revisa procesos fallidos se extiende a pagos: **avisar cualquier pago en `pending` con más de 2 horas y `expires_at` vencido**, y cualquier pago `approved` con `credits_accrued = false`. Esto último no debería existir nunca; si aparece, es plata cobrada sin entregar.
+Dos capas (fase 5.1, 2026-09-19):
+
+1. **Revisión automática en el servidor**, cada 10 minutos, todos los días: los pagos nuevos en `pending` de las últimas 72 horas se le preguntan a Mercado Pago; si alguno está aprobado y el aviso no llegó, se acredita por el mismo camino que el aviso (una sola vez) y queda marcado `metadata.credited_by = 'reconcile'`.
+2. **Tarea horaria de Cowork** (la misma que revisa procesos; días hábiles): avisa **primero** cualquier pago `approved` sin saldo cargado (plata cobrada sin entregar: no debería existir nunca), después los pagos en `review`, las compras que tuvo que cargar la revisión automática (el aviso está fallando y hay que mirarlo) y las ventas con el dólar de respaldo. Las compras acreditadas se cuentan como buena noticia.
+
+**Cambio respecto de la v3:** no se avisa por pagos `pending` vencidos. Abrir el pago y no pagar es normal —los pendientes de junio y del 18–19/09 son justamente eso, según el director— y si alguien pagó y el aviso no llegó, lo resuelve la capa 1.
 
 ---
 
