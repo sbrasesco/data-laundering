@@ -319,6 +319,61 @@ async function renderFirstPageDataUrl(fileUrl, fileType, log) {
   }
 }
 
+// ─── Capa de texto del PDF (EXTRACCION-01, 2026-10-07) ───────────────────────
+// Las facturas digitales traen los importes como TEXTO dentro del archivo. Cuando
+// el OCR pierde el cuadro de totales (caso ROBERTO RIERA: el modelo inventaba
+// numeros coherentes entre si y el documento pasaba como ok), ese texto exacto se
+// le agrega a la IA y se vuelve a extraer.
+// NO se decide por adelantado: se dispara DESPUES de extraer, cuando el total que
+// devolvio la IA no figura en el texto. Es la misma condicion que el freno
+// TOTAL_NO_ENCONTRADO de la base (0,5 % de las filas del historial). Buscar la
+// palabra "total" no servia: en las facturas de RIERA el OCR la trae igual, pero
+// solo como titulo de la columna de articulos ("| Cantidad | Descripcion | Total |").
+// Fail-safe: nunca lanza. Interruptor: PDF_TEXT_LAYER=0 en el .env del worker.
+const PDF_TEXT_LAYER_ENABLED   = process.env.PDF_TEXT_LAYER !== '0';
+const PDF_TEXT_LAYER_MAX_CHARS = 20000;
+
+/**
+ * true si el importe NO aparece escrito en el texto (comparando solo digitos, para
+ * no pelear con puntos, comas ni espacios). Espejo en JS del freno de la base:
+ * se prueba con centavos y, si el total es entero, tambien sin centavos.
+ */
+export function totalAusenteEnTexto(total, texto) {
+  const n = Number(total);
+  if (!Number.isFinite(n) || n === 0) return false;   // sin total no hay nada que verificar
+  const digitos = String(texto ?? '').replace(/[^0-9]/g, '');
+  if (!digitos) return false;                         // sin texto no se puede afirmar nada
+  if (digitos.includes(Math.abs(n).toFixed(2).replace(/[^0-9]/g, ''))) return false;
+  if (Number.isInteger(n) && digitos.includes(String(Math.abs(Math.trunc(n))))) return false;
+  return true;
+}
+
+/** Texto embebido del PDF con pdftotext (poppler, ya instalado en la imagen). null si no hay. */
+async function extractPdfTextLayer(fileUrl, fileType, log) {
+  if (!PDF_TEXT_LAYER_ENABLED) return null;
+  if (String(fileType || '').toLowerCase() !== 'pdf') return null;
+  const tmpPdf = `/tmp/txtlayer_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`;
+  try {
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error(`download ${res.status}`);
+    writeFileSync(tmpPdf, Buffer.from(await res.arrayBuffer()));
+    const out = execFileSync('pdftotext', ['-layout', '-q', tmpPdf, '-'], {
+      encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
+    });
+    const texto = String(out || '').trim();
+    if (!texto) {
+      if (log) log('info', 'pdf_text_layer.empty', {});
+      return null;
+    }
+    return texto.slice(0, PDF_TEXT_LAYER_MAX_CHARS);
+  } catch (e) {
+    if (log) log('warn', 'pdf_text_layer.failed', { error: String(e?.message ?? e) });
+    return null;
+  } finally {
+    rmSync(tmpPdf, { force: true });
+  }
+}
+
 /**
  * Llamada de vision AISLADA: mira la imagen y devuelve SOLO el tipo_documento
  * (string valido) o null. No toca ningun otro campo. NUNCA lanza.
@@ -695,6 +750,11 @@ export async function processDocument(docData, log) {
     file_url, file_type, log
   );
 
+  // Texto que se le manda a la IA. Arranca siendo el del OCR; el paso 2c le puede
+  // sumar la capa de texto del PDF. Queda guardado en raw_ocr_text, asi el freno de
+  // la base compara el total contra todo lo que se leyo del papel.
+  let textoParaIA = ocrText;
+
   // ── 2. Extracción IA (texto OCR) — produce todos los campos ────────────────
   // Perfil del proveedor: si el CUIT de un proveedor conocido aparece en el OCR,
   // sus hints de lectura van en el mensaje. Fail-safe: error -> sin hints.
@@ -707,11 +767,53 @@ export async function processDocument(docData, log) {
     }
   } catch { profileHints = null; }
 
-  const { extracted, model: llmModel } = await extractWithOpenAI(
-    ocrText,
+  let { extracted, model: llmModel } = await extractWithOpenAI(
+    textoParaIA,
     { clientCuit: client_cuit, clientName: client_name, ocEntries: oc_entries, profileHints },
     log
   );
+
+  // ── 2c. Red de seguridad: el total extraido no figura en el papel ──────────
+  // Señal del caso ROBERTO RIERA: el OCR pierde el cuadro de totales y la IA
+  // inventa importes coherentes entre si, asi que la aritmetica no los descubre.
+  // El PDF digital trae los numeros exactos como texto: se agregan al mensaje y,
+  // si el total sigue sin aparecer, se vuelve a extraer con el texto completo.
+  // Si el total SI aparece en el PDF, la IA acerto y solo se guarda el texto (para
+  // que el freno de la base no detenga un documento correcto).
+  // Fail-safe: cualquier error deja la primera extraccion intacta.
+  if (PDF_TEXT_LAYER_ENABLED && String(file_type || '').toLowerCase() === 'pdf') {
+    const totalVacio = extracted?.total == null || !Number.isFinite(Number(extracted.total)) || Number(extracted.total) === 0;
+    if (totalVacio || totalAusenteEnTexto(extracted.total, ocrText)) {
+      const pdfText = await extractPdfTextLayer(file_url, file_type, log);
+      if (pdfText) {
+        textoParaIA = `${ocrText}\n\n--- TEXTO EXACTO DEL PDF (capa de texto del archivo; el OCR perdio el cuadro de totales). Si estos numeros difieren de los de arriba, MANDAN estos. ---\n${pdfText}`;
+        const sigueFaltando = totalVacio || totalAusenteEnTexto(extracted.total, pdfText);
+        if (log) log('info', 'pdf_text_layer.used', {
+          job_id, file: original_filename, chars: pdfText.length,
+          total_ia: extracted?.total ?? null, reextrae: sigueFaltando,
+        });
+        if (sigueFaltando) {
+          try {
+            const segunda = await extractWithOpenAI(
+              textoParaIA,
+              { clientCuit: client_cuit, clientName: client_name, ocEntries: oc_entries, profileHints },
+              log
+            );
+            if (segunda?.extracted) {
+              if (log) log('info', 'pdf_text_layer.reextraido', {
+                job_id, file: original_filename,
+                total_antes: extracted?.total ?? null, total_despues: segunda.extracted?.total ?? null,
+              });
+              extracted = segunda.extracted;
+              llmModel  = segunda.model ?? llmModel;
+            }
+          } catch (e) {
+            if (log) log('warn', 'pdf_text_layer.reextraccion_fallo', { job_id, error: String(e?.message ?? e) });
+          }
+        }
+      }
+    }
+  }
 
   // ── 2b. VISION (TASK-139, arq. B): si el tenant lo tiene activo, una llamada
   // AISLADA mira la imagen y corrige SOLO tipo_documento (lee la letra que el OCR
@@ -805,7 +907,7 @@ export async function processDocument(docData, log) {
     ocrModel,
     llmModel,
     sourceFile:  original_filename,
-    rawOcrText:  ocrText,
+    rawOcrText:  textoParaIA,
     inputSource: input_source,
   });
 
