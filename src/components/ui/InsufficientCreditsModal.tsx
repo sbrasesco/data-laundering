@@ -6,6 +6,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { usd, parseAmount } from '@/lib/purchaseFormat';
+import { recordarPantallaDeVuelta } from '@/lib/purchaseCheckout';
 
 /*
  * Recargar saldo — BILLING-COMPRA-5.2 (2026-09-19).
@@ -166,6 +167,7 @@ export function InsufficientCreditsModal({ isOpen, onClose }: Props) {
       const body = (await res.json().catch(() => null)) as { init_point?: string; error?: string } | null;
       if (res.ok && body?.init_point) {
         leaving = true;
+        recordarPantallaDeVuelta();
         window.location.href = body.init_point;
         return;
       }

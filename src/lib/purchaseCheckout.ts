@@ -30,3 +30,32 @@ export async function createPurchaseCheckout(
     return { ok: false, error: 'No se pudo conectar con el servidor de pagos. Intentá nuevamente.' };
   }
 }
+
+// ─── Vuelta del pago (BILLING-COMPRA-5.8) ────────────────────────────────────
+// Antes de salir a Mercado Pago se guarda la pantalla desde donde se disparó la compra,
+// para volver ahí al terminar. Es por pestaña (sessionStorage): si el pago termina en
+// otro navegador (celular, app de Mercado Pago), no hay nada guardado y se usa el panel.
+const CLAVE_VUELTA = 'compra_volver_a';
+
+function rutaUsable(ruta: string | null): ruta is string {
+  return !!ruta && ruta.startsWith('/') && !ruta.startsWith('//')
+    && !ruta.startsWith('/payment/') && !ruta.startsWith('/login');
+}
+
+/** Guarda la pantalla actual (o la indicada) como destino al volver del pago. */
+export function recordarPantallaDeVuelta(ruta?: string): void {
+  try {
+    const r = ruta ?? window.location.pathname + window.location.search;
+    if (rutaUsable(r)) sessionStorage.setItem(CLAVE_VUELTA, r);
+  } catch { /* sin sessionStorage: se usa el panel */ }
+}
+
+/** Devuelve la pantalla guardada (una sola vez) o el panel. */
+export function pantallaDeVuelta(): string {
+  try {
+    const r = sessionStorage.getItem(CLAVE_VUELTA);
+    sessionStorage.removeItem(CLAVE_VUELTA);
+    if (rutaUsable(r)) return r;
+  } catch { /* ignorar */ }
+  return '/dashboard';
+}
