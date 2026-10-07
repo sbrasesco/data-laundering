@@ -51,6 +51,7 @@ export function warningReasonLabel(code?: string | null): string | null {
     case 'REVISAR_DESCUENTO': return 'Tiene descuento — revisá los importes';
     case 'IMPORTE_NO_CIERRA': return 'El total no cierra con neto + IVA';
     case 'COMPROBANTE_DUDOSO': return 'Comprobante dudoso — revisá punto de venta y número';
+    case 'TOTAL_NO_ENCONTRADO': return 'El total no figura en el documento — verificá los importes';
     case 'CAMPOS_FALTANTES':  return 'Faltan datos clave';
     case 'BAJA_CONFIANZA':    return 'Baja confianza de lectura';
     case 'DATOS_INCOMPLETOS': return 'Datos incompletos';
